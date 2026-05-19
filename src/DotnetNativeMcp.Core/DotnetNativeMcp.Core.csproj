@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <PackageReference Include="Iced" />
+    <PackageReference Include="System.IO.Hashing" />
   </ItemGroup>
 
 </Project>

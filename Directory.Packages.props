@@ -9,6 +9,10 @@
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="1.3.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Hashing">
+    <PackageVersion Include="System.IO.Hashing" Version="9.0.5" />
+  </ItemGroup>
+
   <ItemGroup Label="Disassembly">
     <!-- Iced: MIT, .NET-native, Intel-maintained x86/x64 disassembler.
          ARM64 will be added via a separate Capstone P/Invoke wrapper. -->

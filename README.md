@@ -1,8 +1,8 @@
 # dotnet-native-mcp
 
-> **Status:** scaffold phase. The repository builds and serves a single
-> `scaffold_status` MCP tool. Real tools land in V0 — see the
-> [V0 tracking issue](https://github.com/pedrosakuma/dotnet-native-mcp/issues).
+> **Status:** V0 shipped. Four MCP tools are live:
+> `load_native_binary`, `list_native_symbols`, `resolve_symbol`, `disassemble`.
+> See the [V0 tracking issue](https://github.com/pedrosakuma/dotnet-native-mcp/issues/1).
 
 MCP server for **navigating native .NET binaries** — NativeAOT, R2R-only,
 single-file native — when ECMA-335 metadata is stripped or absent. Designed as
@@ -32,14 +32,14 @@ are available.
 - **Generic reverse engineering** (full Ghidra-class decompilation, full
   dynamic instrumentation, kernel-mode debuggers). Out of scope by design.
 
-## V0 surface (planned)
+## V0 surface (shipped)
 
 | Tool                     | Purpose                                                                 |
 |--------------------------|-------------------------------------------------------------------------|
-| `load_native_binary`     | Open a PE/ELF, verify it's a managed-flavored native build, return a handle. |
-| `list_native_symbols`    | Symbol table from `.map` when available, ELF/PE symtab fallback.        |
-| `resolve_symbol`         | Address ↔ symbol, with ILC demangling to a managed-shaped name.         |
-| `disassemble`            | Iced disassembly around a symbol or address, with cross-ref hints.     |
+| `load_native_binary`     | Open a PE/ELF, verify it's a managed-flavored native build, return a handle. Accepts NativeAOT and ReadyToRun. Validates optional `buildId` from `dotnet-diagnostics-mcp`. |
+| `list_native_symbols`    | Paginated symbol table. Source priority: `.map` sidecar → ELF `.symtab`/`.dynsym` → PE export table. Includes raw + demangled names. |
+| `resolve_symbol`         | Address ↔ symbol lookup with ILC demangling. Accepts RVA or absolute VA. |
+| `disassemble`            | Iced x86/x64 disassembly with CALL/JMP cross-ref hints. Default 64 instructions, capped at 2048. ARM64 returns `disassembly_unsupported`. |
 
 ## Sidecar tier (V1+)
 
@@ -55,8 +55,6 @@ ILC emits structured sidecars on request:
 binary".
 
 ## Install
-
-Scaffold-phase only. Once the V0 tools land:
 
 ```bash
 # stdio (local MCP client)
