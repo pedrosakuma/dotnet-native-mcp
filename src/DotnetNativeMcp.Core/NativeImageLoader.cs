@@ -6,6 +6,9 @@ namespace DotnetNativeMcp.Core;
 
 public static class NativeImageLoader
 {
+    private const int BuildIdPrefixLength = 16;
+    private const int BinaryNameHashPrefixLength = 8;
+
     private static readonly ConcurrentDictionary<string, NativeImageInfo> LoadedImagesByPath = new(StringComparer.Ordinal);
     private static readonly ConcurrentDictionary<string, NativeImageInfo> LoadedImagesByHandle = new(StringComparer.Ordinal);
 
@@ -52,7 +55,7 @@ public static class NativeImageLoader
             Path.ChangeExtension(fullPath, ".mstat"),
         };
 
-        foreach (var candidate in candidates.Distinct(StringComparer.Ordinal))
+        foreach (var candidate in candidates)
         {
             if (!string.IsNullOrEmpty(candidate) && File.Exists(candidate))
             {
@@ -71,7 +74,7 @@ public static class NativeImageLoader
         var binaryHash = Convert.ToHexString(
             SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFileName(binaryPath)))).ToLowerInvariant();
 
-        return $"i:{buildHash[..16]}:{binaryHash[..8]}";
+        return $"i:{buildHash[..BuildIdPrefixLength]}:{binaryHash[..BinaryNameHashPrefixLength]}";
     }
 }
 

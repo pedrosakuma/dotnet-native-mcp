@@ -69,7 +69,7 @@ public sealed class ScaffoldTests
         var ilBuilder = new BlobBuilder();
         var methodBodies = new MethodBodyStreamEncoder(ilBuilder);
         var sig = BuildVoidMethodSignature(metadata);
-        var emptySignature = MetadataTokens.ParameterHandle(1);
+        var firstParameterHandle = MetadataTokens.ParameterHandle(1);
 
         var methodsBodyOffset = methodBodies.AddMethodBody(CreateMethodsBody(), 8, default, MethodBodyAttributes.None);
         var typesBodyOffset = methodBodies.AddMethodBody(CreateTypesBody(), 8, default, MethodBodyAttributes.None);
@@ -82,15 +82,15 @@ public sealed class ScaffoldTests
             metadata.GetOrAddString("Methods"),
             sig,
             methodsBodyOffset,
-            emptySignature);
+            firstParameterHandle);
 
-        var typesHandle = metadata.AddMethodDefinition(
+        metadata.AddMethodDefinition(
             MethodAttributes.Private | MethodAttributes.Static | MethodAttributes.HideBySig,
             MethodImplAttributes.IL,
             metadata.GetOrAddString("Types"),
             sig,
             typesBodyOffset,
-            emptySignature);
+            firstParameterHandle);
 
         var growHandle = metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
@@ -98,7 +98,7 @@ public sealed class ScaffoldTests
             metadata.GetOrAddString("Grow"),
             sig,
             growBodyOffset,
-            emptySignature);
+            firstParameterHandle);
 
         _ = metadata.AddMethodDefinition(
             MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig,
@@ -106,7 +106,7 @@ public sealed class ScaffoldTests
             metadata.GetOrAddString("Run"),
             sig,
             runBodyOffset,
-            emptySignature);
+            firstParameterHandle);
 
         metadata.AddModule(
             0,
@@ -148,8 +148,6 @@ public sealed class ScaffoldTests
         var peBlob = new BlobBuilder();
         peBuilder.Serialize(peBlob);
         File.WriteAllBytes(outputPath, peBlob.ToArray());
-
-        _ = typesHandle;
     }
 
     private static BlobHandle BuildVoidMethodSignature(MetadataBuilder metadata)

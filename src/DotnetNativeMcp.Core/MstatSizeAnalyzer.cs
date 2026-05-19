@@ -100,7 +100,7 @@ public static class MstatSizeAnalyzer
             var reader = peReader.GetMetadataReader();
             var assemblyName = reader.IsAssembly
                 ? reader.GetString(reader.GetAssemblyDefinition().Name)
-                : Path.GetFileNameWithoutExtension(mstatPath);
+                : $"<unknown:{Path.GetFullPath(mstatPath)}>";
 
             var entries = new List<SizeContribution>();
 
@@ -173,15 +173,15 @@ public static class MstatSizeAnalyzer
 
             var methodHandle = MetadataTokens.EntityHandle(instructions[i].Operand);
             var codeSize = instructions[i + 1].Operand;
-            var gcSize = instructions[i + 2].Operand;
-            var ehSize = instructions[i + 3].Operand;
+            var gcInfoSize = instructions[i + 2].Operand;
+            var exceptionHandlerSize = instructions[i + 3].Operand;
 
             if (!TryResolveMethodIdentity(reader, methodHandle, fallbackAssemblyName, out var id))
             {
                 continue;
             }
 
-            entries.Add(new SizeContribution(id.Assembly, id.Namespace, id.Type, id.Method, codeSize + gcSize + ehSize));
+            entries.Add(new SizeContribution(id.Assembly, id.Namespace, id.Type, id.Method, codeSize + gcInfoSize + exceptionHandlerSize));
         }
     }
 
@@ -437,7 +437,7 @@ public static class MstatSizeAnalyzer
                     result.Add(new IlInstruction(OpCodeKind.LdcI4, op - 0x16));
                     break;
                 default:
-                    throw new InvalidOperationException($"Unsupported IL opcode 0x{op:x2} in .mstat stream.");
+                    throw new InvalidOperationException($"Encountered unsupported IL opcode 0x{op:x2} while parsing .mstat metadata stream.");
             }
         }
 
