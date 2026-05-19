@@ -21,7 +21,7 @@ public sealed class NativeImageCatalog
 
         var handle = string.Create(
             CultureInfo.InvariantCulture,
-            $"i:scaffold:{Sanitize(imageName)}:{Interlocked.Increment(ref _nextId)}");
+            $"i:native:{Sanitize(imageName)}:{Interlocked.Increment(ref _nextId)}");
 
         var image = new NativeBinaryImage(
             handle,
@@ -103,14 +103,12 @@ internal static class NativeBinaryDiffAnalyzer
             .Intersect(targetSymbols.Keys, StringComparer.Ordinal)
             .Select(name =>
             {
-                var baselineSize = baselineSymbols[name];
-                var targetSize = targetSymbols[name];
-                var delta = targetSize - baselineSize;
-                var deltaPercent = baselineSize == 0
-                    ? (targetSize == 0 ? 0.0 : 100.0)
-                    : (delta * 100.0) / baselineSize;
+                var baselineSymbolSize = baselineSymbols[name];
+                var targetSymbolSize = targetSymbols[name];
+                var delta = targetSymbolSize - baselineSymbolSize;
+                var deltaPercent = CalculateDeltaPercent(baselineSymbolSize, targetSymbolSize, delta);
 
-                return new NativeSymbolDelta(name, baselineSize, targetSize, delta, deltaPercent);
+                return new NativeSymbolDelta(name, baselineSymbolSize, targetSymbolSize, delta, deltaPercent);
             })
             .Where(delta => delta.DeltaSize != 0)
             .ToArray();
@@ -133,9 +131,9 @@ internal static class NativeBinaryDiffAnalyzer
             .Union(targetSections.Keys, StringComparer.Ordinal)
             .Select(section =>
             {
-                baselineSections.TryGetValue(section, out var baselineSize);
-                targetSections.TryGetValue(section, out var targetSize);
-                return new KeyValuePair<string, long>(section, targetSize - baselineSize);
+                baselineSections.TryGetValue(section, out var baselineSectionSize);
+                targetSections.TryGetValue(section, out var targetSectionSize);
+                return new KeyValuePair<string, long>(section, targetSectionSize - baselineSectionSize);
             })
             .Where(kvp => kvp.Value != 0)
             .OrderByDescending(kvp => Math.Abs(kvp.Value))
@@ -150,6 +148,11 @@ internal static class NativeBinaryDiffAnalyzer
             ShrunkSymbols: shrunkSymbols,
             SectionSizeDelta: sectionDelta);
     }
+
+    private static double CalculateDeltaPercent(long baselineSize, long targetSize, long delta) =>
+        baselineSize == 0
+            ? (targetSize == 0 ? 0.0 : 100.0)
+            : (delta * 100.0) / baselineSize;
 
     private static string CalculateVerdict(
         IReadOnlyCollection<NativeSymbolSize> addedSymbols,
