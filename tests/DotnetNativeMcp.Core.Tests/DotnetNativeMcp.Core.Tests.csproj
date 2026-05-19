@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio" />
@@ -15,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetNativeMcp.Core\DotnetNativeMcp.Core.csproj" />
+    <ProjectReference Include="..\..\src\DotnetNativeMcp.Server\DotnetNativeMcp.Server.csproj" />
   </ItemGroup>
 
 </Project>

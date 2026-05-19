@@ -46,6 +46,30 @@ var builder = WebApplication.CreateBuilder(args);
 ConfigureMcpServer(builder.Services).WithHttpTransport();
 
 var app = builder.Build();
+var bearerToken = ResolveBearerToken(builder.Configuration);
+
+if (!string.IsNullOrWhiteSpace(bearerToken))
+{
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path.Equals("/health", StringComparison.OrdinalIgnoreCase))
+        {
+            await next().ConfigureAwait(false);
+            return;
+        }
+
+        var expectedAuthorization = $"Bearer {bearerToken}";
+        var incomingAuthorization = context.Request.Headers.Authorization.ToString();
+
+        if (!string.Equals(incomingAuthorization, expectedAuthorization, StringComparison.Ordinal))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        await next().ConfigureAwait(false);
+    });
+}
 
 app.MapGet("/health", () => Results.Ok(new { status = "scaffold", notice = NativeImageLoader.ScaffoldNotice }));
 app.MapMcp("/mcp");
@@ -64,3 +88,17 @@ static IMcpServerBuilder ConfigureMcpServer(IServiceCollection services) =>
             };
         })
         .WithTools<ScaffoldTools>();
+
+static string? ResolveBearerToken(IConfiguration configuration)
+{
+    var nativeToken = configuration["NATIVE_MCP_BEARER_TOKEN"];
+    if (!string.IsNullOrWhiteSpace(nativeToken))
+    {
+        return nativeToken;
+    }
+
+    var sharedToken = configuration["MCP_BEARER_TOKEN"];
+    return string.IsNullOrWhiteSpace(sharedToken) ? null : sharedToken;
+}
+
+public partial class Program;
