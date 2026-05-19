@@ -47,11 +47,11 @@ All tools return a `NativeResult<T>` envelope (mirrors `AssemblyResult<T>` in
 }
 ```
 
-- `Summary` is a compact, user-facing description suitable for chat output.
-- `Data` is the typed payload for the tool.
-- `Hints` is an optional list of `NextActionHint` values and is a first-class
+- `summary` is a compact, user-facing description suitable for chat output.
+- `data` is the typed payload for the tool.
+- `hints` is an optional list of `NextActionHint` values and is a first-class
   part of the contract; callers should preserve and surface these hints.
-- `Error` is either `null` or a structured error object with a stable `kind`.
+- `error` is either `null` or a structured error object with a stable `kind`.
 
 Error `kind` values are part of the contract. Once published, never repurposed
 (add new ones).
