@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <PackageId>DotnetNativeMcp.Core</PackageId>
+    <Description>Core: native PE/ELF parsing, ILC symbol demangling, Iced disassembly, sidecar (.map / .mstat / DGML) readers for dotnet-native-mcp.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Iced" />
+  </ItemGroup>
+
+</Project>

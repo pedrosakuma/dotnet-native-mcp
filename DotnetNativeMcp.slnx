@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DotnetNativeMcp.Core/DotnetNativeMcp.Core.csproj" />
+    <Project Path="src/DotnetNativeMcp.Server/DotnetNativeMcp.Server.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DotnetNativeMcp.Core.Tests/DotnetNativeMcp.Core.Tests.csproj" />
+  </Folder>
+</Solution>
