@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Xunit;
 
-namespace DotnetNativeMcp.Core.Tests;
+namespace DotnetNativeMcp.Server.Tests;
 
 public sealed class BearerTokenAuthTests
 {
