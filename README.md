@@ -1,7 +1,8 @@
 # dotnet-native-mcp
 
-> **Status:** scaffold phase. The repository builds and serves a single
-> `scaffold_status` MCP tool. Real tools land in V0 — see the
+> **Status:** scaffold phase. The repository builds and serves `scaffold_status`
+> plus a first V1 utility tool: `extract_strings`. Real V0 navigation tools land
+> next — see the
 > [V0 tracking issue](https://github.com/pedrosakuma/dotnet-native-mcp/issues).
 
 MCP server for **navigating native .NET binaries** — NativeAOT, R2R-only,
