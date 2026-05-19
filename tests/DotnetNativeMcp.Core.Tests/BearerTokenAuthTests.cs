@@ -29,6 +29,18 @@ public sealed class BearerTokenAuthTests
         response.StatusCode.Should().Be(System.Net.HttpStatusCode.OK);
     }
 
+    [Fact]
+    public async Task Requests_with_valid_token_are_not_rejected()
+    {
+        await using var factory = CreateFactory("triad-secret");
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "triad-secret");
+
+        var response = await client.GetAsync("/mcp");
+
+        response.StatusCode.Should().NotBe(System.Net.HttpStatusCode.Unauthorized);
+    }
+
     private static WebApplicationFactory<Program> CreateFactory(string token) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {

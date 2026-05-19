@@ -1,5 +1,7 @@
 using DotnetNativeMcp.Core;
 using DotnetNativeMcp.Server.Tools;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -58,10 +60,7 @@ if (!string.IsNullOrWhiteSpace(bearerToken))
             return;
         }
 
-        var expectedAuthorization = $"Bearer {bearerToken}";
-        var incomingAuthorization = context.Request.Headers.Authorization.ToString();
-
-        if (!string.Equals(incomingAuthorization, expectedAuthorization, StringComparison.Ordinal))
+        if (!IsValidAuthorizationHeader(context.Request.Headers.Authorization.ToString(), bearerToken))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
@@ -99,6 +98,16 @@ static string? ResolveBearerToken(IConfiguration configuration)
 
     var sharedToken = configuration["MCP_BEARER_TOKEN"];
     return string.IsNullOrWhiteSpace(sharedToken) ? null : sharedToken;
+}
+
+static bool IsValidAuthorizationHeader(string incomingAuthorization, string bearerToken)
+{
+    var expectedAuthorization = $"Bearer {bearerToken}";
+    var incomingBytes = Encoding.UTF8.GetBytes(incomingAuthorization);
+    var expectedBytes = Encoding.UTF8.GetBytes(expectedAuthorization);
+
+    return incomingBytes.Length == expectedBytes.Length
+        && CryptographicOperations.FixedTimeEquals(incomingBytes, expectedBytes);
 }
 
 public partial class Program;
