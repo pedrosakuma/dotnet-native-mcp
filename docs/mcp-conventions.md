@@ -39,8 +39,9 @@ All tools return a `NativeResult<T>` envelope (mirrors `AssemblyResult<T>` in
   "data": { /* typed payload */ },
   "hints": [
     {
-      "kind": "next_action",
-      "message": "Call get_symbol_by_handle with s:i:...:42 for details"
+      "nextTool": "get_symbol_by_handle",
+      "reason": "Fetch full symbol details for the hot frame.",
+      "suggestedArguments": { "handle": "s:i:...:42" }
     }
   ],
   "error": null
