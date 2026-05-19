@@ -1,0 +1,13 @@
+{
+  "symbols": [
+    { "name": "S_P_SampleAot_Program__Main", "size": 160 },
+    { "name": "S_P_SampleAot_Program__Work", "size": 96 },
+    { "name": "S_P_SampleAot_Formatting__Render", "size": 88 },
+    { "name": "S_P_SampleAot_Utilities__Helper", "size": 44 }
+  ],
+  "sections": {
+    ".text": 8192,
+    ".rodata": 2560,
+    ".data": 1280
+  }
+}

@@ -1,7 +1,8 @@
 # dotnet-native-mcp
 
-> **Status:** scaffold phase. The repository builds and serves a single
-> `scaffold_status` MCP tool. Real tools land in V0 — see the
+> **Status:** scaffold phase. The repository serves scaffold endpoints plus
+> `compare_native_binaries` for release-over-release size diffing.
+> Full V0 surface continues in the
 > [V0 tracking issue](https://github.com/pedrosakuma/dotnet-native-mcp/issues).
 
 MCP server for **navigating native .NET binaries** — NativeAOT, R2R-only,

@@ -17,4 +17,11 @@
     <ProjectReference Include="..\..\src\DotnetNativeMcp.Core\DotnetNativeMcp.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\fixtures\SampleAot\*.json">
+      <Link>fixtures\SampleAot\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

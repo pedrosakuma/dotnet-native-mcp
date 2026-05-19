@@ -12,4 +12,19 @@ public static class NativeImageLoader
 {
     public const string ScaffoldNotice =
         "dotnet-native-mcp is in scaffold phase. See docs/handoff-contract.md and the V0 issue.";
+
+    public static string RegisterLoadedImage(
+        string imageName,
+        IReadOnlyCollection<NativeSymbol> symbols,
+        IReadOnlyDictionary<string, long>? sectionSizes = null) =>
+        NativeImageCatalog.Shared.Register(
+            imageName,
+            symbols,
+            sectionSizes ?? new Dictionary<string, long>(StringComparer.Ordinal));
+
+    public static BinaryDiff CompareNativeBinaries(
+        string baselineImageHandle,
+        string targetImageHandle,
+        double thresholdPercent = 5.0) =>
+        NativeImageCatalog.Shared.Compare(baselineImageHandle, targetImageHandle, thresholdPercent);
 }
