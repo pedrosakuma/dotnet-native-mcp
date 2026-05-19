@@ -75,9 +75,10 @@ binary is opened until an explicit `load_native_binary` call. Lazy is correct.
 
 ## 6. Auth
 
-Static bearer token, opt-in. Honors `NATIVE_MCP_BEARER_TOKEN` first,
-`MCP_BEARER_TOKEN` as the shared fallback (so one secret can gate the whole
-triad). `/health` always exempt. Same shape as the two sibling repos.
+Static bearer token, opt-in. Honors `NativeMcp:BearerToken`,
+`NATIVE_MCP_BEARER_TOKEN`, then `MCP_BEARER_TOKEN` as the shared fallback (so
+one secret can gate the whole triad). `/health` always exempt; STDIO stays
+unauthenticated. Same shape as the two sibling repos.
 
 ## 7. What this server is not
 
