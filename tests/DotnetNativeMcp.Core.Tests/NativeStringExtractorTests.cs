@@ -13,7 +13,7 @@ public sealed class NativeStringExtractorTests
     {
         using var fixture = SampleAotFixture.Create();
 
-        var result = NativeStringExtractor.Extract(fixture.Path, minLength: 2);
+        var result = NativeStringExtractor.Extract(fixture.FilePath, minLength: 2);
 
         result.Items.Should().Contain(x => x.Value == "hi");
     }
@@ -23,7 +23,7 @@ public sealed class NativeStringExtractorTests
     {
         using var fixture = SampleAotFixture.Create();
 
-        var result = NativeStringExtractor.Extract(fixture.Path);
+        var result = NativeStringExtractor.Extract(fixture.FilePath);
 
         result.Items.Should().Contain(x => x.Encoding == "utf-16le" && x.Value == "ManagedPool");
     }
@@ -33,8 +33,8 @@ public sealed class NativeStringExtractorTests
     {
         using var fixture = SampleAotFixture.Create();
 
-        var rodataOnly = NativeStringExtractor.Extract(fixture.Path, [".rodata"], minLength: 4);
-        var textOnly = NativeStringExtractor.Extract(fixture.Path, [".text"], minLength: 4);
+        var rodataOnly = NativeStringExtractor.Extract(fixture.FilePath, [".rodata"], minLength: 4);
+        var textOnly = NativeStringExtractor.Extract(fixture.FilePath, [".text"], minLength: 4);
 
         rodataOnly.Items.Should().NotContain(x => x.Value == "CODEIMM");
         textOnly.Items.Should().Contain(x => x.Value == "CODEIMM");
@@ -42,22 +42,22 @@ public sealed class NativeStringExtractorTests
 
     private sealed class SampleAotFixture : IDisposable
     {
-        private SampleAotFixture(string path) => Path = path;
+        private SampleAotFixture(string path) => FilePath = path;
 
-        public string Path { get; }
+        public string FilePath { get; }
 
         public static SampleAotFixture Create()
         {
-            var path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"sample-aot-{Guid.NewGuid():N}.elf");
+            var path = Path.Combine(Path.GetTempPath(), $"sample-aot-{Guid.NewGuid():N}.elf");
             File.WriteAllBytes(path, BuildElfFixture());
             return new(path);
         }
 
         public void Dispose()
         {
-            if (File.Exists(Path))
+            if (File.Exists(FilePath))
             {
-                File.Delete(Path);
+                File.Delete(FilePath);
             }
         }
 

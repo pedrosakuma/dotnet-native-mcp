@@ -256,19 +256,19 @@ public static class NativeStringExtractor
     private static void ScanSectionForAscii(ParsedBinarySection section, byte[] imageBytes, int minLength, List<ExtractedString> target)
     {
         var bytes = imageBytes.AsSpan(section.Offset, section.Length);
-        var start = -1;
+        var sectionRelativeOffset = -1;
         for (var i = 0; i < bytes.Length; i++)
         {
             var printable = bytes[i] is >= 0x20 and <= 0x7E;
             if (printable)
             {
-                start = start < 0 ? i : start;
+                sectionRelativeOffset = sectionRelativeOffset < 0 ? i : sectionRelativeOffset;
                 continue;
             }
 
-            if (start >= 0 && i - start >= minLength)
+            if (sectionRelativeOffset >= 0 && i - sectionRelativeOffset >= minLength)
             {
-                target.Add(new(section.Name, start, "ascii", Encoding.ASCII.GetString(bytes.Slice(start, i - start))));
+                target.Add(new(section.Name, sectionRelativeOffset, "ascii", Encoding.ASCII.GetString(bytes.Slice(sectionRelativeOffset, i - sectionRelativeOffset))));
             }
 
             if (target.Count >= MaxResultsLimit)
@@ -276,12 +276,12 @@ public static class NativeStringExtractor
                 return;
             }
 
-            start = -1;
+            sectionRelativeOffset = -1;
         }
 
-        if (start >= 0 && bytes.Length - start >= minLength && target.Count < MaxResultsLimit)
+        if (sectionRelativeOffset >= 0 && bytes.Length - sectionRelativeOffset >= minLength && target.Count < MaxResultsLimit)
         {
-            target.Add(new(section.Name, start, "ascii", Encoding.ASCII.GetString(bytes[start..])));
+            target.Add(new(section.Name, sectionRelativeOffset, "ascii", Encoding.ASCII.GetString(bytes[sectionRelativeOffset..])));
         }
     }
 
@@ -298,7 +298,7 @@ public static class NativeStringExtractor
                 continue;
             }
 
-            var start = i;
+            var sectionRelativeOffset = i;
             var chars = 0;
             while (i + 1 < bytes.Length && bytes[i] is >= 0x20 and <= 0x7E && bytes[i + 1] == 0)
             {
@@ -308,7 +308,7 @@ public static class NativeStringExtractor
 
             if (chars >= minLength)
             {
-                target.Add(new(section.Name, start, "utf-16le", Encoding.Unicode.GetString(bytes.Slice(start, chars * 2))));
+                target.Add(new(section.Name, sectionRelativeOffset, "utf-16le", Encoding.Unicode.GetString(bytes.Slice(sectionRelativeOffset, chars * 2))));
             }
 
             if (target.Count >= MaxResultsLimit)
