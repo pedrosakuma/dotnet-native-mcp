@@ -81,7 +81,7 @@ This contract is versioned via the `nativeFrameContractVersion` field on the
 producer side. The consumer accepts any version it explicitly supports; older
 or unknown versions fall back to best-effort. Bump on **any** shape change.
 
-Current version: **0** (scaffold; no field is yet stable).
+Current version: **1** (V0 shipped; all fields in the `NativeFrame` object are stable).
 
 ## Cross-links
 

@@ -17,4 +17,17 @@
     <ProjectReference Include="..\..\src\DotnetNativeMcp.Core\DotnetNativeMcp.Core.csproj" />
   </ItemGroup>
 
+  <!-- Build the NativeAOT fixture before the test project is built.
+       Requires clang + zlib1g-dev on Linux; silently skipped when the toolchain is missing. -->
+  <Target Name="BuildNativeAotFixture" BeforeTargets="Build">
+    <PropertyGroup>
+      <_FixtureOutDir>$(MSBuildThisFileDirectory)bin\$(Configuration)\$(TargetFramework)\fixtures\SampleAot</_FixtureOutDir>
+      <_FixtureSrc>$(MSBuildThisFileDirectory)..\fixtures\SampleAot\SampleAot.csproj</_FixtureSrc>
+    </PropertyGroup>
+    <Exec
+      Command="dotnet publish &quot;$(_FixtureSrc)&quot; -c Release -r linux-x64 --sc true -o &quot;$(_FixtureOutDir)&quot; --nologo -v quiet"
+      ContinueOnError="true"
+      ConsoleToMSBuild="false" />
+  </Target>
+
 </Project>

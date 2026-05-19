@@ -1,14 +1,13 @@
-using DotnetNativeMcp.Core;
+using DotnetNativeMcp.Core.Imaging;
 using DotnetNativeMcp.Server.Tools;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Server;
 
-// Scaffold-phase entry point. Mirrors the dual-transport shape of
-// dotnet-assembly-mcp and dotnet-diagnostics-mcp (stdio for local tool installs,
-// HTTP streamable for sidecar deployments). Tool implementations land in V0 —
-// see docs/handoff-contract.md and the V0 tracking issue.
+// V0 entry point. Mirrors the dual-transport shape of dotnet-assembly-mcp and
+// dotnet-diagnostics-mcp (stdio for local tool installs, HTTP streamable for sidecar
+// deployments).
 //
 //   * --stdio (or NATIVE_MCP_TRANSPORT=stdio): JSON-RPC over STDIN/STDOUT.
 //   * default: HTTP /mcp on port 8789 (the convention slot after 8787/8788).
@@ -47,20 +46,24 @@ ConfigureMcpServer(builder.Services).WithHttpTransport();
 
 var app = builder.Build();
 
-app.MapGet("/health", () => Results.Ok(new { status = "scaffold", notice = NativeImageLoader.ScaffoldNotice }));
+app.MapGet("/health", () => Results.Ok(new { status = "ok", version = "v0" }));
 app.MapMcp("/mcp");
 
 await app.RunAsync().ConfigureAwait(false);
 return 0;
 
-static IMcpServerBuilder ConfigureMcpServer(IServiceCollection services) =>
-    services
+static IMcpServerBuilder ConfigureMcpServer(IServiceCollection services)
+{
+    services.AddSingleton<INativeBinaryRegistry, NativeBinaryRegistry>();
+
+    return services
         .AddMcpServer(options =>
         {
             options.ServerInfo = new()
             {
                 Name = "dotnet-native-mcp",
-                Version = typeof(ScaffoldTools).Assembly.GetName().Version?.ToString() ?? "0.0.0",
+                Version = typeof(NativeTools).Assembly.GetName().Version?.ToString() ?? "0.0.0",
             };
         })
-        .WithTools<ScaffoldTools>();
+        .WithTools<NativeTools>();
+}
