@@ -49,7 +49,6 @@ public sealed class BearerTokenAuthTests
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["NATIVE_MCP_BEARER_TOKEN"] = token,
-                    ["MCP_BEARER_TOKEN"] = null,
                 });
             });
         });
