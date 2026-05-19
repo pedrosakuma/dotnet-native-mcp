@@ -40,6 +40,17 @@ are available.
 | `list_native_symbols`    | Symbol table from `.map` when available, ELF/PE symtab fallback.        |
 | `resolve_symbol`         | Address ↔ symbol, with ILC demangling to a managed-shaped name.         |
 | `disassemble`            | Iced disassembly around a symbol or address, with cross-ref hints.     |
+| `symbolicate_stack`      | **No-producer entry point**: bulk `(binary, addressHex)` crash-log symbolication. |
+
+
+## No-producer entry point
+
+If you only have a crash log (no `dotnet-diagnostics-mcp` producer in the
+loop), call `symbolicate_stack` directly with a frame list:
+
+- `frames: [{ binary, addressHex, loadBase? }]` (up to 200 frames)
+- returns per-frame symbolication payloads or per-frame typed errors
+  (`binary_not_found`, `address_out_of_range`)
 
 ## Sidecar tier (V1+)
 

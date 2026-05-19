@@ -63,4 +63,5 @@ static IMcpServerBuilder ConfigureMcpServer(IServiceCollection services) =>
                 Version = typeof(ScaffoldTools).Assembly.GetName().Version?.ToString() ?? "0.0.0",
             };
         })
-        .WithTools<ScaffoldTools>();
+        .WithTools<ScaffoldTools>()
+        .WithTools<NativeSymbolTools>();

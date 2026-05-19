@@ -5,9 +5,7 @@ using ModelContextProtocol.Server;
 namespace DotnetNativeMcp.Server.Tools;
 
 /// <summary>
-/// Single placeholder tool so a fresh MCP client can connect, list tools, and see
-/// the scaffold notice instead of an empty response. Replaced by the real V0 set
-/// (load_native_binary / list_native_symbols / resolve_symbol / disassemble).
+/// Temporary scaffold notice tool kept while the rest of the planned surface lands.
 /// </summary>
 [McpServerToolType]
 public sealed class ScaffoldTools
