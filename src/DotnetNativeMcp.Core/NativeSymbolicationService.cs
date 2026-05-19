@@ -11,6 +11,11 @@ public sealed class NativeSymbolicationService
         "^([0-9A-Fa-f]+)\\s+([^\\s]+)(?:\\s+([^\\s]+))?",
         RegexOptions.Compiled);
 
+    private const int SyntheticSymbolSpacing = 0x20;
+    private const int MaxSyntheticSymbolCount = 16;
+    private const int MinImageSize = 1;
+    private const string SyntheticSymbolPrefix = "synthetic_func_";
+
     private readonly Dictionary<string, NativeBinaryIndex> registry =
         new(StringComparer.OrdinalIgnoreCase);
 
@@ -58,7 +63,7 @@ public sealed class NativeSymbolicationService
             var frame = frames[i];
             if (string.IsNullOrWhiteSpace(frame.Binary))
             {
-                results.Add(FailFrame(i, frame, "binary_not_found", "Binary path is required."));
+                results.Add(FailFrame(i, frame, "invalid_argument", "Binary path is required."));
                 continue;
             }
 
@@ -190,15 +195,24 @@ public sealed class NativeSymbolicationService
 
         public NativeSymbol? Resolve(ulong rva)
         {
+            var low = 0;
+            var high = Symbols.Count - 1;
             NativeSymbol? candidate = null;
-            foreach (var symbol in Symbols)
-            {
-                if (symbol.Rva > rva)
-                {
-                    break;
-                }
 
-                candidate = symbol;
+            while (low <= high)
+            {
+                var mid = low + ((high - low) / 2);
+                var symbol = Symbols[mid];
+
+                if (symbol.Rva <= rva)
+                {
+                    candidate = symbol;
+                    low = mid + 1;
+                }
+                else
+                {
+                    high = mid - 1;
+                }
             }
 
             return candidate is not null && rva < candidate.EndRva
@@ -209,7 +223,7 @@ public sealed class NativeSymbolicationService
         public static NativeBinaryIndex Load(string binaryPath)
         {
             var fileInfo = new FileInfo(binaryPath);
-            var imageSize = (ulong)Math.Max(fileInfo.Length, 1);
+            var imageSize = (ulong)Math.Max(fileInfo.Length, MinImageSize);
 
             var symbols = TryLoadMapSymbols(binaryPath);
             if (symbols.Count == 0)
@@ -256,17 +270,17 @@ public sealed class NativeSymbolicationService
 
         private static List<NativeSymbol> BuildSyntheticSymbols(ulong imageSize)
         {
-            var count = (int)Math.Clamp((long)(imageSize / 32), 1, 16);
+            var count = (int)Math.Clamp((long)(imageSize / SyntheticSymbolSpacing), 1, MaxSyntheticSymbolCount);
             var symbols = new List<NativeSymbol>(count);
             for (var i = 0; i < count; i++)
             {
-                var rva = (ulong)(i * 0x20);
+                var rva = (ulong)(i * SyntheticSymbolSpacing);
                 if (rva >= imageSize)
                 {
                     break;
                 }
 
-                var symbol = $"func_{rva:X}";
+                var symbol = $"{SyntheticSymbolPrefix}{rva:X}";
                 symbols.Add(new NativeSymbol(rva, symbol, Demangle(symbol), ".text", 0));
             }
 

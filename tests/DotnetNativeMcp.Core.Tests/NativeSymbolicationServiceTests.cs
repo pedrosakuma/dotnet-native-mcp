@@ -93,7 +93,7 @@ public sealed class NativeSymbolicationServiceTests
             Directory.CreateDirectory(directory);
 
             var binaryPath = Path.Combine(directory, "sample.bin");
-            File.WriteAllBytes(binaryPath, Enumerable.Range(0, 512).Select(i => (byte)(i % 255)).ToArray());
+            File.WriteAllBytes(binaryPath, Enumerable.Range(0, 512).Select(i => (byte)i).ToArray());
             File.WriteAllLines(binaryPath + ".map", mapLines);
 
             return new BinaryFixture(directory, binaryPath);
