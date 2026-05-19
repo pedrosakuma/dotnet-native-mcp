@@ -30,12 +30,28 @@ Never disassemble in a Tier-1 path.
 
 ## 3. Response shape
 
-All tools return either a typed payload **or** an `Error`:
+All tools return a `NativeResult<T>` envelope (mirrors `AssemblyResult<T>` in
+`dotnet-assembly-mcp`):
 
 ```jsonc
-{ "ok": true,  "value": <typed> }
-{ "ok": false, "error": { "kind": "<stable kind>", "detail": "<human msg>" } }
+{
+  "summary": "Loaded symbols for apphost",
+  "data": { /* typed payload */ },
+  "hints": [
+    {
+      "kind": "next_action",
+      "message": "Call get_symbol_by_handle with s:i:...:42 for details"
+    }
+  ],
+  "error": null
+}
 ```
+
+- `Summary` is a compact, user-facing description suitable for chat output.
+- `Data` is the typed payload for the tool.
+- `Hints` is an optional list of `NextActionHint` values and is a first-class
+  part of the contract; callers should preserve and surface these hints.
+- `Error` is either `null` or a structured error object with a stable `kind`.
 
 Error `kind` values are part of the contract. Once published, never repurposed
 (add new ones).
