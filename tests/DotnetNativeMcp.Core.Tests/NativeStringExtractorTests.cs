@@ -72,8 +72,8 @@ public sealed class NativeStringExtractorTests
             const int sectionCount = 4;
 
             var textBytes = Encoding.ASCII.GetBytes("CODEIMM\0");
-            var rodataAscii = Encoding.ASCII.GetBytes("hello-from-rodata\0hi\0");
-            var rodataUtf16 = Encoding.Unicode.GetBytes("ManagedPool");
+            var rodataAscii = Encoding.ASCII.GetBytes("hello-from-rodata\0hi\0\0");
+            var rodataUtf16 = Encoding.Unicode.GetBytes("ManagedPool\0");
             var rodataBytes = rodataAscii.Concat(rodataUtf16).ToArray();
             var shstrBytes = Encoding.ASCII.GetBytes("\0.text\0.rodata\0.shstrtab\0");
 

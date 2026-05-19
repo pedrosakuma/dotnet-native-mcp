@@ -35,7 +35,8 @@ public static class NativeStringExtractor
             throw new ArgumentOutOfRangeException(nameof(pageOffset), "pageOffset must be non-negative.");
         }
 
-        var sections = ParseSections(File.ReadAllBytes(binaryPath));
+        var imageBytes = File.ReadAllBytes(binaryPath);
+        var sections = ParseSections(imageBytes);
         var effectiveFilter = (sectionFilter is { Length: > 0 } ? sectionFilter : DefaultSections)
             .Select(s => s.Trim())
             .Where(static s => s.Length > 0)
@@ -46,8 +47,8 @@ public static class NativeStringExtractor
 
         foreach (var section in filteredSections)
         {
-            ScanSectionForAscii(section, minLength, found);
-            ScanSectionForUtf16Le(section, minLength, found);
+            ScanSectionForAscii(section, imageBytes, minLength, found);
+            ScanSectionForUtf16Le(section, imageBytes, minLength, found);
 
             if (found.Count >= MaxResultsLimit)
             {
@@ -77,7 +78,7 @@ public static class NativeStringExtractor
         return new(page, nextOffset);
     }
 
-    private static List<BinarySection> ParseSections(byte[] bytes)
+    private static List<ParsedBinarySection> ParseSections(byte[] bytes)
     {
         if (bytes.Length >= 4 && bytes[0] == 0x7F && bytes[1] == (byte)'E' && bytes[2] == (byte)'L' && bytes[3] == (byte)'F')
         {
@@ -92,7 +93,7 @@ public static class NativeStringExtractor
         throw new InvalidDataException("Unsupported binary format. Expected ELF or PE.");
     }
 
-    private static List<BinarySection> ParsePeSections(byte[] bytes)
+    private static List<ParsedBinarySection> ParsePeSections(byte[] bytes)
     {
         if (bytes.Length < 0x40)
         {
@@ -110,7 +111,7 @@ public static class NativeStringExtractor
         var sectionTableOffset = peOffset + 24 + optionalHeaderSize;
         var sectionSize = 40;
 
-        var sections = new List<BinarySection>(sectionCount);
+        var sections = new List<ParsedBinarySection>(sectionCount);
         for (var i = 0; i < sectionCount; i++)
         {
             var offset = sectionTableOffset + (i * sectionSize);
@@ -134,14 +135,13 @@ public static class NativeStringExtractor
                 continue;
             }
 
-            var sectionBytes = bytes.AsSpan(pointerToRawData, sizeOfRawData).ToArray();
-            sections.Add(new(name, sectionBytes));
+            sections.Add(new(name, pointerToRawData, sizeOfRawData));
         }
 
         return sections;
     }
 
-    private static List<BinarySection> ParseElfSections(byte[] bytes)
+    private static List<ParsedBinarySection> ParseElfSections(byte[] bytes)
     {
         if (bytes.Length < 64)
         {
@@ -189,7 +189,7 @@ public static class NativeStringExtractor
         }
 
         var shstr = bytes.AsSpan(shstrOffset, shstrSize);
-        var sections = new List<BinarySection>(sectionHeaderCount);
+        var sections = new List<ParsedBinarySection>(sectionHeaderCount);
         for (var i = 0; i < sectionHeaderCount; i++)
         {
             var headerOffset = checked((int)(sectionHeaderOffset + (i * sectionHeaderEntrySize)));
@@ -207,8 +207,7 @@ public static class NativeStringExtractor
             }
 
             var name = ReadElfString(shstr, nameOffset);
-            var sectionBytes = bytes.AsSpan(sectionOffset, sectionSize).ToArray();
-            sections.Add(new(name, sectionBytes));
+            sections.Add(new(name, sectionOffset, sectionSize));
         }
 
         return sections;
@@ -254,9 +253,9 @@ public static class NativeStringExtractor
         return Encoding.ASCII.GetString(stringTable[offset..end]);
     }
 
-    private static void ScanSectionForAscii(BinarySection section, int minLength, List<ExtractedString> target)
+    private static void ScanSectionForAscii(ParsedBinarySection section, byte[] imageBytes, int minLength, List<ExtractedString> target)
     {
-        var bytes = section.Bytes;
+        var bytes = imageBytes.AsSpan(section.Offset, section.Length);
         var start = -1;
         for (var i = 0; i < bytes.Length; i++)
         {
@@ -269,7 +268,7 @@ public static class NativeStringExtractor
 
             if (start >= 0 && i - start >= minLength)
             {
-                target.Add(new(section.Name, start, "ascii", Encoding.ASCII.GetString(bytes, start, i - start)));
+                target.Add(new(section.Name, start, "ascii", Encoding.ASCII.GetString(bytes.Slice(start, i - start))));
             }
 
             if (target.Count >= MaxResultsLimit)
@@ -282,17 +281,17 @@ public static class NativeStringExtractor
 
         if (start >= 0 && bytes.Length - start >= minLength && target.Count < MaxResultsLimit)
         {
-            target.Add(new(section.Name, start, "ascii", Encoding.ASCII.GetString(bytes, start, bytes.Length - start)));
+            target.Add(new(section.Name, start, "ascii", Encoding.ASCII.GetString(bytes[start..])));
         }
     }
 
-    private static void ScanSectionForUtf16Le(BinarySection section, int minLength, List<ExtractedString> target)
+    private static void ScanSectionForUtf16Le(ParsedBinarySection section, byte[] imageBytes, int minLength, List<ExtractedString> target)
     {
-        var bytes = section.Bytes;
+        var bytes = imageBytes.AsSpan(section.Offset, section.Length);
         var i = 0;
         while (i + 1 < bytes.Length)
         {
-            var startsOnUtf16Boundary = i == 0 || bytes[i - 1] == 0;
+            var startsOnUtf16Boundary = i % 2 == 0;
             if (!startsOnUtf16Boundary || !(bytes[i] is >= 0x20 and <= 0x7E && bytes[i + 1] == 0))
             {
                 i++;
@@ -309,7 +308,7 @@ public static class NativeStringExtractor
 
             if (chars >= minLength)
             {
-                target.Add(new(section.Name, start, "utf16le", Encoding.Unicode.GetString(bytes, start, chars * 2)));
+                target.Add(new(section.Name, start, "utf16le", Encoding.Unicode.GetString(bytes.Slice(start, chars * 2))));
             }
 
             if (target.Count >= MaxResultsLimit)
@@ -319,7 +318,7 @@ public static class NativeStringExtractor
         }
     }
 
-    private sealed record BinarySection(string Name, byte[] Bytes);
+    private sealed record ParsedBinarySection(string Name, int Offset, int Length);
 }
 
 public sealed record ExtractedString(string Section, int Offset, string Encoding, string Value);
