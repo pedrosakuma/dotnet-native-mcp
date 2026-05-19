@@ -308,7 +308,7 @@ public static class NativeStringExtractor
 
             if (chars >= minLength)
             {
-                target.Add(new(section.Name, start, "utf16le", Encoding.Unicode.GetString(bytes.Slice(start, chars * 2))));
+                target.Add(new(section.Name, start, "utf-16le", Encoding.Unicode.GetString(bytes.Slice(start, chars * 2))));
             }
 
             if (target.Count >= MaxResultsLimit)

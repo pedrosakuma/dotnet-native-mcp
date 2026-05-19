@@ -25,7 +25,7 @@ public sealed class NativeStringExtractorTests
 
         var result = NativeStringExtractor.Extract(fixture.Path);
 
-        result.Items.Should().Contain(x => x.Encoding == "utf16le" && x.Value == "ManagedPool");
+        result.Items.Should().Contain(x => x.Encoding == "utf-16le" && x.Value == "ManagedPool");
     }
 
     [Fact]
