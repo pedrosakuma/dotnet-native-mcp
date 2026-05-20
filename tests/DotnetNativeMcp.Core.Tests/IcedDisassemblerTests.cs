@@ -71,13 +71,15 @@ public class IcedDisassemblerTests
     }
 
     [Fact]
-    public void Disassemble_Arm64_ReturnsUnsupported()
+    public void Disassemble_Arm64_RoutesToArm64Decoder()
     {
-        var image = MakeImage([0x00, 0x00, 0x00, 0x00], arch: Architecture.Arm64);
+        // NOP = 1F 20 03 D5
+        var image = MakeImage([0x1F, 0x20, 0x03, 0xD5], arch: Architecture.Arm64);
         var result = IcedDisassembler.Disassemble(image, rva: 0, maxInstructions: 4);
 
-        result.IsError.Should().BeTrue();
-        result.Error!.Kind.Should().Be(Errors.ErrorKinds.DisassemblyUnsupported);
+        result.IsError.Should().BeFalse();
+        result.Data.Should().HaveCount(1);
+        result.Data![0].Mnemonic.Should().Be("nop");
     }
 
     [Fact]

@@ -6,6 +6,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="AsmArm64" />
     <PackageReference Include="Iced" />
     <PackageReference Include="System.IO.Hashing" />
   </ItemGroup>

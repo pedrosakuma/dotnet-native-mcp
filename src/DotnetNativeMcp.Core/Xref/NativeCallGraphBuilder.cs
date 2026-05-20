@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Text;
+using DotnetNativeMcp.Core.Disassembly;
 using DotnetNativeMcp.Core.Imaging;
 using DotnetNativeMcp.Core.Symbols;
 using Iced.Intel;
@@ -10,7 +11,7 @@ namespace DotnetNativeMcp.Core.Xref;
 /// <summary>
 /// Scans all executable sections of a <see cref="NativeImage"/> and builds a
 /// complete xref index: target virtual address → list of <see cref="CallSite"/>s.
-/// Only x86/x64 is supported; ARM64 produces an empty index.
+/// x86/x64 and ARM64 are supported; other architectures produce an empty index.
 /// </summary>
 public static class NativeCallGraphBuilder
 {
@@ -42,6 +43,21 @@ public static class NativeCallGraphBuilder
     public static IReadOnlyDictionary<ulong, IReadOnlyList<CallSite>> Build(NativeImage image)
     {
         ArgumentNullException.ThrowIfNull(image);
+
+        if (image.Architecture is Architecture.Arm64)
+        {
+            var arm64Index = new Dictionary<ulong, List<CallSite>>();
+            foreach (var section in image.Sections)
+            {
+                if (!IsCodeSection(section))
+                    continue;
+                Arm64Disassembler.ScanSection(image, section, arm64Index);
+            }
+            var arm64Result = new Dictionary<ulong, IReadOnlyList<CallSite>>(arm64Index.Count);
+            foreach (var (key, list) in arm64Index)
+                arm64Result[key] = list;
+            return arm64Result;
+        }
 
         if (image.Architecture is not (Architecture.X64 or Architecture.X86))
             return new Dictionary<ulong, IReadOnlyList<CallSite>>();
