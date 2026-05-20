@@ -10,7 +10,7 @@ namespace DotnetNativeMcp.Core.Imaging;
 /// PE-native binary reader using <see cref="PEReader"/>.
 /// Supports NativeAOT PE (export-table heuristic) and ReadyToRun detection.
 /// </summary>
-public static class PeNativeReader
+public static partial class PeNativeReader
 {
     private static readonly string[] NativeAotExports =
     [

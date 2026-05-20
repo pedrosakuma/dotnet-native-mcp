@@ -1,7 +1,7 @@
 # dotnet-native-mcp
 
-> **Status:** V1 in progress. Eight MCP tools are live:
-> `load_native_binary`, `list_native_symbols`, `resolve_symbol`, `extract_strings`, `symbolicate_stack`, `get_size_breakdown`, `compare_native_binaries`, `disassemble`.
+> **Status:** V1 in progress. Nine MCP tools are live:
+> `load_native_binary`, `list_native_symbols`, `list_native_imports`, `resolve_symbol`, `extract_strings`, `symbolicate_stack`, `get_size_breakdown`, `compare_native_binaries`, `disassemble`.
 > See the [V0 tracking issue](https://github.com/pedrosakuma/dotnet-native-mcp/issues/1).
 
 MCP server for **navigating native .NET binaries** — NativeAOT, R2R-only,
@@ -38,6 +38,7 @@ are available.
 |--------------------------|-------------------------------------------------------------------------|
 | `load_native_binary`     | Open a PE/ELF, verify it's a managed-flavored native build, return a handle. Accepts NativeAOT and ReadyToRun. Validates optional `buildId` from `dotnet-diagnostics-mcp`. |
 | `list_native_symbols`    | Paginated symbol table. Source priority: `.map` sidecar → ELF `.symtab`/`.dynsym` → PE export table. Includes raw + demangled names. |
+| `list_native_imports`    | Paginated import/dependency walk. `kind="functions"` lists ELF undefined `.dynsym` imports or PE Import Directory entries; `kind="libraries"` lists ELF `DT_NEEDED` or PE imported DLL names. |
 | `resolve_symbol`         | Address ↔ symbol lookup with ILC demangling. Accepts RVA or absolute VA. |
 | `extract_strings`        | Paginated printable ASCII / UTF-16LE scan over `.rodata` / `.rdata` / `.data.rel.ro` / `__const` (with `.data` fallback). Returns section + offset for forensics. |
 | `symbolicate_stack`      | Bulk stack symbolication for up to 200 frames. Accepts `NativeFrame`-style rows or raw hex addresses plus a default image handle; each row reports its own success/error state. |
