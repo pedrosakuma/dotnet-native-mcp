@@ -53,11 +53,28 @@ public static class NativeImageLoader
         }
         else if (MachOReader.IsFatBinary(bytes))
         {
-            return NativeResult.Fail<NativeImage>(ErrorKinds.InvalidArgument,
-                $"'{path}' is a fat (universal) Mach-O binary. Extract the target architecture slice first.");
+            // Parse fat header and pick the best available slice (arm64 preferred, then x64).
+            var sliceResult = MachOReader.ParseFatSlice(bytes);
+            if (sliceResult.IsError)
+                return NativeResult.Fail<NativeImage>(sliceResult.Error!.Kind, sliceResult.Error.Message, sliceResult.Error.Detail);
+
+            var (offset, size, _) = sliceResult.Data;
+            var sliceMemory = memory.Slice((int)offset, (int)size);
+
+            // Check unsupported features on the selected slice before parsing
+            var unsupported = MachOReader.CheckUnsupportedFeatures(sliceMemory.Span);
+            if (unsupported is not null)
+                return NativeResult.Fail<NativeImage>(ErrorKinds.MachoFeatureUnsupported, unsupported);
+
+            image = MachOReader.Read(sliceMemory, path);
         }
         else if (MachOReader.IsMachO(bytes))
         {
+            // Check unsupported features before parsing the thin binary
+            var unsupported = MachOReader.CheckUnsupportedFeatures(bytes);
+            if (unsupported is not null)
+                return NativeResult.Fail<NativeImage>(ErrorKinds.MachoFeatureUnsupported, unsupported);
+
             image = MachOReader.Read(memory, path);
         }
 
@@ -137,4 +154,3 @@ public static class NativeImageLoader
         return hints;
     }
 }
-

@@ -1,25 +1,35 @@
 using System.Buffers.Binary;
 using System.Text;
+using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Identity;
 
 namespace DotnetNativeMcp.Core.Imaging;
 
 /// <summary>
-/// Minimal Mach-O parser for 32-bit and 64-bit little-endian Mach-O binaries (macOS NativeAOT).
-/// Fat (universal) binaries are rejected at load time — the caller must slice the desired
-/// architecture slice before calling <see cref="Read"/>. Big-endian Mach-O is not supported.
+/// Minimal Mach-O parser for 64-bit little-endian thin and fat/universal Mach-O binaries
+/// (macOS NativeAOT). For fat binaries, call <see cref="ParseFatSlice"/> first to extract the
+/// desired architecture slice, then call <see cref="Read"/> on the resulting sub-span.
+/// Big-endian thin Mach-O is not supported.
 /// </summary>
 public static partial class MachOReader
 {
     // Mach-O magic numbers (read as LE uint32)
     internal const uint MachOMagic64Le = 0xFEEDFACF;
     internal const uint MachOMagic32Le = 0xFEEDFACE;
-    internal const uint FatMagicBe = 0xBEBAFECA; // CA FE BA BE on disk, read LE = 0xBEBAFECA
+
+    // Fat (universal) binary magic values. Apple writes fat headers in big-endian regardless
+    // of the slice endianness. Reading 4 bytes as a LE uint32 gives the "CIGAM" constant.
+    // FAT_MAGIC     = 0xCAFEBABE  ->  read LE = 0xBEBAFECA
+    // FAT_MAGIC_64  = 0xCAFEBABF  ->  read LE = 0xBFBAFECA
+    internal const uint FatMagicLe = 0xBEBAFECA;
+    internal const uint FatMagic64Le = 0xBFBAFECA;
 
     // Load command types
     private const uint LcSegment = 0x1;
     private const uint LcSegment64 = 0x19;
     private const uint LcSymtab = 0x2;
+    private const uint LcUuid = 0x1B;
+    private const uint LcDyldChainedFixups = 0x80000034;
 
     // CPU types
     private const int CpuTypeX86_64 = 0x01000007;
@@ -37,7 +47,7 @@ public static partial class MachOReader
         "RhEHEnum",
     ];
 
-    /// <summary>Returns <c>true</c> if the bytes start with a 64-bit or 32-bit LE Mach-O magic.</summary>
+    /// <summary>Returns <c>true</c> if the bytes start with a 64-bit or 32-bit LE Mach-O thin magic.</summary>
     public static bool IsMachO(ReadOnlySpan<byte> bytes) =>
         bytes.Length >= 4 &&
         BinaryPrimitives.ReadUInt32LittleEndian(bytes) is var m &&
@@ -46,11 +56,165 @@ public static partial class MachOReader
     /// <summary>Returns <c>true</c> if the bytes start with a fat (universal) binary magic.</summary>
     public static bool IsFatBinary(ReadOnlySpan<byte> bytes) =>
         bytes.Length >= 4 &&
-        BinaryPrimitives.ReadUInt32LittleEndian(bytes) == FatMagicBe;
+        BinaryPrimitives.ReadUInt32LittleEndian(bytes) is var m &&
+        (m == FatMagicLe || m == FatMagic64Le);
+
+    /// <summary>
+    /// Checks whether a thin Mach-O binary uses any feature not yet supported by this parser.
+    /// Returns a descriptive error message if the binary is unsupported, or <c>null</c>
+    /// when the binary should be accepted.
+    /// <para>
+    /// Checked: 32-bit thin (<c>MH_MAGIC</c>), <c>LC_DYLD_CHAINED_FIXUPS</c>,
+    /// and the <c>__LLVM</c> bitcode segment.
+    /// </para>
+    /// </summary>
+    public static string? CheckUnsupportedFeatures(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length < 4) return null;
+        var magic = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
+
+        if (magic == MachOMagic32Le)
+            return "32-bit Mach-O (MH_MAGIC / 0xFEEDFACE) is not supported in v1; only 64-bit (MH_MAGIC_64) slices are accepted.";
+
+        if (magic != MachOMagic64Le) return null;
+
+        var headerSize = 32; // mach_header_64
+        if (bytes.Length < headerSize) return null;
+        var ncmds = BinaryPrimitives.ReadUInt32LittleEndian(bytes[16..]);
+
+        var cmdOffset = headerSize;
+        for (var i = 0u; i < ncmds; i++)
+        {
+            if (cmdOffset + 8 > bytes.Length) break;
+            var cmd = BinaryPrimitives.ReadUInt32LittleEndian(bytes[cmdOffset..]);
+            var cmdsize = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(cmdOffset + 4)..]);
+            if (cmdsize < 8 || cmdOffset + cmdsize > (uint)bytes.Length) break;
+
+            if (cmd == LcDyldChainedFixups)
+                return "LC_DYLD_CHAINED_FIXUPS (0x80000034) is present; chained-fixup rebase binaries are not supported in v1.";
+
+            if (cmd == LcSegment64)
+            {
+                // segment_command_64: cmd(4)+cmdsize(4)+segname(16)+...
+                if (cmdOffset + 24 <= bytes.Length)
+                {
+                    var segName = ReadFixedString(bytes, cmdOffset + 8, 16);
+                    if (string.Equals(segName, "__LLVM", StringComparison.Ordinal))
+                        return "The __LLVM segment is present; embedded bitcode binaries are not supported in v1.";
+                }
+            }
+
+            cmdOffset += (int)cmdsize;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Parses a fat (universal) Mach-O binary and returns the file-offset and size of the best
+    /// slice matching <paramref name="preferred"/>. If <paramref name="preferred"/> is <c>null</c>
+    /// or not found, falls back to <see cref="Architecture.Arm64"/> then <see cref="Architecture.X64"/>.
+    /// </summary>
+    /// <returns>
+    /// A successful result containing (sliceOffset, sliceSize, arch) on success, or an error result
+    /// with kind <see cref="ErrorKinds.MachoFeatureUnsupported"/> when no compatible slice is found.
+    /// </returns>
+    public static NativeResult<(uint Offset, uint Size, Architecture Arch)> ParseFatSlice(
+        ReadOnlySpan<byte> bytes,
+        Architecture? preferred = null)
+    {
+        if (bytes.Length < 8)
+            return NativeResult.Fail<(uint, uint, Architecture)>(
+                ErrorKinds.MachoFeatureUnsupported,
+                "Fat binary is too small to contain a valid fat_header.");
+
+        var magic = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
+        var is64FatHeader = magic == FatMagic64Le;
+
+        // fat_header: magic(4) + nfat_arch(4) -- all big-endian
+        var nfatArch = BinaryPrimitives.ReadUInt32BigEndian(bytes[4..]);
+        if (nfatArch == 0)
+            return NativeResult.Fail<(uint, uint, Architecture)>(
+                ErrorKinds.MachoFeatureUnsupported,
+                "Fat binary contains zero architecture slices.");
+
+        // Reject absurdly large slice counts before iterating to prevent DoS.
+        const uint MaxFatArches = 128;
+        if (nfatArch > MaxFatArches)
+            nfatArch = MaxFatArches;
+
+        // fat_arch:    cputype(4)+cpusubtype(4)+offset(4)+size(4)+align(4)            = 20 bytes
+        // fat_arch_64: cputype(4)+cpusubtype(4)+offset(8)+size(8)+align(4)+reserved(4)= 32 bytes
+        var archEntrySize = is64FatHeader ? 32 : 20;
+        const int archTableStart = 8;
+
+        var slices = new List<(int CpuType, uint Offset, uint Size)>();
+        for (var i = 0u; i < nfatArch; i++)
+        {
+            var entryBase = archTableStart + (int)(i * (uint)archEntrySize);
+            if (entryBase + archEntrySize > bytes.Length) break;
+
+            var cpuType = BinaryPrimitives.ReadInt32BigEndian(bytes[entryBase..]);
+            uint offset, size;
+            if (is64FatHeader)
+            {
+                var offset64 = BinaryPrimitives.ReadUInt64BigEndian(bytes[(entryBase + 8)..]);
+                var size64 = BinaryPrimitives.ReadUInt64BigEndian(bytes[(entryBase + 16)..]);
+                if (offset64 > int.MaxValue || size64 > int.MaxValue) continue;
+                offset = (uint)offset64;
+                size = (uint)size64;
+            }
+            else
+            {
+                offset = BinaryPrimitives.ReadUInt32BigEndian(bytes[(entryBase + 8)..]);
+                size = BinaryPrimitives.ReadUInt32BigEndian(bytes[(entryBase + 12)..]);
+            }
+
+            // Use ulong arithmetic to avoid uint overflow wrap-around.
+            // Also ensure offset and size fit in int, since ReadOnlyMemory.Slice takes int.
+            if (offset > (uint)int.MaxValue || size > (uint)int.MaxValue) continue;
+            if ((ulong)offset + size > (ulong)bytes.Length) continue;
+            slices.Add((cpuType, offset, size));
+        }
+
+        if (slices.Count == 0)
+            return NativeResult.Fail<(uint, uint, Architecture)>(
+                ErrorKinds.MachoFeatureUnsupported,
+                "Fat binary contains no valid slice entries.");
+
+        static Architecture CpuTypeToArch(int cpuType) => cpuType switch
+        {
+            CpuTypeX86_64 => Architecture.X64,
+            CpuTypeArm64 => Architecture.Arm64,
+            _ => Architecture.Unknown,
+        };
+
+        // Pick priority: preferred -> Arm64 -> X64
+        var priority = new List<Architecture>();
+        if (preferred.HasValue && preferred.Value != Architecture.Unknown)
+            priority.Add(preferred.Value);
+        if (preferred != Architecture.Arm64) priority.Add(Architecture.Arm64);
+        if (preferred != Architecture.X64) priority.Add(Architecture.X64);
+
+        foreach (var arch in priority)
+        {
+            foreach (var (cpuType, offset, size) in slices)
+            {
+                if (CpuTypeToArch(cpuType) == arch)
+                    return NativeResult.Ok("Fat slice selected.", (offset, size, arch));
+            }
+        }
+
+        var cpus = string.Join(", ", slices.Select(s => $"0x{s.CpuType:X8}"));
+        return NativeResult.Fail<(uint, uint, Architecture)>(
+            ErrorKinds.MachoFeatureUnsupported,
+            $"Fat binary contains no supported architecture slice (x86_64 or arm64). Found: {cpus}.");
+    }
 
     /// <summary>
     /// Parses a Mach-O binary from raw bytes and returns a <see cref="NativeImage"/>.
     /// Returns <c>null</c> if the bytes are not a supported Mach-O file.
+    /// Fat binaries are not parsed here; use <see cref="ParseFatSlice"/> to extract a slice first.
     /// </summary>
     public static NativeImage? Read(ReadOnlyMemory<byte> rawBytes, string filePath)
     {
@@ -94,7 +258,7 @@ public static partial class MachOReader
             cmdOffset += (int)cmdsize;
         }
 
-        // Pass 2: collect symbols (uses resolved sections for name lookup)
+        // Pass 2: collect symbols
         var symbols = new List<NativeSymbol>();
         cmdOffset = headerSize;
         for (var i = 0u; i < ncmds; i++)
@@ -204,12 +368,12 @@ public static partial class MachOReader
 
             // Skip STAB (debug) entries
             if ((nType & NStab) != 0) continue;
-            // Skip undefined (imported) symbols — only emit defined
+            // Skip undefined (imported) symbols -- only emit defined
             if ((nType & NType) == NUndf) continue;
 
             if (nStrx >= (uint)strtab.Length) continue;
             var rawName = ReadCString(strtab, (int)nStrx);
-            // macOS symbols carry a leading '_' — strip it
+            // macOS symbols carry a leading '_' -- strip it
             var name = rawName.StartsWith('_') ? rawName[1..] : rawName;
             if (name.Length == 0) continue;
 
