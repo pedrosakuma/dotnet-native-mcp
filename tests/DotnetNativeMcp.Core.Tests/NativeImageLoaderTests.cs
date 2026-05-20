@@ -76,6 +76,10 @@ public class NativeImageLoaderTests
         result.IsError.Should().BeFalse();
         result.Hints.Should().NotBeEmpty();
         result.Data!.Handle.Value.Should().StartWith("i:");
+        if (FixturePaths.SampleAotMstat is not null)
+            result.Hints.Should().Contain(hint => hint.NextTool == "get_size_breakdown");
+        if (FixturePaths.SampleAotDgml is not null)
+            result.Hints.Should().Contain(hint => hint.NextTool == "explain_retention");
     }
 }
 
@@ -104,6 +108,19 @@ internal static class FixturePaths
                 return null;
 
             var candidate = Path.ChangeExtension(binary, ".mstat");
+            return File.Exists(candidate) ? candidate : null;
+        }
+    }
+
+    public static string? SampleAotDgml
+    {
+        get
+        {
+            var binary = SampleAot;
+            if (binary is null)
+                return null;
+
+            var candidate = Path.ChangeExtension(binary, ".dgml");
             return File.Exists(candidate) ? candidate : null;
         }
     }

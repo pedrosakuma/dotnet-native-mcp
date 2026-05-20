@@ -1,3 +1,4 @@
+using DotnetNativeMcp.Core.Dgml;
 using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Imaging;
 using DotnetNativeMcp.Core.Identity;
@@ -110,6 +111,14 @@ public static class NativeImageLoader
             hints.Add(new NextActionHint(
                 "get_size_breakdown",
                 "A sibling .mstat sidecar is available for NativeAOT size analysis.",
+                new Dictionary<string, object?> { ["imageHandle"] = image.Handle.Value }));
+        }
+
+        if (DgmlReader.HasSiblingDgml(image.FilePath))
+        {
+            hints.Add(new NextActionHint(
+                "explain_retention",
+                "A sibling .dgml sidecar is available for NativeAOT retention-path analysis.",
                 new Dictionary<string, object?> { ["imageHandle"] = image.Handle.Value }));
         }
 

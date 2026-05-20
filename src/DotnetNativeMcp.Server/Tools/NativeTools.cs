@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Globalization;
 using DotnetNativeMcp.Core;
+using DotnetNativeMcp.Core.Dgml;
 using DotnetNativeMcp.Core.Diff;
 using DotnetNativeMcp.Core.Disassembly;
 using DotnetNativeMcp.Core.Errors;
@@ -211,6 +212,67 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
                 mstat.Data.TotalSize,
                 rows),
             hints);
+    }
+
+    [McpServerTool(Name = "explain_retention")]
+    [Description(
+        "Reads the NativeAOT DGML reachability sidecar paired with a loaded binary and returns the shortest retained-by path " +
+        "from any root to the matched node. Target matches exact DGML node id or a case-insensitive substring on node label.")]
+    public NativeResult<ExplainRetentionResult> ExplainRetention(
+        [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
+        [Description("Target DGML node query. Matches exact node id or a case-insensitive substring on the node label.")] string target,
+        [Description("Optional absolute path override for the .dgml sidecar. Defaults to a sibling file next to the loaded binary.")] string? dgmlPath = null,
+        [Description("Maximum edge depth to search from any root. Default 12, valid range 1..64.")] int maxDepth = RetentionPathFinder.DefaultMaxDepth)
+    {
+        if (!registry.TryGet(imageHandle, out var image) || image is null)
+            return NativeResult.Fail<ExplainRetentionResult>(
+                ErrorKinds.BinaryNotFound,
+                $"No image found for handle '{imageHandle}'. Call load_native_binary first.");
+
+        if (string.IsNullOrWhiteSpace(target))
+            return NativeResult.Fail<ExplainRetentionResult>(
+                ErrorKinds.InvalidArgument,
+                "target must not be empty.");
+
+        if (maxDepth < 1 || maxDepth > RetentionPathFinder.MaxDepthLimit)
+        {
+            return NativeResult.Fail<ExplainRetentionResult>(
+                ErrorKinds.InvalidArgument,
+                $"maxDepth must be between 1 and {RetentionPathFinder.MaxDepthLimit}. Actual: {maxDepth.ToString(CultureInfo.InvariantCulture)}.");
+        }
+
+        var resolvedDgmlPath = string.IsNullOrWhiteSpace(dgmlPath)
+            ? DgmlReader.GetDefaultDgmlPath(image.FilePath)
+            : Path.GetFullPath(dgmlPath);
+
+        var dgml = DgmlReader.Read(resolvedDgmlPath);
+        if (dgml.IsError)
+            return NativeResult.Fail<ExplainRetentionResult>(dgml.Error!.Kind, dgml.Error.Message, dgml.Error.Detail);
+
+        var targetMatchCount = RetentionPathFinder.CountTargetMatches(dgml.Data!, target);
+        var path = RetentionPathFinder.FindShortestPath(dgml.Data!, target, maxDepth)
+            .Select(segment => new RetentionPathNodeRow(
+                segment.NodeId,
+                segment.Label,
+                segment.Category,
+                segment.IncomingEdgeLabel))
+            .ToList();
+
+        var matchedNode = path.Count > 0 ? path[^1] : null;
+        var summary = path.Count > 0
+            ? $"Found a retention path with {path.Count} node(s) to '{matchedNode!.Label}' from '{Path.GetFileName(resolvedDgmlPath)}'."
+            : $"No retention path found for '{target}' in '{Path.GetFileName(resolvedDgmlPath)}'.";
+
+        return NativeResult.Ok(
+            summary,
+            new ExplainRetentionResult(
+                resolvedDgmlPath,
+                target,
+                targetMatchCount,
+                matchedNode?.Id,
+                matchedNode?.Label,
+                matchedNode?.Category,
+                path));
     }
 
     private static bool TryParseGroupBy(string value, out MstatGroupBy groupBy)
@@ -696,3 +758,20 @@ public sealed record SizeBreakdownRow(
     string? MethodName,
     long TotalSize,
     int AttributionCount);
+
+/// <summary>Result payload for <c>explain_retention</c>.</summary>
+public sealed record ExplainRetentionResult(
+    string DgmlPath,
+    string TargetQuery,
+    int TargetMatchCount,
+    string? MatchedNodeId,
+    string? MatchedNodeLabel,
+    string? MatchedNodeCategory,
+    IReadOnlyList<RetentionPathNodeRow> Path);
+
+/// <summary>One node in a DGML retention path.</summary>
+public sealed record RetentionPathNodeRow(
+    string Id,
+    string Label,
+    string? Category,
+    string? EdgeLabelFromPrevious);
