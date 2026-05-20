@@ -19,7 +19,7 @@ namespace DotnetNativeMcp.Server.Tools;
 /// Accepts <c>NativeFrame</c> handoffs from <c>dotnet-diagnostics-mcp</c>.
 /// </summary>
 [McpServerToolType]
-public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphCache callGraphCache)
+public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphCache callGraphCache, SourceResolver sourceResolver)
 {
     [McpServerTool(Name = "load_native_binary")]
     [Description(
@@ -259,14 +259,16 @@ public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphC
         "Batch resolves up to 200 addresses against a single loaded native image. " +
         "Accepts hex strings with or without a '0x' prefix, and plain decimal strings. " +
         "Returns one row per address with the raw mangled name, demangled name, section, " +
-        "and byte displacement from the symbol start. " +
+        "byte displacement from the symbol start, and (when debug info is present) a " +
+        "SourceLocation with file, line, and optional SourceLink URL. " +
         "Per-address failures (bad parse, symbol not found) are reported inline — a bad " +
         "address does not fail the whole batch. Supplying an empty list returns an empty " +
         "result without error. Replaces the former single-address 'resolve_symbol' and " +
         "the batch 'symbolicate_stack' tools.")]
     public NativeResult<ResolveSymbolsResult> ResolveSymbols(
         [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
-        [Description("Addresses to resolve (hex with optional 0x prefix, or decimal). Up to 200 entries.")] IReadOnlyList<string> addresses)
+        [Description("Addresses to resolve (hex with optional 0x prefix, or decimal). Up to 200 entries.")] IReadOnlyList<string> addresses,
+        [Description("When true (default), annotates each resolved address with file:line from DWARF/PDB debug info. Set false to skip debug-info I/O.")] bool resolveSource = true)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
             return NativeResult.Fail<ResolveSymbolsResult>(
@@ -279,14 +281,25 @@ public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphC
                 $"Address count {addresses.Count} exceeds the maximum of {StackSymbolicator.MaxFrameCount}.");
 
         var inner = StackSymbolicator.ResolveAddresses(image, addresses);
-        var rows = inner.Data!.Select(r => new ResolvedAddressRow(
-            r.InputAddress,
-            r.ResolvedRvaHex,
-            r.MangledName,
-            r.DemangledName,
-            r.SectionName,
-            r.Displacement,
-            r.Error)).ToList();
+        var rows = inner.Data!.Select(r =>
+        {
+            SourceLocation? src = null;
+            if (resolveSource && !r.IsError && r.ResolvedRvaHex is not null)
+            {
+                var va = image.ImageBase + ulong.Parse(r.ResolvedRvaHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+                src = sourceResolver.TrySourceFor(image, va);
+            }
+
+            return new ResolvedAddressRow(
+                r.InputAddress,
+                r.ResolvedRvaHex,
+                r.MangledName,
+                r.DemangledName,
+                r.SectionName,
+                r.Displacement,
+                src,
+                r.Error);
+        }).ToList();
 
         return NativeResult.Ok(
             inner.Summary,
@@ -621,12 +634,14 @@ public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphC
         "Supply either an RVA or a symbol name to center the window. " +
         "Each instruction includes absolute address, raw bytes, mnemonic, operands, " +
         "and a cross-ref hint for CALL/JMP targets that can be resolved against the symbol table. " +
+        "When resolveSource is true each instruction is optionally annotated with file:line from DWARF debug info. " +
         "Default: 64 instructions. Max: 2048. ARM64 returns 'disassembly_unsupported'.")]
     public NativeResult<IReadOnlyList<InstructionView>> Disassemble(
         [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
         [Description("Hex RVA or absolute VA (no 0x prefix) to start disassembly.")] string? address = null,
         [Description("Symbol name to disassemble (looked up then resolved to its RVA). Mutually exclusive with 'address'.")] string? symbolName = null,
-        [Description("Maximum instructions to decode. Default 64, capped at 2048.")] int maxInstructions = IcedDisassembler.DefaultMaxInstructions)
+        [Description("Maximum instructions to decode. Default 64, capped at 2048.")] int maxInstructions = IcedDisassembler.DefaultMaxInstructions,
+        [Description("When true, annotates each instruction with file:line from DWARF debug info (may be noisy). Default false.")] bool resolveSource = false)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
             return NativeResult.Fail<IReadOnlyList<InstructionView>>(
@@ -656,7 +671,20 @@ public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphC
                 ErrorKinds.InvalidArgument, "Supply either 'address' or 'symbolName'.");
         }
 
-        return IcedDisassembler.Disassemble(image, rva, maxInstructions);
+        var disasmResult = IcedDisassembler.Disassemble(image, rva, maxInstructions);
+        if (disasmResult.IsError || !resolveSource)
+            return disasmResult;
+
+        var annotated = disasmResult.Data!.Select(instr =>
+        {
+            if (!ulong.TryParse(instr.AddressHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var instrVa))
+                return instr;
+
+            var loc = sourceResolver.TrySourceFor(image, instrVa);
+            return loc is null ? instr : instr with { Source = loc };
+        }).ToList();
+
+        return NativeResult.Ok(disasmResult.Summary, (IReadOnlyList<InstructionView>)annotated, disasmResult.Hints);
     }
 
     [McpServerTool(Name = "find_native_callers")]
@@ -724,13 +752,21 @@ public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphC
         var displayName = targetSym?.Name ?? target;
 
         var rows = callers
-            .Select(site => new CallSiteRow(
-                site.SourceAddressHex,
-                site.CallerSymbol,
-                site.CallerDemangled,
-                site.Mnemonic,
-                site.Operands,
-                site.RawBytes))
+            .Select(site =>
+            {
+                SourceLocation? src = null;
+                if (ulong.TryParse(site.SourceAddressHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var siteVa))
+                    src = sourceResolver.TrySourceFor(image, siteVa);
+
+                return new CallSiteRow(
+                    site.SourceAddressHex,
+                    site.CallerSymbol,
+                    site.CallerDemangled,
+                    site.Mnemonic,
+                    site.Operands,
+                    site.RawBytes,
+                    src);
+            })
             .ToList();
 
         var hints = new List<NextActionHint>();
@@ -1135,6 +1171,7 @@ public sealed record RetentionPathNodeRow(
 /// <param name="DemangledName">Best-effort demangled name on success.</param>
 /// <param name="SectionName">Containing section name when available.</param>
 /// <param name="Displacement">Byte offset from the start of the resolved symbol.</param>
+/// <param name="Source">Source file+line from DWARF/PDB debug info, when available and resolveSource=true.</param>
 /// <param name="Error">Per-row error; <c>null</c> on success.</param>
 public sealed record ResolvedAddressRow(
     string InputAddress,
@@ -1143,6 +1180,7 @@ public sealed record ResolvedAddressRow(
     string? DemangledName,
     string? SectionName,
     ulong? Displacement,
+    SourceLocation? Source,
     NativeError? Error);
 
 /// <summary>Result payload for <c>resolve_symbols</c>.</summary>
@@ -1155,13 +1193,15 @@ public sealed record ResolveSymbolsResult(IReadOnlyList<ResolvedAddressRow> Reso
 /// <param name="Mnemonic">Lowercase transfer-of-control mnemonic (e.g. <c>call</c>, <c>jmp</c>).</param>
 /// <param name="Operands">Formatted operand text.</param>
 /// <param name="RawBytes">Hex-encoded raw bytes of the instruction.</param>
+/// <param name="Source">Source file+line from DWARF/PDB debug info, when available.</param>
 public sealed record CallSiteRow(
     string SourceAddressHex,
     string? CallerSymbol,
     string? CallerDemangled,
     string Mnemonic,
     string Operands,
-    string RawBytes);
+    string RawBytes,
+    SourceLocation? Source = null);
 
 /// <summary>Result payload for <c>find_native_callers</c>.</summary>
 /// <param name="TargetAddressHex">Resolved absolute virtual address of the target, lowercase hex.</param>

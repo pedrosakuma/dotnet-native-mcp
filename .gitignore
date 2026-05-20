@@ -26,3 +26,4 @@ tests/external/
 ## NativeAOT fixture build output — generated at test build time
 tests/fixtures/SampleAot/bin/
 tests/fixtures/SampleAot/obj/
+.clean-wt

@@ -2,6 +2,7 @@ using DotnetNativeMcp.Core;
 using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Identity;
 using DotnetNativeMcp.Core.Imaging;
+using DotnetNativeMcp.Core.Symbols;
 using DotnetNativeMcp.Server.Tools;
 using FluentAssertions;
 using Xunit;
@@ -13,7 +14,7 @@ public class ExplainRetentionToolTests
     [Fact]
     public void ExplainRetention_UnknownHandle_ReturnsBinaryNotFound()
     {
-        var tool = new NativeTools(new NativeBinaryRegistry(), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tool = new NativeTools(new NativeBinaryRegistry(), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
 
         var result = tool.ExplainRetention("i:deadbeef:00000000", "MyDbContext");
 
@@ -26,7 +27,7 @@ public class ExplainRetentionToolTests
     {
         var registry = new FakeRegistry();
         registry.Add(CreateImage("/workspace/app.bin"));
-        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
 
         var result = tool.ExplainRetention(registry.ImageHandle!, "MyDbContext", dgmlPath: "/no/such/file.dgml");
 
@@ -39,7 +40,7 @@ public class ExplainRetentionToolTests
     {
         var registry = new FakeRegistry();
         registry.Add(CreateImage("/workspace/app.bin"));
-        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
 
         var result = tool.ExplainRetention(registry.ImageHandle!, "   ");
 
@@ -52,7 +53,7 @@ public class ExplainRetentionToolTests
     {
         var registry = new FakeRegistry();
         registry.Add(CreateImage("/workspace/app.bin"));
-        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
 
         var result = tool.ExplainRetention(registry.ImageHandle!, "MyDbContext", maxDepth: 65);
 
@@ -81,7 +82,7 @@ public class ExplainRetentionToolTests
         {
             var registry = new FakeRegistry();
             registry.Add(CreateImage("/workspace/app.bin"));
-            var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+            var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
 
             var result = tool.ExplainRetention(registry.ImageHandle!, "MyDbContext", dgmlPath: dgmlPath, maxDepth: 4);
 
@@ -111,7 +112,7 @@ public class ExplainRetentionToolTests
         var load = registry.Load(fixturePath);
         load.IsError.Should().BeFalse();
 
-        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
         var result = tool.ExplainRetention(load.Data!.Handle.Value, "Program", maxDepth: 12);
 
         result.IsError.Should().BeFalse();

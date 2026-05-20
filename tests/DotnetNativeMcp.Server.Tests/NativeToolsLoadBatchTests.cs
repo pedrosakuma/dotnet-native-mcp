@@ -3,6 +3,7 @@ using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Identity;
 using DotnetNativeMcp.Core.Imaging;
 using DotnetNativeMcp.Core.Xref;
+using DotnetNativeMcp.Core.Symbols;
 using DotnetNativeMcp.Server.Tools;
 using FluentAssertions;
 using Xunit;
@@ -17,7 +18,7 @@ public class NativeToolsLoadBatchTests
     // ---------------------------------------------------------------------------
 
     private static NativeTools MakeTools(BatchableTestRegistry? registry = null) =>
-        new NativeTools(registry ?? new BatchableTestRegistry(), new NativeCallGraphCache());
+        new NativeTools(registry ?? new BatchableTestRegistry(), new NativeCallGraphCache(), new SourceResolver());
 
     // ---------------------------------------------------------------------------
     // Validation: both path + entries → invalid_argument

@@ -1,6 +1,8 @@
 using System.Security.Cryptography;
 using System.Text;
 using DotnetNativeMcp.Core.Imaging;
+using DotnetNativeMcp.Core.Xref;
+using DotnetNativeMcp.Core.Symbols;
 using DotnetNativeMcp.Server.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -85,6 +87,8 @@ return 0;
 static IMcpServerBuilder ConfigureMcpServer(IServiceCollection services)
 {
     services.AddSingleton<INativeBinaryRegistry, NativeBinaryRegistry>();
+    services.AddSingleton<NativeCallGraphCache>();
+    services.AddSingleton<SourceResolver>();
 
     return services
         .AddMcpServer(options =>

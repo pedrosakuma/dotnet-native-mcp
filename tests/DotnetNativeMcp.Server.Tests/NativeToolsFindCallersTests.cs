@@ -36,7 +36,7 @@ public class NativeToolsFindCallersTests
     private static NativeTools MakeTools(params NativeImage[] images)
     {
         var cache = new NativeCallGraphCache();
-        return new NativeTools(new TestBinaryRegistry(images), cache);
+        return new NativeTools(new TestBinaryRegistry(images), cache, new SourceResolver());
     }
 
     // ---------------------------------------------------------------------------

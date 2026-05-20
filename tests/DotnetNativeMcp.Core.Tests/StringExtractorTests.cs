@@ -3,6 +3,7 @@ using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Identity;
 using DotnetNativeMcp.Core.Imaging;
 using DotnetNativeMcp.Core.Strings;
+using DotnetNativeMcp.Core.Symbols;
 using DotnetNativeMcp.Server.Tools;
 using FluentAssertions;
 using Xunit;
@@ -74,7 +75,7 @@ public class StringExtractorTests
     [Fact]
     public void ExtractStrings_MissingHandle_ReturnsBinaryNotFound()
     {
-        var tools = new NativeTools(new FakeRegistry(), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tools = new NativeTools(new FakeRegistry(), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
 
         var result = tools.ExtractStrings("missing");
 
@@ -92,7 +93,7 @@ public class StringExtractorTests
     {
         var registry = new FakeRegistry();
         registry.Add(CreateImage((".rodata", 0x1000UL, Encoding.ASCII.GetBytes("alpha\0beta"))));
-        var tools = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tools = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
         var handle = registry.List().Single().Handle.Value;
 
         var result = tools.ExtractStrings(handle, minLength: minLength, encodings: encodings, pageSize: pageSize);
@@ -106,7 +107,7 @@ public class StringExtractorTests
     {
         var registry = new FakeRegistry();
         registry.Add(CreateImage((".rodata", 0x1000UL, Encoding.ASCII.GetBytes("alpha\0bravo\0charlie\0"))));
-        var tools = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tools = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
         var handle = registry.List().Single().Handle.Value;
 
         var result = tools.ExtractStrings(handle, minLength: 5, encodings: "ascii", pageSize: 2);
@@ -126,7 +127,7 @@ public class StringExtractorTests
         registry.Add(CreateImage(
             (".rodata", 0x1000UL, Encoding.ASCII.GetBytes("alpha\0")),
             (".data", 0x2000UL, Encoding.ASCII.GetBytes("omega\0"))));
-        var tools = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tools = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
         var handle = registry.List().Single().Handle.Value;
 
         var result = tools.ExtractStrings(handle, minLength: 5, encodings: "ascii", section: ".data");
@@ -143,7 +144,7 @@ public class StringExtractorTests
         if (FixturePaths.SampleAot is not { } fixturePath || !File.Exists(fixturePath))
             return;
 
-        var tools = new NativeTools(new NativeBinaryRegistry(), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tools = new NativeTools(new NativeBinaryRegistry(), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
         var loadResult = (NativeResult<LoadNativeBinaryResult>)tools.LoadNativeBinary(path: fixturePath);
         loadResult.IsError.Should().BeFalse();
 

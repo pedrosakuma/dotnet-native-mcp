@@ -1,6 +1,7 @@
 using System.Linq;
 using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Imaging;
+using DotnetNativeMcp.Core.Symbols;
 using DotnetNativeMcp.Server.Tools;
 using FluentAssertions;
 using Xunit;
@@ -12,7 +13,7 @@ public class GetSizeBreakdownToolTests
     [Fact]
     public void GetSizeBreakdown_UnknownHandle_ReturnsBinaryNotFound()
     {
-        var tool = new NativeTools(new NativeBinaryRegistry(), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tool = new NativeTools(new NativeBinaryRegistry(), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
 
         var result = tool.GetSizeBreakdown("i:deadbeef:00000000");
 
@@ -31,7 +32,7 @@ public class GetSizeBreakdownToolTests
         var load = registry.Load(fixturePath);
         load.IsError.Should().BeFalse();
 
-        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
         var result = tool.GetSizeBreakdown(load.Data!.Handle.Value, mstatPath: "/no/such/file.mstat");
 
         result.IsError.Should().BeTrue();
@@ -50,7 +51,7 @@ public class GetSizeBreakdownToolTests
         var load = registry.Load(fixturePath);
         load.IsError.Should().BeFalse();
 
-        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
         var result = tool.GetSizeBreakdown(load.Data!.Handle.Value, groupBy: "assembly", topN: 10);
 
         result.IsError.Should().BeFalse();

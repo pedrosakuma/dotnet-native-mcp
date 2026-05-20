@@ -26,7 +26,7 @@ public class NativeToolsResolveSymbolsTests
     }
 
     private static NativeTools MakeTools(params NativeImage[] images) =>
-        new NativeTools(new TestBinaryRegistry(images), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        new NativeTools(new TestBinaryRegistry(images), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
 
     // ---------------------------------------------------------------------------
     // Bad handle → top-level error

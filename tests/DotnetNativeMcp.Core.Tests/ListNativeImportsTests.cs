@@ -4,6 +4,7 @@ using DotnetNativeMcp.Core;
 using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Identity;
 using DotnetNativeMcp.Core.Imaging;
+using DotnetNativeMcp.Core.Symbols;
 using DotnetNativeMcp.Server.Tools;
 using FluentAssertions;
 using Xunit;
@@ -62,7 +63,7 @@ public class ListNativeImportsTests
     [Fact]
     public void ListNativeImports_UnknownHandle_ReturnsBinaryNotFound()
     {
-        var tool = new NativeTools(new ImportTestBinaryRegistry(), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tool = new NativeTools(new ImportTestBinaryRegistry(), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
 
         var result = tool.ListNativeImports("i:deadbeef:00000000");
 
@@ -74,7 +75,7 @@ public class ListNativeImportsTests
     public void ListNativeImports_InvalidKind_ReturnsInvalidArgument()
     {
         var image = CreateSyntheticPeImage(CreateSyntheticPeBytes());
-        var tool = new NativeTools(new ImportTestBinaryRegistry(image), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tool = new NativeTools(new ImportTestBinaryRegistry(image), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
 
         var result = tool.ListNativeImports(image.Handle.Value, kind: "bogus");
 
@@ -87,7 +88,7 @@ public class ListNativeImportsTests
     public void ListNativeImports_Functions_PaginatesAndFiltersByLibrary()
     {
         var image = CreateSyntheticPeImage(CreateSyntheticPeBytes());
-        var tool = new NativeTools(new ImportTestBinaryRegistry(image), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tool = new NativeTools(new ImportTestBinaryRegistry(image), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
 
         var page = tool.ListNativeImports(image.Handle.Value, kind: "functions", pageSize: 2);
         var filtered = tool.ListNativeImports(image.Handle.Value, kind: "functions", nameFilter: "ntdll");
@@ -109,7 +110,7 @@ public class ListNativeImportsTests
     public void ListNativeImports_Libraries_ReturnsDrillDownHint()
     {
         var image = CreateSyntheticPeImage(CreateSyntheticPeBytes());
-        var tool = new NativeTools(new ImportTestBinaryRegistry(image), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tool = new NativeTools(new ImportTestBinaryRegistry(image), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
 
         var result = tool.ListNativeImports(image.Handle.Value, kind: "libraries");
 
@@ -127,7 +128,7 @@ public class ListNativeImportsTests
     public void ListNativeImports_MalformedImportTable_ReturnsEmptyDataAndTypedError()
     {
         var image = CreateSyntheticPeImage(CreateSyntheticPeBytes(malformed: true), fileName: "broken.dll");
-        var tool = new NativeTools(new ImportTestBinaryRegistry(image), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
+        var tool = new NativeTools(new ImportTestBinaryRegistry(image), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
 
         var result = tool.ListNativeImports(image.Handle.Value, kind: "functions");
 
