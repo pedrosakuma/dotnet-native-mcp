@@ -78,6 +78,21 @@ docker run --rm -p 8789:8080 \
 Default port: **8789**. Slot picked to continue the convention started by
 `dotnet-diagnostics-mcp` (8787) and `dotnet-assembly-mcp` (8788).
 
+## Running the triad with Docker Compose
+
+To bring up all three servers together (diagnostics on 8787, assembly on 8788,
+native on 8789):
+
+```bash
+export BINARIES_DIR=/path/to/your/nativeaot/binaries
+export ASSEMBLIES_DIR=/path/to/your/managed/assemblies
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+See **[docs/compose.md](docs/compose.md)** for the full guide: env vars,
+bearer-token setup, MCP client configuration, and how to attach to live
+processes.
+
 ## Authentication
 
 HTTP transport supports optional bearer-token auth. Leave it unset for local/dev

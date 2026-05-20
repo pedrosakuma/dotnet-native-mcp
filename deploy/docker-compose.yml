@@ -1,0 +1,107 @@
+# Joint docker-compose for the dotnet MCP server triad.
+#
+# Brings up all three servers together so an MCP-aware client (Copilot CLI,
+# Cursor, Claude Desktop, VS Code...) can talk to:
+#
+#   * dotnet-diagnostics-mcp  -> http://127.0.0.1:8787/mcp   (live process attach)
+#   * dotnet-assembly-mcp     -> http://127.0.0.1:8788/mcp   (managed metadata)
+#   * dotnet-native-mcp       -> http://127.0.0.1:8789/mcp   (native binary navigation)
+#
+# The diagnostics server emits NativeFrame / MethodIdentity handles that the
+# other two servers resolve. Running the triad together is the default supported
+# topology — see docs/handoff-contract.md.
+#
+# Quick start
+#   # from this repo:
+#   export BINARIES_DIR=/abs/path/to/your/nativeaot/binaries
+#   export ASSEMBLIES_DIR=/abs/path/to/your/managed/assemblies
+#   docker compose -f deploy/docker-compose.yml up -d
+#
+# With a shared bearer token (recommended for any non-127.0.0.1 deploy):
+#   MCP_BEARER_TOKEN=$(openssl rand -hex 32) docker compose -f deploy/docker-compose.yml up -d
+#
+# The same file lives in pedrosakuma/dotnet-assembly-mcp:deploy/docker-compose.yml
+# and pedrosakuma/dotnet-diagnostics-mcp:deploy/docker-compose.yml.
+# Keep the three copies in sync when editing — drift is the single biggest
+# cost of the joint topology.
+#
+# Notes
+#   * The diagnostics sidecar needs PID visibility on whatever .NET process you
+#     want to attach to. The compose file alone doesn't give it that — see
+#     deploy/k8s/sample-sidecar.yaml in the diagnostics repo for the canonical
+#     attach recipe (shareProcessNamespace + shared emptyDir over /tmp).
+#     Locally, `pid: host` is the docker-compose equivalent; it's commented out
+#     by default because it elevates the container's blast radius.
+#   * All three servers honour MCP_BEARER_TOKEN as the shared fallback when
+#     MCP_BEARER_TOKEN is set on the host.
+
+name: dotnet-mcp
+
+services:
+  diagnostics:
+    image: ghcr.io/pedrosakuma/dotnet-diagnostics-mcp:latest
+    container_name: dotnet-diagnostics-mcp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8080"
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      MCP_BEARER_TOKEN: ${MCP_BEARER_TOKEN:-}
+      DOTNET_NOLOGO: "1"
+    # Uncomment to enable host-PID attach for local .NET targets running on the
+    # host. Elevates blast radius — only do this on a developer machine.
+    # pid: host
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  assembly:
+    image: ghcr.io/pedrosakuma/dotnet-assembly-mcp:latest
+    container_name: dotnet-assembly-mcp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8788:8080"
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      ASSEMBLY_MCP_BEARER_TOKEN: ${MCP_BEARER_TOKEN:-}
+      DOTNET_NOLOGO: "1"
+    volumes:
+      # Mount the directory holding the managed assemblies you want navigated,
+      # read-only. Override via the ASSEMBLIES_DIR env var on the host. Defaults
+      # to a docker-managed volume so `up` works on a clean checkout.
+      - ${ASSEMBLIES_DIR:-assembly-cache}:/assemblies:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  native:
+    image: ghcr.io/pedrosakuma/dotnet-native-mcp:latest
+    container_name: dotnet-native-mcp
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8789:8080"
+    environment:
+      ASPNETCORE_URLS: http://0.0.0.0:8080
+      NATIVE_MCP_BEARER_TOKEN: ${MCP_BEARER_TOKEN:-}
+      DOTNET_NOLOGO: "1"
+    volumes:
+      # Mount the directory holding the NativeAOT / R2R binaries you want
+      # navigated, read-only. Override via the BINARIES_DIR env var on the host.
+      # Defaults to a docker-managed volume so `up` works on a clean checkout.
+      - ${BINARIES_DIR:-binary-cache}:/binaries:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  assembly-cache:
+  binary-cache:
