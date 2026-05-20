@@ -1,7 +1,7 @@
 # dotnet-native-mcp
 
-> **Status:** V1 in progress. Nine MCP tools are live:
-> `load_native_binary`, `list_native_symbols`, `list_native_imports`, `resolve_symbol`, `extract_strings`, `symbolicate_stack`, `get_size_breakdown`, `compare_native_binaries`, `disassemble`.
+> **Status:** V1 in progress. Ten MCP tools are live:
+> `load_native_binary`, `list_native_symbols`, `list_native_imports`, `resolve_symbol`, `extract_strings`, `symbolicate_stack`, `get_size_breakdown`, `explain_retention`, `compare_native_binaries`, `disassemble`.
 > See the [V0 tracking issue](https://github.com/pedrosakuma/dotnet-native-mcp/issues/1).
 
 MCP server for **navigating native .NET binaries** — NativeAOT, R2R-only,
@@ -43,6 +43,7 @@ are available.
 | `extract_strings`        | Paginated printable ASCII / UTF-16LE scan over `.rodata` / `.rdata` / `.data.rel.ro` / `__const` (with `.data` fallback). Returns section + offset for forensics. |
 | `symbolicate_stack`      | Bulk stack symbolication for up to 200 frames. Accepts `NativeFrame`-style rows or raw hex addresses plus a default image handle; each row reports its own success/error state. |
 | `get_size_breakdown`     | Read the `.mstat` sidecar emitted by NativeAOT and aggregate native bytes by assembly, namespace, type, or method. |
+| `explain_retention`      | Read the DGML reachability sidecar emitted by NativeAOT and return the shortest root → target path that kept a type or method reachable. |
 | `compare_native_binaries`| Diff two loaded images: build-id, format, arch, file/section size deltas, added/removed/size-changed symbols. |
 | `disassemble`            | Iced x86/x64 disassembly with CALL/JMP cross-ref hints. Default 64 instructions, capped at 2048. ARM64 returns `disassembly_unsupported`. |
 
@@ -58,8 +59,8 @@ ILC emits structured sidecars on request:
 | `.map`   | `IlcMapFileType=Normal`         | symbol → address map                               |
 | DGML     | `IlcGenerateDgmlFile=true`      | reachability graph from the trimmer                |
 
-`.mstat` parsing is the highest-value V1 item — it answers "what blew up my AOT
-binary".
+`.mstat` parsing answers "what blew up my AOT binary"; DGML reachability answers
+"why was this type or method kept?".
 
 ## Install
 

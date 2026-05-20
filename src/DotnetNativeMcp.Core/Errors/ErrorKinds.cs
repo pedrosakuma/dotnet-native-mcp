@@ -21,6 +21,9 @@ public static class ErrorKinds
     /// <summary>No paired .mstat sidecar could be found.</summary>
     public const string MstatNotFound = "mstat_not_found";
 
+    /// <summary>No paired .dgml sidecar could be found.</summary>
+    public const string DgmlNotFound = "dgml_not_found";
+
     /// <summary>Architecture not supported in this version (e.g. ARM64 pre-V1).</summary>
     public const string DisassemblyUnsupported = "disassembly_unsupported";
 
