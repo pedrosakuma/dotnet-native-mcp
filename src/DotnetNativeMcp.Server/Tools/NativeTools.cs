@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Globalization;
 using DotnetNativeMcp.Core;
+using DotnetNativeMcp.Core.Diff;
 using DotnetNativeMcp.Core.Disassembly;
 using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Imaging;
@@ -10,7 +11,7 @@ using ModelContextProtocol.Server;
 namespace DotnetNativeMcp.Server.Tools;
 
 /// <summary>
-/// V0 MCP tools for navigating native .NET binaries (NativeAOT and ReadyToRun).
+/// MCP tools for navigating native .NET binaries (NativeAOT and ReadyToRun).
 /// Accepts <c>NativeFrame</c> handoffs from <c>dotnet-diagnostics-mcp</c>.
 /// </summary>
 [McpServerToolType]
@@ -147,6 +148,93 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
                 new Dictionary<string, object?> { ["imageHandle"] = imageHandle, ["address"] = rvaHex })]);
     }
 
+    [McpServerTool(Name = "compare_native_binaries")]
+    [Description(
+        "Diffs two loaded native images and reports build-id, format, architecture, file-size, section-size, and symbol-size deltas. " +
+        "Use it to spot release-over-release native binary regressions and identify the symbols that grew the most.")]
+    public NativeResult<CompareNativeBinariesResult> CompareNativeBinaries(
+        [Description("Baseline ImageHandle returned by load_native_binary.")] string baselineHandle,
+        [Description("Current ImageHandle returned by load_native_binary.")] string currentHandle,
+        [Description("Maximum added, removed, and changed symbols to return per category. Must be between 1 and 500.")] int topN = 50)
+    {
+        if (!registry.TryGet(baselineHandle, out var baseline) || baseline is null)
+            return NativeResult.Fail<CompareNativeBinariesResult>(
+                ErrorKinds.BinaryNotFound,
+                $"No image found for handle '{baselineHandle}'. Call load_native_binary first.");
+
+        if (!registry.TryGet(currentHandle, out var current) || current is null)
+            return NativeResult.Fail<CompareNativeBinariesResult>(
+                ErrorKinds.BinaryNotFound,
+                $"No image found for handle '{currentHandle}'. Call load_native_binary first.");
+
+        if (topN < 1 || topN > 500)
+            return NativeResult.Fail<CompareNativeBinariesResult>(
+                ErrorKinds.InvalidArgument,
+                $"topN must be between 1 and 500. Actual: {topN.ToString(CultureInfo.InvariantCulture)}.");
+
+        var comparison = NativeBinaryComparer.Compare(baseline, current, topN);
+        var data = new CompareNativeBinariesResult(
+            comparison.Verdict.ToString().ToLowerInvariant(),
+            new ValueDeltaResult(comparison.BaselineBuildIdHex, comparison.CurrentBuildIdHex, comparison.IsBuildIdEqual),
+            new ValueDeltaResult(comparison.BaselineFormat.ToString(), comparison.CurrentFormat.ToString(), comparison.IsFormatEqual),
+            new ValueDeltaResult(comparison.BaselineArchitecture.ToString(), comparison.CurrentArchitecture.ToString(), comparison.IsArchitectureEqual),
+            comparison.BaselineBinarySizeBytes,
+            comparison.CurrentBinarySizeBytes,
+            comparison.TotalBinarySizeDeltaBytes,
+            comparison.SectionDeltas.Select(delta => new SectionSizeDeltaRow(
+                delta.Name,
+                delta.BaselineSizeBytes,
+                delta.CurrentSizeBytes,
+                delta.SizeDeltaBytes)).ToList(),
+            comparison.AddedSymbolCount,
+            comparison.RemovedSymbolCount,
+            comparison.ChangedSymbolCount,
+            comparison.AddedSymbols.Select(symbol => new SymbolInventoryRow(
+                symbol.Name,
+                symbol.DemangledName,
+                ToHex(symbol.Rva),
+                symbol.SizeBytes,
+                symbol.Section,
+                symbol.IsFunction)).ToList(),
+            comparison.RemovedSymbols.Select(symbol => new SymbolInventoryRow(
+                symbol.Name,
+                symbol.DemangledName,
+                ToHex(symbol.Rva),
+                symbol.SizeBytes,
+                symbol.Section,
+                symbol.IsFunction)).ToList(),
+            comparison.ChangedSymbols.Select(symbol => new ChangedSymbolDeltaRow(
+                symbol.Name,
+                symbol.DemangledName,
+                ToHex(symbol.BaselineRva),
+                ToHex(symbol.CurrentRva),
+                symbol.RvaDeltaBytes,
+                symbol.BaselineSizeBytes,
+                symbol.CurrentSizeBytes,
+                symbol.SizeDeltaBytes,
+                symbol.BaselineSection,
+                symbol.CurrentSection,
+                symbol.IsFunction)).ToList());
+
+        var hints = new List<NextActionHint>();
+        if (comparison.ChangedSymbols.Count > 0)
+        {
+            hints.Add(new NextActionHint(
+                "resolve_symbol",
+                "Inspect the largest size-changed symbol in the current image.",
+                new Dictionary<string, object?>
+                {
+                    ["imageHandle"] = currentHandle,
+                    ["name"] = comparison.ChangedSymbols[0].Name,
+                }));
+        }
+
+        return NativeResult.Ok(
+            $"{comparison.AddedSymbolCount} added, {comparison.RemovedSymbolCount} removed, {comparison.ChangedSymbolCount} size-changed (Δ {FormatByteDelta(comparison.TotalBinarySizeDeltaBytes)}).",
+            data,
+            hints);
+    }
+
     [McpServerTool(Name = "disassemble")]
     [Description(
         "Disassembles native machine code using Iced (x86/x64 only). " +
@@ -190,6 +278,32 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
 
         return IcedDisassembler.Disassemble(image, rva, maxInstructions);
     }
+
+    private static string ToHex(ulong value) => value.ToString("x16", CultureInfo.InvariantCulture);
+
+    private static string FormatByteDelta(long delta)
+    {
+        if (delta == 0)
+            return "0 B";
+
+        var sign = delta > 0 ? "+" : "-";
+        return sign + FormatBytes(delta > 0 ? (ulong)delta : (ulong)(-delta));
+    }
+
+    private static string FormatBytes(ulong bytes)
+    {
+        string[] units = ["B", "KB", "MB", "GB", "TB"];
+        var value = (double)bytes;
+        var unitIndex = 0;
+        while (value >= 1024 && unitIndex < units.Length - 1)
+        {
+            value /= 1024;
+            unitIndex++;
+        }
+
+        var format = unitIndex == 0 ? "0" : "0.0";
+        return value.ToString(format, CultureInfo.InvariantCulture) + " " + units[unitIndex];
+    }
 }
 
 /// <summary>Result payload for <c>load_native_binary</c>.</summary>
@@ -232,3 +346,56 @@ public sealed record ResolveSymbolResult(
     ulong Size,
     string? Section,
     bool IsFunction);
+
+/// <summary>Simple baseline/current delta payload.</summary>
+public sealed record ValueDeltaResult(
+    string Baseline,
+    string Current,
+    bool IsEqual);
+
+/// <summary>Section size delta row for <c>compare_native_binaries</c>.</summary>
+public sealed record SectionSizeDeltaRow(
+    string Name,
+    ulong BaselineSizeBytes,
+    ulong CurrentSizeBytes,
+    long SizeDeltaBytes);
+
+/// <summary>Added or removed symbol row for <c>compare_native_binaries</c>.</summary>
+public sealed record SymbolInventoryRow(
+    string Name,
+    string DemangledName,
+    string RvaHex,
+    ulong SizeBytes,
+    string? Section,
+    bool IsFunction);
+
+/// <summary>Changed symbol row for <c>compare_native_binaries</c>.</summary>
+public sealed record ChangedSymbolDeltaRow(
+    string Name,
+    string DemangledName,
+    string BaselineRvaHex,
+    string CurrentRvaHex,
+    long RvaDeltaBytes,
+    ulong BaselineSizeBytes,
+    ulong CurrentSizeBytes,
+    long SizeDeltaBytes,
+    string? BaselineSection,
+    string? CurrentSection,
+    bool IsFunction);
+
+/// <summary>Result payload for <c>compare_native_binaries</c>.</summary>
+public sealed record CompareNativeBinariesResult(
+    string Verdict,
+    ValueDeltaResult BuildIdDelta,
+    ValueDeltaResult FormatDelta,
+    ValueDeltaResult ArchitectureDelta,
+    long BaselineBinarySizeBytes,
+    long CurrentBinarySizeBytes,
+    long TotalBinarySizeDeltaBytes,
+    IReadOnlyList<SectionSizeDeltaRow> SectionDeltas,
+    int AddedSymbolCount,
+    int RemovedSymbolCount,
+    int ChangedSymbolCount,
+    IReadOnlyList<SymbolInventoryRow> AddedSymbols,
+    IReadOnlyList<SymbolInventoryRow> RemovedSymbols,
+    IReadOnlyList<ChangedSymbolDeltaRow> ChangedSymbols);
