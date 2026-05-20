@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using DotnetNativeMcp.Core.Imaging;
@@ -53,7 +54,12 @@ ConfigureMcpServer(builder.Services).WithHttpTransport();
 var bearerToken = ResolveBearerToken(builder.Configuration);
 var app = builder.Build();
 
-app.MapGet("/health", () => Results.Ok(new { status = "ok", version = "v0" }));
+var informationalVersion = typeof(Program).Assembly
+    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+    ?? typeof(Program).Assembly.GetName().Version?.ToString()
+    ?? "unknown";
+
+app.MapGet("/health", () => Results.Ok(new { status = "ok", version = informationalVersion }));
 
 if (!string.IsNullOrEmpty(bearerToken))
 {
