@@ -74,23 +74,31 @@ internal static class DwarfLineReader
 
     private static bool TryParseCompilationUnit(byte[] data, ref int offset, List<LineRow> rows)
     {
+        try
+        {
         if (offset + 4 > data.Length) return false;
         uint unitLength = ReadU32(data, offset); offset += 4;
         if (unitLength == 0xFFFFFFFF) { offset += 8; return false; }
-        int unitEnd = offset + (int)unitLength;
-        if (unitEnd > data.Length) return false;
+        // Use long arithmetic to prevent signed-integer overflow when unitLength is large.
+        long unitEndL = (long)offset + unitLength;
+        if (unitEndL > data.Length) return false;
+        int unitEnd = (int)unitEndL;
         if (offset + 2 > unitEnd) { offset = unitEnd; return true; }
         ushort version = ReadU16(data, offset); offset += 2;
         if (version < 2 || version > 4) { offset = unitEnd; return true; }
         if (offset + 4 > unitEnd) { offset = unitEnd; return true; }
-        int headerLength = (int)ReadU32(data, offset); offset += 4;
-        int programStart = offset + headerLength;
-        if (programStart > unitEnd || programStart > data.Length) { offset = unitEnd; return true; }
+        uint headerLengthU = ReadU32(data, offset); offset += 4;
+        // Use long arithmetic to prevent overflow when headerLength is large.
+        long programStartL = (long)offset + headerLengthU;
+        if (programStartL > unitEnd || programStartL > data.Length) { offset = unitEnd; return true; }
+        int programStart = (int)programStartL;
         byte minimumInstructionLength = data[offset++];
         if (version >= 4) offset++;
         bool defaultIsStmt = data[offset++] != 0;
         int lineBase = (sbyte)data[offset++];
         byte lineRange = data[offset++];
+        // DWARF spec says line_range must not be zero (it's a divisor for special opcodes).
+        if (lineRange == 0) { offset = unitEnd; return true; }
         byte opcodeBase = data[offset++];
         if (opcodeBase == 0) { offset = unitEnd; return true; }
         int[] stdOpcodeLengths = new int[opcodeBase];
@@ -158,6 +166,12 @@ internal static class DwarfLineReader
         }
         offset = unitEnd;
         return true;
+        }
+        catch (Exception ex) when (ex is IndexOutOfRangeException or OverflowException or ArgumentOutOfRangeException or DivideByZeroException)
+        {
+            // Malformed DWARF data; skip this compilation unit and stop parsing.
+            return false;
+        }
     }
 
     private static void EmitRow(List<LineRow> rows, List<(string Name, int DirIdx)> fileNames, List<string> directories, ulong address, int fileIdx, int line)
