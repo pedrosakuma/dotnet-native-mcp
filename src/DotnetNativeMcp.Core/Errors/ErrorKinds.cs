@@ -41,4 +41,16 @@ public static class ErrorKinds
 
     /// <summary>The Mach-O binary uses a feature not yet supported (e.g. 32-bit, chained fixups, bitcode).</summary>
     public const string MachoFeatureUnsupported = "macho_feature_unsupported";
+
+    /// <summary>The binary does not contain a ReadyToRun header (not an R2R image, or a NativeAOT binary).</summary>
+    public const string R2RNotPresent = "r2r_not_present";
+
+    /// <summary>The R2R header version is not supported by this tool version.</summary>
+    public const string R2RUnsupportedVersion = "r2r_unsupported_version";
+
+    /// <summary>The target architecture is not supported for the requested R2R operation (e.g. ARM64 RuntimeFunctions in v1).</summary>
+    public const string R2RArchUnsupported = "r2r_arch_unsupported";
+
+    /// <summary>The requested R2R section type is not present in this image.</summary>
+    public const string R2RSectionNotPresent = "r2r_section_not_present";
 }
