@@ -141,4 +141,18 @@ internal static class FixturePaths
             return File.Exists(candidate) ? candidate : null;
         }
     }
+
+    /// <summary>
+    /// Path to the <c>EmbeddedPdb.dll</c> fixture built with <c>&lt;DebugType&gt;embedded&lt;/DebugType&gt;</c>,
+    /// or <c>null</c> if not present. This fixture is used to test embedded-PDB extraction (#58).
+    /// </summary>
+    public static string? EmbeddedPdbDll
+    {
+        get
+        {
+            var dir = Path.GetDirectoryName(typeof(FixturePaths).Assembly.Location) ?? ".";
+            var candidate = Path.Combine(dir, "fixtures", "EmbeddedPdb", "EmbeddedPdb.dll");
+            return File.Exists(candidate) ? candidate : null;
+        }
+    }
 }

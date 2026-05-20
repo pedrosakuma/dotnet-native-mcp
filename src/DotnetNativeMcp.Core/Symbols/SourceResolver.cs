@@ -26,8 +26,56 @@ public sealed class SourceResolver
     {
         IReadOnlyList<DwarfLineReader.LineRow> rows = [];
         SourceLinkResolver? sourceLink = null;
+
         try { if (image.Format == BinaryFormat.Elf) rows = DwarfLineReader.Read(image); } catch { }
-        try { var pdbPath = Path.ChangeExtension(image.FilePath, ".pdb"); sourceLink = SourceLinkResolver.TryLoad(pdbPath); } catch { }
+
+        // 1. Try sibling .pdb file first.
+        try
+        {
+            var pdbPath = Path.ChangeExtension(image.FilePath, ".pdb");
+            sourceLink = SourceLinkResolver.TryLoad(pdbPath);
+        }
+        catch { }
+
+        // 2. Fall back to embedded PDB extraction (managed PE with <DebugType>embedded</DebugType>).
+        if (sourceLink is null)
+        {
+            try
+            {
+                sourceLink = TryLoadSourceLinkFromEmbeddedPdb(image);
+            }
+            catch { }
+        }
+
         return new ImageDebugData(rows, sourceLink);
+    }
+
+    /// <summary>
+    /// Extracts an embedded PDB from the image bytes, caches it to disk, and loads
+    /// a <see cref="SourceLinkResolver"/> from the resulting bytes.
+    /// </summary>
+    private static SourceLinkResolver? TryLoadSourceLinkFromEmbeddedPdb(NativeImage image)
+    {
+        if (image.Format != BinaryFormat.Pe) return null;
+
+        var buildId = image.Handle.BuildIdHex;
+        var cachePath = EmbeddedPdbDiskCache.GetCachePath(buildId);
+
+        byte[]? pdbBytes = null;
+
+        // Try disk cache first.
+        if (EmbeddedPdbDiskCache.IsEnabled)
+            pdbBytes = EmbeddedPdbDiskCache.TryRead(cachePath);
+
+        if (pdbBytes is null)
+        {
+            pdbBytes = EmbeddedPdbExtractor.TryExtractFromPe(image.RawBytes);
+            if (pdbBytes is not null && EmbeddedPdbDiskCache.IsEnabled)
+                EmbeddedPdbDiskCache.Write(cachePath, pdbBytes);
+        }
+
+        return pdbBytes is not null
+            ? SourceLinkResolver.TryLoadFromBytes(pdbBytes)
+            : null;
     }
 }

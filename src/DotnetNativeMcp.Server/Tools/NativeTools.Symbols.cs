@@ -145,6 +145,8 @@ public sealed partial class NativeTools
         "Returns one row per address with the raw mangled name, demangled name, section, " +
         "byte displacement from the symbol start, and (when debug info is present) a " +
         "SourceLocation with file, line, and optional SourceLink URL. " +
+        "When DWARF .debug_info type metadata is available the row also includes a " +
+        "'signature' field with the function's return type and parameter types. " +
         "Per-address failures (bad parse, symbol not found) are reported inline — a bad " +
         "address does not fail the whole batch. Supplying an empty list returns an empty " +
         "result without error. Replaces the former single-address 'resolve_symbol' and " +
@@ -168,10 +170,12 @@ public sealed partial class NativeTools
         var rows = inner.Data!.Select(r =>
         {
             SourceLocation? src = null;
+            string? signature = null;
             if (resolveSource && !r.IsError && r.ResolvedRvaHex is not null)
             {
                 var va = image.ImageBase + ulong.Parse(r.ResolvedRvaHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
                 src = sourceResolver.TrySourceFor(image, va);
+                signature = DwarfInfoReader.TryGetSignatureForRva(image, va);
             }
 
             return new ResolvedAddressRow(
@@ -182,6 +186,7 @@ public sealed partial class NativeTools
                 r.SectionName,
                 r.Displacement,
                 src,
+                signature,
                 r.Error);
         }).ToList();
 
@@ -496,6 +501,11 @@ public sealed record ListNativeImportsResult(
 /// <param name="SectionName">Containing section name when available.</param>
 /// <param name="Displacement">Byte offset from the start of the resolved symbol.</param>
 /// <param name="Source">Source file+line from DWARF/PDB debug info, when available and resolveSource=true.</param>
+/// <param name="Signature">
+/// DWARF-derived function signature (<c>ReturnType Name(ParamType, ...)</c>),
+/// or <c>null</c> when DWARF type info is absent or the address is not inside a
+/// known subprogram. Only populated when <c>resolveSource=true</c>.
+/// </param>
 /// <param name="Error">Per-row error; <c>null</c> on success.</param>
 public sealed record ResolvedAddressRow(
     string InputAddress,
@@ -505,6 +515,7 @@ public sealed record ResolvedAddressRow(
     string? SectionName,
     ulong? Displacement,
     SourceLocation? Source,
+    string? Signature,
     NativeError? Error);
 
 /// <summary>Result payload for <c>resolve_symbols</c>.</summary>
