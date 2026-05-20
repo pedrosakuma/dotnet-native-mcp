@@ -70,6 +70,7 @@ Error `kind` values are part of the contract. Once published, never repurposed
 | `disassembly_unsupported` | Architecture not supported in this version (e.g. ARM64 pre-V1). |
 | `invalid_argument` | A supplied argument value was invalid. |
 | `build_id_mismatch` | Build-id provided in an eager manifest import did not match the on-disk binary. |
+| `macho_feature_unsupported` | The Mach-O binary uses a feature not yet supported in this version (e.g. 32-bit thin, `LC_DYLD_CHAINED_FIXUPS`, embedded bitcode via `__LLVM` segment, or a fat binary with no x86_64/arm64 slice). |
 | `internal_error` | An unexpected internal failure occurred. |
 
 ## 4. Handles, not paths

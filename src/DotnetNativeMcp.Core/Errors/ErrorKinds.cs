@@ -38,4 +38,7 @@ public static class ErrorKinds
 
     /// <summary>Build-id provided in an eager manifest import did not match the on-disk binary.</summary>
     public const string BuildIdMismatch = "build_id_mismatch";
+
+    /// <summary>The Mach-O binary uses a feature not yet supported (e.g. 32-bit, chained fixups, bitcode).</summary>
+    public const string MachoFeatureUnsupported = "macho_feature_unsupported";
 }

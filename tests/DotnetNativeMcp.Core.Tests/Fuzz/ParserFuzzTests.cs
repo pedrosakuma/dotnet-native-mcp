@@ -89,6 +89,42 @@ public sealed class ParserFuzzTests
     }
 
     // -------------------------------------------------------------------------
+    // MachOReader — fat binary and unsupported feature checks
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(42)]
+    [InlineData(unchecked((int)0xDEAD_BEEF))]
+    public void MachOReader_ParseFatSlice_RandomBytes_NeverThrows(int seed)
+    {
+        var sw = Stopwatch.StartNew();
+        var rng = new Random(seed);
+        for (int i = 0; i < IterationsPerSeed; i++)
+        {
+            Assert.True(sw.Elapsed < WallClockBudget, "Wall-clock budget exceeded");
+            var bytes = GenerateRandomBytes(rng);
+            _ = MachOReader.ParseFatSlice(bytes);
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(42)]
+    [InlineData(unchecked((int)0xDEAD_BEEF))]
+    public void MachOReader_CheckUnsupportedFeatures_RandomBytes_NeverThrows(int seed)
+    {
+        var sw = Stopwatch.StartNew();
+        var rng = new Random(seed);
+        for (int i = 0; i < IterationsPerSeed; i++)
+        {
+            Assert.True(sw.Elapsed < WallClockBudget, "Wall-clock budget exceeded");
+            var bytes = GenerateRandomBytes(rng);
+            _ = MachOReader.CheckUnsupportedFeatures(bytes);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // DwarfLineReader — must also exercise the SHF_COMPRESSED zlib-bomb path
     // -------------------------------------------------------------------------
 
