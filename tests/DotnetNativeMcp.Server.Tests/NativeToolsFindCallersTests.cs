@@ -324,6 +324,85 @@ public class NativeToolsFindCallersTests
         result1.Data!.TotalCallers.Should().Be(result2.Data!.TotalCallers);
     }
 
+
+    // ---------------------------------------------------------------------------
+    // Disk cache: hit/miss coverage
+    // ---------------------------------------------------------------------------
+
+    [Fact]
+    public void FindNativeCallers_DiskCacheHit_ReturnsSameResult()
+    {
+        // Arrange: isolated cache directory via XDG_CACHE_HOME.
+        var cacheDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".cache", "dotnet-native-mcp-server-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(cacheDir);
+        var prevXdg = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
+        var prevDisable = Environment.GetEnvironmentVariable("DOTNET_NATIVE_MCP_XREF_CACHE");
+        try
+        {
+            Environment.SetEnvironmentVariable("XDG_CACHE_HOME", cacheDir);
+            Environment.SetEnvironmentVariable("DOTNET_NATIVE_MCP_XREF_CACHE", null);
+
+            var code = new byte[]
+            {
+                0xE8, 0x05, 0x00, 0x00, 0x00,
+                0x90, 0x90, 0x90, 0x90, 0x90,
+                0xC3,
+            };
+            var sym = new NativeSymbol(0, "tgt", "tgt", 10, 1, ".text", true);
+            var image = CreateImage(code, symbols: sym);
+
+            // First call -- cache miss --> builds and persists.
+            var tools1 = MakeTools(image);
+            var result1 = tools1.FindNativeCallers(image.Handle.Value, "tgt");
+
+            // Second call with a *fresh* in-memory cache -- must hit disk.
+            var tools2 = MakeTools(image);
+            var result2 = tools2.FindNativeCallers(image.Handle.Value, "tgt");
+
+            result1.IsError.Should().BeFalse();
+            result2.IsError.Should().BeFalse();
+            result1.Data!.TotalCallers.Should().Be(result2.Data!.TotalCallers);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("XDG_CACHE_HOME", prevXdg);
+            Environment.SetEnvironmentVariable("DOTNET_NATIVE_MCP_XREF_CACHE", prevDisable);
+            try { Directory.Delete(cacheDir, recursive: true); } catch { /* best-effort */ }
+        }
+    }
+
+    [Fact]
+    public void FindNativeCallers_DiskCacheDisabled_SkipsDisk()
+    {
+        var prevDisable = Environment.GetEnvironmentVariable("DOTNET_NATIVE_MCP_XREF_CACHE");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_NATIVE_MCP_XREF_CACHE", "0");
+
+            var code = new byte[]
+            {
+                0xE8, 0x05, 0x00, 0x00, 0x00,
+                0x90, 0x90, 0x90, 0x90, 0x90,
+                0xC3,
+            };
+            var sym = new NativeSymbol(0, "tgt", "tgt", 10, 1, ".text", true);
+            var image = CreateImage(code, symbols: sym);
+            var tools = MakeTools(image);
+
+            // Should succeed even when cache is disabled.
+            var result = tools.FindNativeCallers(image.Handle.Value, "tgt");
+
+            result.IsError.Should().BeFalse();
+            result.Data!.TotalCallers.Should().Be(1);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_NATIVE_MCP_XREF_CACHE", prevDisable);
+        }
+    }
+
     // ---------------------------------------------------------------------------
     // Test registry
     // ---------------------------------------------------------------------------

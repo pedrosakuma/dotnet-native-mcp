@@ -205,3 +205,15 @@ Current version: **1** (V0 shipped; all fields in the `NativeFrame` object are s
 - Companion producer: <https://github.com/pedrosakuma/dotnet-diagnostics-mcp>
 - Companion managed-handoff target: <https://github.com/pedrosakuma/dotnet-assembly-mcp>
 - Tool budget + response conventions: [`docs/mcp-conventions.md`](./mcp-conventions.md)
+
+## Xref disk cache
+
+The `find_native_callers` tool builds a full call-graph index on first use.
+This index is persisted under `~/.cache/dotnet-native-mcp/<build-id>.xref`
+(format: 4-byte magic `NXR1` + 4-byte little-endian version + JSON body)
+so subsequent sessions skip the scan entirely. The build-id from the
+`NativeFrame.buildId` field is used as the cache key, giving per-binary
+stable identity across rebuilds that don't change content.
+
+Set `DOTNET_NATIVE_MCP_XREF_CACHE=0` to disable disk I/O (CI, read-only mounts).
+Clear with `rm -rf ~/.cache/dotnet-native-mcp/`; no automated eviction.
