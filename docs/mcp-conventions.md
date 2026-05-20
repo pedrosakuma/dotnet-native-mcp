@@ -72,6 +72,9 @@ Error `kind` values are part of the contract. Once published, never repurposed
 | `build_id_mismatch` | Build-id provided in an eager manifest import did not match the on-disk binary. |
 | `macho_feature_unsupported` | The Mach-O binary uses a feature not yet supported in this version (e.g. 32-bit thin, `LC_DYLD_CHAINED_FIXUPS`, embedded bitcode via `__LLVM` segment, or a fat binary with no x86_64/arm64 slice). |
 | `internal_error` | An unexpected internal failure occurred. |
+| `raw_blob_missing_architecture` | `rawBlob=true` was supplied but `architecture` was omitted; required because there is no header from which to infer it. |
+| `raw_blob_missing_base_address` | `rawBlob=true` was supplied but `baseAddress` was omitted; required so that call/jmp absolute targets render correctly. |
+| `raw_blob_missing_size` | `rawBlob=true` was supplied but `size` was omitted (or ≤ 0); required because there is no section table to bound the code slice. |
 
 ## 4. Handles, not paths
 
