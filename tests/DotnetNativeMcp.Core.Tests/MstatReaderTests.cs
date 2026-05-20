@@ -34,6 +34,29 @@ public class MstatReaderTests
     }
 
     [Fact]
+    public void Read_CorruptFilePresent_ReturnsMstatInvalid()
+    {
+        var scratchDir = Path.Combine(
+            Path.GetDirectoryName(typeof(MstatReaderTests).Assembly.Location)!,
+            "scratch");
+        Directory.CreateDirectory(scratchDir);
+        var corruptPath = Path.Combine(scratchDir, $"{Guid.NewGuid():N}-corrupt.mstat");
+        File.WriteAllBytes(corruptPath, [0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0x02, 0x03,
+                                         0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B]);
+        try
+        {
+            var result = MstatReader.Read(corruptPath);
+
+            result.IsError.Should().BeTrue();
+            result.Error!.Kind.Should().Be(ErrorKinds.MstatInvalid);
+        }
+        finally
+        {
+            File.Delete(corruptPath);
+        }
+    }
+
+    [Fact]
     public void Aggregate_GroupByAssembly_CombinesMethodAndTypeRows()
     {
         var rows = new[]

@@ -40,6 +40,38 @@ public class GetSizeBreakdownToolTests
     }
 
     [Fact]
+    public void GetSizeBreakdown_CorruptMstatPresent_ReturnsMstatInvalid()
+    {
+        var fixturePath = FixturePaths.SampleAot;
+        if (fixturePath is null || !File.Exists(fixturePath))
+            return;
+
+        var registry = new NativeBinaryRegistry();
+        var load = registry.Load(fixturePath);
+        load.IsError.Should().BeFalse();
+
+        var scratchDir = Path.Combine(
+            Path.GetDirectoryName(typeof(GetSizeBreakdownToolTests).Assembly.Location)!,
+            "scratch");
+        Directory.CreateDirectory(scratchDir);
+        var corruptPath = Path.Combine(scratchDir, $"{Guid.NewGuid():N}-corrupt.mstat");
+        File.WriteAllBytes(corruptPath, [0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0x02, 0x03,
+                                         0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B]);
+        try
+        {
+            var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
+            var result = tool.GetSizeBreakdown(load.Data!.Handle.Value, mstatPath: corruptPath);
+
+            result.IsError.Should().BeTrue();
+            result.Error!.Kind.Should().Be(ErrorKinds.MstatInvalid);
+        }
+        finally
+        {
+            File.Delete(corruptPath);
+        }
+    }
+
+    [Fact]
     public void GetSizeBreakdown_SampleAot_ReturnsDeterministicAssemblyBreakdown()
     {
         var fixturePath = FixturePaths.SampleAot;
