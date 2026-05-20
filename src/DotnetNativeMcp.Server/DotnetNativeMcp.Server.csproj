@@ -1,10 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <PackageId>DotnetNativeMcp.Server</PackageId>
-    <Description>MCP server (HTTP / stdio) exposing native binary navigation tools.</Description>
+    <UserSecretsId>dotnet-native-mcp-server</UserSecretsId>
+    <Description>MCP server exposing dotnet-native-mcp Core native-binary navigation primitives (PE/ELF/Mach-O, x86_64+ARM64). Supports stdio (local tool installs) and Streamable HTTP (Docker / sidecar) transports.</Description>
+    <RootNamespace>DotnetNativeMcp.Server</RootNamespace>
+    <AssemblyName>DotnetNativeMcp.Server</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <PackAsTool>true</PackAsTool>
+    <IsPackable>true</IsPackable>
     <ToolCommandName>dotnet-native-mcp</ToolCommandName>
+    <PackageId>dotnet-native-mcp</PackageId>
+    <PackageTags>mcp;dotnet;native;nativeaot;pe;elf;mach-o;disassembly;model-context-protocol</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/pedrosakuma/dotnet-native-mcp</PackageProjectUrl>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
   </PropertyGroup>
 
   <ItemGroup>
@@ -14,6 +26,10 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DotnetNativeMcp.Core\DotnetNativeMcp.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>
 
 </Project>
