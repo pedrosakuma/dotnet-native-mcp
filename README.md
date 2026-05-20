@@ -46,7 +46,7 @@ are available.
 | `explain_retention`      | Read the DGML reachability sidecar emitted by NativeAOT and return the shortest root → target path that kept a type or method reachable. |
 | `compare_native_binaries`| Diff two loaded images: build-id, format, arch, file/section size deltas, added/removed/size-changed symbols. |
 | `disassemble`            | Iced x86/x64 disassembly with CALL/JMP cross-ref hints. Default 64 instructions, capped at 2048. ARM64 returns `disassembly_unsupported`. `resolveSource=false` (default) skips per-instruction DWARF lookup; set `true` to annotate each instruction with file:line. **Two modes:** registered-handle mode (`imageHandle` + `address`/`symbolName`) for images loaded via `load_native_binary`; or raw-bytes mode (`imagePath` + `rva` + `size`) for any PE/ELF/Mach-O — including managed PEs with R2R bodies — without a prior `load_native_binary` call. |
-| `find_native_callers`    | Lazily-built xref index: scan all executable sections of a loaded x86-64 image and return every CALL/JMP instruction that targets a given symbol name or hex address. ARM64 returns `disassembly_unsupported`. `resolveSource=true` (default) annotates each call site with file:line; set `false` to skip PDB I/O for large binaries. |
+| `find_native_callers`    | Lazily-built xref index: scan all executable sections of a loaded x86-64 image and return every CALL/JMP instruction that targets a given symbol name or hex address. The index is cached in-process (L1) and persisted to disk under `~/.cache/dotnet-native-mcp/<build-id>.xref` (L2) so large NativeAOT binaries pay the scan cost only once across sessions. ARM64 returns `disassembly_unsupported`. `resolveSource=true` (default) annotates each call site with file:line; set `false` to skip PDB I/O for large binaries. |
 
 For crash logs or sampled stacks where `dotnet-diagnostics-mcp` is not in the loop, use `load_native_binary` once and then call `resolve_symbols` with a list of raw hex addresses. When you already have `NativeFrame` handoffs with mangled addresses, pass those address strings directly to `resolve_symbols`.
 
@@ -93,6 +93,20 @@ docker compose -f deploy/docker-compose.yml up -d
 See **[docs/compose.md](docs/compose.md)** for the full guide: env vars,
 bearer-token setup, MCP client configuration, and how to attach to live
 processes.
+
+## Disk cache
+
+`find_native_callers` maintains a persistent on-disk xref index so large NativeAOT
+binaries are scanned only once across server restarts.
+
+| Detail | Value |
+|--------|-------|
+| **Location** | `~/.cache/dotnet-native-mcp/<build-id>.xref` (Linux: `$XDG_CACHE_HOME/dotnet-native-mcp/` if set) |
+| **Cache key** | ELF build-id / PE CodeView GUID+Age / Mach-O LC_UUID, falling back to a SHA-256 prefix of the file bytes |
+| **Format** | 4-byte magic `NXR1` + 4-byte version + JSON body |
+| **Invalidation** | Automatic on binary rebuild (new build-id → new file). On format upgrade the old file is silently ignored and rebuilt. |
+| **Eviction** | None (files accumulate by build-id). Run `rm -rf ~/.cache/dotnet-native-mcp/` to clear manually. |
+| **Disable** | Set `DOTNET_NATIVE_MCP_XREF_CACHE=0` to bypass all disk I/O (useful in CI or read-only environments). |
 
 ## Authentication
 

@@ -740,6 +740,9 @@ public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphC
         "and returns every CALL/JMP instruction whose target resolves to the requested symbol or address. " +
         "The full xref index is built lazily on the first call and cached per image handle; " +
         "subsequent calls for the same image are O(callers). " +
+        "The index is persisted to disk under ~/.cache/dotnet-native-mcp/<build-id>.xref so large " +
+        "NativeAOT binaries pay the scan cost only once across sessions. " +
+        "Set DOTNET_NATIVE_MCP_XREF_CACHE=0 to disable the disk cache. " +
         "ARM64 returns 'disassembly_unsupported'. Use 'disassemble' to inspect any returned call site. " +
         "When resolveSource is true (default) each call site is annotated with file:line from DWARF/PDB debug info. " +
         "Set resolveSource=false to skip debug-info I/O for large binaries where PDB reads are slow.")]
