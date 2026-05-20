@@ -1,5 +1,8 @@
+using System.Security.Cryptography;
+using System.Text;
 using DotnetNativeMcp.Core.Imaging;
 using DotnetNativeMcp.Server.Tools;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -42,11 +45,38 @@ if (useStdio)
 }
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddEnvironmentVariables();
 ConfigureMcpServer(builder.Services).WithHttpTransport();
 
+var bearerToken = ResolveBearerToken(builder.Configuration);
 var app = builder.Build();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", version = "v0" }));
+
+if (!string.IsNullOrEmpty(bearerToken))
+{
+    var expectedTokenBytes = Encoding.UTF8.GetBytes(bearerToken);
+
+    app.Use(async (context, next) =>
+    {
+        if (!context.Request.Path.StartsWithSegments("/mcp"))
+        {
+            await next(context).ConfigureAwait(false);
+            return;
+        }
+
+        if (!HasValidBearerToken(context.Request.Headers.Authorization, expectedTokenBytes))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.ContentType = "text/plain";
+            await context.Response.WriteAsync("unauthorized").ConfigureAwait(false);
+            return;
+        }
+
+        await next(context).ConfigureAwait(false);
+    });
+}
+
 app.MapMcp("/mcp");
 
 await app.RunAsync().ConfigureAwait(false);
@@ -67,3 +97,38 @@ static IMcpServerBuilder ConfigureMcpServer(IServiceCollection services)
         })
         .WithTools<NativeTools>();
 }
+
+static string? ResolveBearerToken(IConfiguration configuration)
+{
+    var configuredToken = configuration["NativeMcp:BearerToken"];
+    if (!string.IsNullOrWhiteSpace(configuredToken))
+    {
+        return configuredToken;
+    }
+
+    var nativeToken = configuration["NATIVE_MCP_BEARER_TOKEN"];
+    if (!string.IsNullOrWhiteSpace(nativeToken))
+    {
+        return nativeToken;
+    }
+
+    var sharedToken = configuration["MCP_BEARER_TOKEN"];
+    return string.IsNullOrWhiteSpace(sharedToken) ? null : sharedToken;
+}
+
+static bool HasValidBearerToken(string? authorizationHeader, byte[] expectedTokenBytes)
+{
+    const string BearerPrefix = "Bearer ";
+
+    if (string.IsNullOrEmpty(authorizationHeader)
+        || !authorizationHeader.StartsWith(BearerPrefix, StringComparison.Ordinal))
+    {
+        return false;
+    }
+
+    var presentedTokenBytes = Encoding.UTF8.GetBytes(authorizationHeader[BearerPrefix.Length..]);
+    return presentedTokenBytes.Length == expectedTokenBytes.Length
+        && CryptographicOperations.FixedTimeEquals(presentedTokenBytes, expectedTokenBytes);
+}
+
+public partial class Program;
