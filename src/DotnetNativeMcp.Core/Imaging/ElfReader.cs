@@ -10,7 +10,7 @@ namespace DotnetNativeMcp.Core.Imaging;
 /// Reads the section header table, .symtab/.dynsym symbol tables,
 /// and .note.gnu.build-id. Big-endian ELF is not supported.
 /// </summary>
-public static class ElfReader
+public static partial class ElfReader
 {
     // e_machine values
     private const ushort EM_386 = 0x03;

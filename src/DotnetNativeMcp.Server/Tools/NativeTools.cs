@@ -99,6 +99,81 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
             hints);
     }
 
+    [McpServerTool(Name = "list_native_imports")]
+    [Description(
+        "Returns a paginated list of imported functions or shared-library dependencies from a loaded native binary. " +
+        "kind='functions' lists ELF .dynsym undefined imports or PE Import Directory entries; " +
+        "kind='libraries' lists ELF DT_NEEDED entries or PE import descriptor names.")]
+    public NativeResult<ListNativeImportsResult> ListNativeImports(
+        [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
+        [Description("Import view to return: functions or libraries. Default functions.")] string kind = "functions",
+        [Description("Page size (default 100, max 500).")] int pageSize = 100,
+        [Description("Opaque pagination cursor from a prior call. Omit or pass 0 for the first page.")] int cursor = 0,
+        [Description("Optional case-insensitive name filter substring.")] string? nameFilter = null)
+    {
+        if (!registry.TryGet(imageHandle, out var image) || image is null)
+            return NativeResult.Fail<ListNativeImportsResult>(
+                ErrorKinds.BinaryNotFound,
+                $"No image found for handle '{imageHandle}'. Call load_native_binary first.");
+
+        if (!TryNormalizeImportKind(kind, out var normalizedKind, out var kindError))
+            return NativeResult.Fail<ListNativeImportsResult>(ErrorKinds.InvalidArgument, kindError!);
+
+        if (pageSize <= 0) pageSize = 100;
+        if (pageSize > 500) pageSize = 500;
+        if (cursor < 0) cursor = 0;
+
+        if (normalizedKind == "functions")
+        {
+            var parsed = ReadImportedFunctions(image);
+            if (parsed.IsError)
+                return new NativeResult<ListNativeImportsResult>(parsed.Summary, EmptyImportResult(normalizedKind), [], parsed.Error);
+
+            IEnumerable<ImportedFunction> filtered = parsed.Data!;
+            if (!string.IsNullOrWhiteSpace(nameFilter))
+            {
+                filtered = filtered.Where(import =>
+                    import.Name.Contains(nameFilter, StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrEmpty(import.Library) && import.Library.Contains(nameFilter, StringComparison.OrdinalIgnoreCase)));
+            }
+
+            var all = filtered.ToList();
+            var page = all.Skip(cursor).Take(pageSize)
+                .Select(import => new ImportedFunctionRow(import.Library, import.Name, import.Ordinal))
+                .ToList();
+            var nextCursor = cursor + page.Count < all.Count ? cursor + page.Count : (int?)null;
+            var hints = BuildImportHints(image, imageHandle, normalizedKind, nameFilter, pageSize, nextCursor);
+            var summary = page.Count == 0
+                ? $"No imported functions found in '{imageHandle}'."
+                : $"Page {cursor}..{cursor + page.Count - 1} of {all.Count} imported function(s) in '{imageHandle}'.";
+
+            return NativeResult.Ok(summary, new ListNativeImportsResult(normalizedKind, page, null, all.Count, nextCursor), hints);
+        }
+
+        var librariesResult = ReadImportedLibraries(image);
+        if (librariesResult.IsError)
+            return new NativeResult<ListNativeImportsResult>(librariesResult.Summary, EmptyImportResult(normalizedKind), [], librariesResult.Error);
+
+        IEnumerable<ImportedLibrary> libraries = librariesResult.Data!;
+        if (!string.IsNullOrWhiteSpace(nameFilter))
+            libraries = libraries.Where(import => import.Name.Contains(nameFilter, StringComparison.OrdinalIgnoreCase));
+
+        var libraryAll = libraries.ToList();
+        var libraryPage = libraryAll.Skip(cursor).Take(pageSize)
+            .Select(import => new ImportedLibraryRow(import.Name))
+            .ToList();
+        var libraryNextCursor = cursor + libraryPage.Count < libraryAll.Count ? cursor + libraryPage.Count : (int?)null;
+        var libraryHints = BuildImportHints(image, imageHandle, normalizedKind, nameFilter, pageSize, libraryNextCursor, libraryPage);
+        var librarySummary = libraryPage.Count == 0
+            ? $"No imported libraries found in '{imageHandle}'."
+            : $"Page {cursor}..{cursor + libraryPage.Count - 1} of {libraryAll.Count} imported libraries in '{imageHandle}'.";
+
+        return NativeResult.Ok(
+            librarySummary,
+            new ListNativeImportsResult(normalizedKind, null, libraryPage, libraryAll.Count, libraryNextCursor),
+            libraryHints);
+    }
+
     [McpServerTool(Name = "resolve_symbol")]
     [Description(
         "Resolves a symbol by mangled name OR by hex address (RVA or absolute VA). " +
@@ -554,6 +629,93 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
 
     private static ulong ParseHex(string hex) => ulong.Parse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
 
+    private static bool TryNormalizeImportKind(string kind, out string normalizedKind, out string? error)
+    {
+        normalizedKind = string.Empty;
+        error = null;
+
+        var candidate = string.IsNullOrWhiteSpace(kind) ? "functions" : kind.Trim();
+        if (candidate.Equals("functions", StringComparison.OrdinalIgnoreCase))
+        {
+            normalizedKind = "functions";
+            return true;
+        }
+
+        if (candidate.Equals("libraries", StringComparison.OrdinalIgnoreCase))
+        {
+            normalizedKind = "libraries";
+            return true;
+        }
+
+        error = $"kind must be one of: functions, libraries. Actual: '{kind}'.";
+        return false;
+    }
+
+    private static NativeResult<IReadOnlyList<ImportedFunction>> ReadImportedFunctions(NativeImage image) =>
+        image.Format switch
+        {
+            BinaryFormat.Elf => ElfReader.ReadImportedFunctions(image),
+            BinaryFormat.Pe => PeNativeReader.ReadImportedFunctions(image),
+            _ => NativeResult.Fail<IReadOnlyList<ImportedFunction>>(ErrorKinds.InternalError, $"Unsupported binary format '{image.Format}'."),
+        };
+
+    private static NativeResult<IReadOnlyList<ImportedLibrary>> ReadImportedLibraries(NativeImage image) =>
+        image.Format switch
+        {
+            BinaryFormat.Elf => ElfReader.ReadImportedLibraries(image),
+            BinaryFormat.Pe => PeNativeReader.ReadImportedLibraries(image),
+            _ => NativeResult.Fail<IReadOnlyList<ImportedLibrary>>(ErrorKinds.InternalError, $"Unsupported binary format '{image.Format}'."),
+        };
+
+    private static ListNativeImportsResult EmptyImportResult(string normalizedKind) =>
+        normalizedKind == "functions"
+            ? new ListNativeImportsResult(normalizedKind, [], null, 0, null)
+            : new ListNativeImportsResult(normalizedKind, null, [], 0, null);
+
+    private static List<NextActionHint> BuildImportHints(
+        NativeImage image,
+        string imageHandle,
+        string normalizedKind,
+        string? nameFilter,
+        int pageSize,
+        int? nextCursor,
+        List<ImportedLibraryRow>? libraries = null)
+    {
+        var hints = new List<NextActionHint>();
+        if (nextCursor is not null)
+        {
+            hints.Add(new NextActionHint("list_native_imports", $"More imported {normalizedKind} available on the next page.",
+                new Dictionary<string, object?>
+                {
+                    ["imageHandle"] = imageHandle,
+                    ["kind"] = normalizedKind,
+                    ["pageSize"] = pageSize,
+                    ["cursor"] = nextCursor,
+                    ["nameFilter"] = nameFilter,
+                }));
+        }
+
+        if (normalizedKind == "libraries" && libraries is { Count: > 0 })
+        {
+            var suggestedArguments = new Dictionary<string, object?>
+            {
+                ["imageHandle"] = imageHandle,
+                ["kind"] = "functions",
+            };
+
+            var reason = "Switch to imported functions for a deeper dependency walk.";
+            if (image.Format == BinaryFormat.Pe)
+            {
+                suggestedArguments["nameFilter"] = libraries[0].Name;
+                reason = $"Inspect functions imported from '{libraries[0].Name}'.";
+            }
+
+            hints.Add(new NextActionHint("list_native_imports", reason, suggestedArguments));
+        }
+
+        return hints;
+    }
+
     private static bool TryParseEncodings(string encodings, out bool ascii, out bool utf16, out string? error)
     {
         ascii = false;
@@ -661,6 +823,24 @@ public sealed record SymbolRow(
 /// <summary>Result payload for <c>list_native_symbols</c>.</summary>
 public sealed record ListNativeSymbolsResult(
     IReadOnlyList<SymbolRow> Symbols,
+    int TotalCount,
+    int? NextCursor);
+
+/// <summary>One imported function row returned by <c>list_native_imports</c>.</summary>
+public sealed record ImportedFunctionRow(
+    string? Library,
+    string Name,
+    ushort? Ordinal);
+
+/// <summary>One imported library row returned by <c>list_native_imports</c>.</summary>
+public sealed record ImportedLibraryRow(
+    string Name);
+
+/// <summary>Result payload for <c>list_native_imports</c>.</summary>
+public sealed record ListNativeImportsResult(
+    string Kind,
+    IReadOnlyList<ImportedFunctionRow>? Functions,
+    IReadOnlyList<ImportedLibraryRow>? Libraries,
     int TotalCount,
     int? NextCursor);
 

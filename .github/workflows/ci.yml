@@ -18,6 +18,25 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+      - name: Install NativeAOT toolchain
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
       - run: dotnet restore
       - run: dotnet build --no-restore --configuration Release
       - run: dotnet test --no-build --configuration Release --logger "console;verbosity=normal"
+      - name: Verify NativeAOT fixture outputs
+        run: |
+          fixture_dir="tests/DotnetNativeMcp.Core.Tests/bin/Release/net10.0/fixtures/SampleAot"
+          fixture_binary="$fixture_dir/SampleAot"
+          fixture_mstat="$fixture_dir/SampleAot.mstat"
+
+          test -f "$fixture_binary" || {
+            echo "::error::NativeAOT fixture failed to build — AOT loader tests were silently skipped"
+            exit 1
+          }
+
+          test -f "$fixture_mstat" || {
+            echo "::error::.mstat output missing — get_size_breakdown coverage did not run end-to-end"
+            exit 1
+          }
+
+          echo "Verified NativeAOT fixture outputs: $fixture_binary and $fixture_mstat"
