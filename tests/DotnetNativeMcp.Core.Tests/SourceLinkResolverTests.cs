@@ -57,10 +57,20 @@ public sealed class SourceLinkResolverTests
         }
         else
         {
-            // The path heuristic failed (e.g. build machine path differs); at minimum
-            // confirm the resolver contains at least one mapping by probing with the
-            // well-known SourceLink prefix for this repo.
-            var repoUrl = resolver.ResolveUrl("/home/pedrotravi/dotnet-native-mcp/tests/fixtures/SampleAot/Program.cs");
+            // The path heuristic failed (e.g. CI uses deterministic /_/ path normalization
+            // when ContinuousIntegrationBuild=true, or the build machine path differs).
+            // Probe a few well-known SourceLink prefixes to confirm the resolver loaded
+            // at least one usable mapping.
+            string? repoUrl = null;
+            foreach (var candidate in new[]
+            {
+                "/_/tests/fixtures/SampleAot/Program.cs",
+                "/home/pedrotravi/dotnet-native-mcp/tests/fixtures/SampleAot/Program.cs",
+            })
+            {
+                repoUrl = resolver.ResolveUrl(candidate);
+                if (repoUrl is not null) break;
+            }
             Assert.NotNull(repoUrl);
             Assert.StartsWith("https://raw.githubusercontent.com/", repoUrl, StringComparison.OrdinalIgnoreCase);
         }

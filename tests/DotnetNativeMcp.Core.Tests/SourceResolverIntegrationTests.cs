@@ -111,11 +111,10 @@ public sealed class SourceResolverIntegrationTests
                 }
             }
 
-            // The PDB embeds SourceLink pointing to raw.githubusercontent.com.
-            if (foundUrl is not null)
-            {
-                Assert.StartsWith("https://", foundUrl, StringComparison.OrdinalIgnoreCase);
-            }
+            // The PDB embeds SourceLink pointing to raw.githubusercontent.com — we must
+            // resolve at least one symbol to a URL or the integration we claim to cover did not run.
+            Assert.NotNull(foundUrl);
+            Assert.StartsWith("https://", foundUrl, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

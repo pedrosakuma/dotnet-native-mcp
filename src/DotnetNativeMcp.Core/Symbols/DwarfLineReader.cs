@@ -36,9 +36,17 @@ internal static class DwarfLineReader
         {
             using var compressed = new MemoryStream(data, 24, data.Length - 24);
             using var zlib = new ZLibStream(compressed, CompressionMode.Decompress);
-            var output = new MemoryStream(uncompressedSize);
-            zlib.CopyTo(output);
-            return output.ToArray();
+            var output = new byte[uncompressedSize];
+            int total = 0;
+            while (total < uncompressedSize)
+            {
+                int read = zlib.Read(output, total, uncompressedSize - total);
+                if (read == 0) return null; // truncated: declared ch_size > actual stream
+                total += read;
+            }
+            // Reject streams that inflate past the declared ch_size (malformed / hostile input).
+            if (zlib.ReadByte() != -1) return null;
+            return output;
         }
         catch { return null; }
     }
