@@ -221,6 +221,69 @@ public sealed class ParserFuzzTests
     }
 
     // -------------------------------------------------------------------------
+    // EmbeddedPdbExtractor
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(42)]
+    [InlineData(unchecked((int)0xDEAD_BEEF))]
+    public void EmbeddedPdbExtractor_RandomBytes_NeverThrows(int seed)
+    {
+        var sw = Stopwatch.StartNew();
+        var rng = new Random(seed);
+        for (int i = 0; i < IterationsPerSeed; i++)
+        {
+            Assert.True(sw.Elapsed < WallClockBudget, "Wall-clock budget exceeded");
+            var bytes = GenerateRandomBytes(rng);
+            // Prepend MZ magic so the extractor attempts PE parsing.
+            if (bytes.Length >= 2) { bytes[0] = 0x4D; bytes[1] = 0x5A; }
+            _ = EmbeddedPdbExtractor.TryExtractFromPe(new ReadOnlyMemory<byte>(bytes));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // DwarfInfoReader — must exercise compressed and uncompressed paths
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(42)]
+    [InlineData(unchecked((int)0xDEAD_BEEF))]
+    public void DwarfInfoReader_RandomDebugInfo_NeverThrows(int seed)
+    {
+        var sw = Stopwatch.StartNew();
+        var rng = new Random(seed);
+        for (int i = 0; i < IterationsPerSeed; i++)
+        {
+            Assert.True(sw.Elapsed < WallClockBudget, "Wall-clock budget exceeded");
+            var infoData = GenerateRandomBytes(rng);
+            var abbrevData = GenerateRandomBytes(rng);
+            var image = MakeImageWithDebugInfo(infoData, abbrevData);
+            _ = DwarfInfoReader.TryGetSignatureForRva(image, (ulong)rng.Next(0, 0x100000));
+        }
+    }
+
+    /// <summary>
+    /// Ensures the SHF_COMPRESSED guard path in <see cref="DwarfInfoReader"/> is
+    /// exercised: craft a ch_size bomb header; the reader must reject cleanly.
+    /// </summary>
+    [Fact]
+    public void DwarfInfoReader_ZlibBombInDebugInfo_DoesNotThrowOrHang()
+    {
+        Span<byte> bomb = stackalloc byte[40];
+        WriteLe32(bomb, 0, 1);
+        WriteLe32(bomb, 4, 0);
+        WriteLe64(bomb, 8, (ulong)(256 * 1024 * 1024) + 1);
+        WriteLe64(bomb, 16, 1);
+
+        var image = MakeImageWithDebugInfo(bomb.ToArray(), Array.Empty<byte>());
+        var sw = Stopwatch.StartNew();
+        _ = DwarfInfoReader.TryGetSignatureForRva(image, 0x1000);
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(5), "DwarfInfoReader took too long on zlib-bomb input");
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
@@ -262,6 +325,38 @@ public sealed class ParserFuzzTests
             [section],
             [],
             new ReadOnlyMemory<byte>(debugLineData),
+            imageBase: 0);
+    }
+
+    /// <summary>
+    /// Constructs a minimal <see cref="NativeImage"/> with <c>.debug_info</c> and
+    /// <c>.debug_abbrev</c> sections. Used to drive <see cref="DwarfInfoReader"/> directly.
+    /// </summary>
+    private static NativeImage MakeImageWithDebugInfo(byte[] debugInfoData, byte[] debugAbbrevData)
+    {
+        var allData = debugInfoData.Concat(debugAbbrevData).ToArray();
+        var sections = new List<NativeSection>
+        {
+            new(".debug_info",
+                VirtualAddress: 0,
+                VirtualSize: (ulong)debugInfoData.Length,
+                FileOffset: 0,
+                FileSize: (ulong)debugInfoData.Length),
+            new(".debug_abbrev",
+                VirtualAddress: (ulong)debugInfoData.Length,
+                VirtualSize: (ulong)debugAbbrevData.Length,
+                FileOffset: (ulong)debugInfoData.Length,
+                FileSize: (ulong)debugAbbrevData.Length),
+        };
+
+        return new NativeImage(
+            ImageHandle.From(Guid.NewGuid().ToString("N"), "fuzz.elf"),
+            "fuzz.elf",
+            BinaryFormat.Elf,
+            Architecture.X64,
+            sections,
+            [],
+            new ReadOnlyMemory<byte>(allData),
             imageBase: 0);
     }
 

@@ -46,4 +46,16 @@
       Condition="Exists('$(MSBuildThisFileDirectory)..\fixtures\SampleAot\bin\Release\net10.0\linux-x64\SampleAot.pdb')" />
   </Target>
 
+  <!-- Build and copy the EmbeddedPdb managed-PE fixture (DebugType=embedded). -->
+  <Target Name="BuildEmbeddedPdbFixture" BeforeTargets="Build">
+    <PropertyGroup>
+      <_EmbeddedPdbFixtureSrc>$(MSBuildThisFileDirectory)..\fixtures\EmbeddedPdb\EmbeddedPdb.csproj</_EmbeddedPdbFixtureSrc>
+      <_EmbeddedPdbOutDir>$(MSBuildThisFileDirectory)bin\$(Configuration)\$(TargetFramework)\fixtures\EmbeddedPdb</_EmbeddedPdbOutDir>
+    </PropertyGroup>
+    <Exec
+      Command="dotnet build &quot;$(_EmbeddedPdbFixtureSrc)&quot; -c Release -o &quot;$(_EmbeddedPdbOutDir)&quot; --nologo -v quiet"
+      ContinueOnError="true"
+      ConsoleToMSBuild="false" />
+  </Target>
+
 </Project>
