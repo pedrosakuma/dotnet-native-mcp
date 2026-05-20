@@ -67,6 +67,63 @@ use `import_native_manifest` (not `load_native_binary`) to register them in bulk
 (default) records path hints without opening files — actual loading is deferred until a tool
 call requires the handle. Eager mode opens and verifies every entry immediately.
 
+## R2R handoff from `dotnet-assembly-mcp`
+
+ReadyToRun (R2R) method bodies live inside ordinary managed PEs — the same `.dll` files that
+`dotnet-assembly-mcp` inspects for metadata and IL. When `dotnet-assembly-mcp` encounters a
+method whose IL was compiled to native R2R code, it can emit the RVA and byte length of that
+body, then hand off to **`dotnet-native-mcp`** for disassembly without requiring the PE to
+pass the `load_native_binary` validation (which rejects managed PEs that lack NativeAOT
+marker symbols or an R2R header that this server can detect).
+
+### Raw-bytes disassembly (`imagePath` + `rva` + `size`)
+
+`disassemble` accepts two mutually exclusive modes:
+
+| Parameter group | When to use |
+|---|---|
+| `imageHandle` (+ `address` or `symbolName`) | Binary is already registered via `load_native_binary`. Supports symbol lookup and xref hints. |
+| `imagePath` + `rva` + `size` | Direct file path, no prior `load_native_binary` call needed. Works on any PE/ELF/Mach-O including managed PEs. No xref resolution. |
+
+**Wire example — `dotnet-assembly-mcp` → `dotnet-native-mcp` R2R handoff:**
+
+```jsonc
+// dotnet-assembly-mcp emits a method body location like this:
+// {
+//   "file": "/app/MyService.dll",
+//   "methodRva": 139776,        // 0x22200 — decimal RVA of the R2R native code
+//   "nativeCodeSize": 128       // byte length of the compiled body
+// }
+
+// Tool: disassemble (raw-bytes mode)
+{
+  "imagePath": "/app/MyService.dll",
+  "rva": 139776,
+  "size": 128,
+  "maxInstructions": 64
+}
+// -> {
+//   "summary": "Disassembled 42 instruction(s) at RVA 0x22200 in 'raw-...'.",
+//   "data": [
+//     { "addressHex": "0000000000022200", "bytes": "55", "mnemonic": "push", "operands": "rbp" },
+//     { "addressHex": "0000000000022201", "bytes": "4889e5", "mnemonic": "mov", "operands": "rbp, rsp" },
+//     ...
+//   ]
+// }
+```
+
+**Validation rules for `imagePath` mode:**
+
+- Exactly one of `{imageHandle, imagePath}` must be supplied → else `invalid_argument`.
+- When `imagePath` is supplied, `rva` and `size` are both required → else `invalid_argument`.
+- `architecture` is optional; detected from the PE/ELF/Mach-O header when omitted.
+- `baseAddress` is optional; used to format absolute addresses in output; detected from
+  the binary header when omitted.
+- `architecture` and `baseAddress` are ignored when `imageHandle` is supplied.
+
+When using `imagePath`, the resulting instructions **will not** have symbolic cross-ref
+hints resolved (no symbol table is available without a registered image).
+
 ### `resolveSource` parameter
 
 Three tools surface a `SourceLocation` (file + line from DWARF/PDB debug info).
