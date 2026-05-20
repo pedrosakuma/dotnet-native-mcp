@@ -20,16 +20,43 @@ public class NativeCallGraphBuilderTests
     }
 
     // ---------------------------------------------------------------------------
-    // ARM64 → empty index
+    // ARM64 → no branches → empty index
     // ---------------------------------------------------------------------------
 
     [Fact]
-    public void Build_Arm64_ReturnsEmptyIndex()
+    public void Build_Arm64_NoBranches_ReturnsEmptyIndex()
     {
-        var image = MakeImage([0x00, 0x00, 0x00, 0x00], arch: Architecture.Arm64);
+        // ARM64 NOP (D503201F) + RET (D65F03C0) — no branch instructions.
+        var image = MakeImage(
+            [0x1F, 0x20, 0x03, 0xD5, 0xC0, 0x03, 0x5F, 0xD6],
+            arch: Architecture.Arm64);
         var index = NativeCallGraphBuilder.Build(image);
 
         index.Should().BeEmpty();
+    }
+
+    // ---------------------------------------------------------------------------
+    // ARM64 BL → populated index
+    // ---------------------------------------------------------------------------
+
+    [Fact]
+    public void Build_Arm64_WithBL_PopulatesIndex()
+    {
+        // ARM64: BL +4 (94000001) at offset 0, then NOP (D503201F).
+        // BL +4 means the call target is at instrIp + 4.
+        // With imageBase = 0x400000 and section at VA 0x400000:
+        //   instrIp  = 0x400000
+        //   target   = 0x400000 + 4 = 0x400004
+        var image = MakeImage(
+            [0x01, 0x00, 0x00, 0x94, 0x1F, 0x20, 0x03, 0xD5],
+            arch: Architecture.Arm64);
+        var index = NativeCallGraphBuilder.Build(image);
+
+        index.Should().NotBeEmpty();
+        var targetVa = 0x400004UL;
+        index.Should().ContainKey(targetVa);
+        index[targetVa].Should().ContainSingle();
+        index[targetVa][0].Mnemonic.Should().Be("bl");
     }
 
     // ---------------------------------------------------------------------------

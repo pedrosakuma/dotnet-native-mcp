@@ -71,19 +71,27 @@ public class NativeToolsFindCallersTests
     }
 
     // ---------------------------------------------------------------------------
-    // ARM64 image → disassembly_unsupported
+    // ARM64 image with BL → succeeds and finds caller
     // ---------------------------------------------------------------------------
 
     [Fact]
-    public void FindNativeCallers_Arm64Image_ReturnsDisassemblyUnsupported()
+    public void FindNativeCallers_Arm64ImageWithBL_ReturnsCallers()
     {
-        var image = CreateImage([0x00, 0x00, 0x00, 0x00], arch: Architecture.Arm64);
+        // ARM64: BL +4 (94000001) at VA 0x400000, target = 0x400004 (within section).
+        // Use a unique handle so the disk xref cache does not collide with x64 tests.
+        var handle = ImageHandle.From("testfc-arm64bl", "arm64bl.elf");
+        var code = new byte[] { 0x01, 0x00, 0x00, 0x94, 0x1F, 0x20, 0x03, 0xD5 };
+        var section = new NativeSection(".text", 0, (ulong)code.Length, 0, (ulong)code.Length);
+        var image = new NativeImage(handle, "arm64bl.elf", BinaryFormat.Elf, Architecture.Arm64,
+            [section], [], new ReadOnlyMemory<byte>(code), 0x400000);
+
         var tools = MakeTools(image);
 
-        var result = tools.FindNativeCallers(image.Handle.Value, "0x400000");
+        var result = tools.FindNativeCallers(image.Handle.Value, "0x400004");
 
-        result.IsError.Should().BeTrue();
-        result.Error!.Kind.Should().Be(ErrorKinds.DisassemblyUnsupported);
+        result.IsError.Should().BeFalse();
+        result.Data!.Callers.Should().HaveCount(1);
+        result.Data.Callers[0].Mnemonic.Should().Be("bl");
     }
 
     // ---------------------------------------------------------------------------

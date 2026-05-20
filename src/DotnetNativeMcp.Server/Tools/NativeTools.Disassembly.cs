@@ -13,15 +13,16 @@ public sealed partial class NativeTools
 {
     [McpServerTool(Name = "disassemble")]
     [Description(
-        "Disassembles native machine code using Iced (x86/x64 only). " +
+        "Disassembles native machine code using Iced (x86/x64) or AsmArm64 (ARM64/AArch64). " +
         "Two modes: (1) registered-handle mode — supply imageHandle (returned by load_native_binary) " +
         "plus address or symbolName; (2) raw-bytes mode — supply imagePath + rva + size directly, " +
         "bypassing load_native_binary (works on any PE/ELF/Mach-O including managed PEs with R2R bodies). " +
         "Exactly one of {imageHandle, imagePath} must be present. " +
         "Each instruction includes absolute address, raw bytes, mnemonic, operands, " +
-        "and a cross-ref hint for CALL/JMP targets that can be resolved against the symbol table. " +
+        "and a cross-ref hint for CALL/JMP/BL/B targets that can be resolved against the symbol table. " +
         "When resolveSource is true each instruction is optionally annotated with file:line from DWARF debug info. " +
-        "Default: 64 instructions. Max: 2048. ARM64 returns 'disassembly_unsupported'.")]
+        "Default: 64 instructions. Max: 2048. " +
+        "ARM64 decodes BL, B, B.cond, CBZ, CBNZ, TBZ, TBNZ and surfaces their targets as cross-ref hints.")]
     public NativeResult<IReadOnlyList<InstructionView>> Disassemble(
         [Description("ImageHandle returned by load_native_binary.")] string? imageHandle = null,
         [Description("Hex RVA or absolute VA (no 0x prefix) to start disassembly.")] string? address = null,
