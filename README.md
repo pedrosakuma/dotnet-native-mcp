@@ -36,7 +36,7 @@ are available.
 
 | Tool                     | Purpose                                                                 |
 |--------------------------|-------------------------------------------------------------------------|
-| `load_native_binary`     | Open a PE/ELF, verify it's a managed-flavored native build, return a handle. Accepts NativeAOT and ReadyToRun. Validates optional `buildId` from `dotnet-diagnostics-mcp`. |
+| `load_native_binary`     | Open a PE/ELF, verify it's a managed-flavored native build, return a handle. **Single-path mode**: accepts `path` + optional `buildId`. **Batch/manifest mode**: accepts `entries: [{path, name?, buildId?}]` + `mode` (`lazy`\|`eager`) — bulk registration from `dotnet-diagnostics-mcp`. Per-entry failures reported inline without failing the batch. |
 | `list_native_symbols`    | Paginated symbol table. Source priority: `.map` sidecar → ELF `.symtab`/`.dynsym` → PE export table. Includes raw + demangled names. |
 | `list_native_imports`    | Paginated import/dependency walk. `kind="functions"` lists ELF undefined `.dynsym` imports or PE Import Directory entries; `kind="libraries"` lists ELF `DT_NEEDED` or PE imported DLL names. |
 | `resolve_symbols`        | Batch address ↔ symbol lookup with ILC demangling. Accepts up to 200 hex (`0x`-prefixed or bare) or decimal address strings against a single image. Per-address failures are reported inline without failing the whole batch. Replaces the former single-address `resolve_symbol` and multi-frame `symbolicate_stack` tools. |
