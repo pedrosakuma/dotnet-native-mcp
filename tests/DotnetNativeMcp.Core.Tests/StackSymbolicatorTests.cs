@@ -108,6 +108,8 @@ public class StackSymbolicatorTests
             return found;
         }
 
+        public void RegisterHint(string path, string? buildId = null) { }
+
         public IReadOnlyList<NativeImage> List() => [.. _images.Values];
     }
 }

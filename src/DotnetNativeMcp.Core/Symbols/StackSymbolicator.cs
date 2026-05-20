@@ -188,7 +188,7 @@ public static class StackSymbolicator
     /// Attempts to parse <paramref name="raw"/> as an address.
     /// Accepts <c>0x</c>-prefixed hex, bare hex strings, and decimal strings.
     /// </summary>
-    internal static bool TryParseAddress(string? raw, out ulong value, out string normalizedHex)
+    public static bool TryParseAddress(string? raw, out ulong value, out string normalizedHex)
     {
         value = 0;
         normalizedHex = string.Empty;
