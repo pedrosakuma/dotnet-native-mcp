@@ -14,9 +14,10 @@
   </ItemGroup>
 
   <ItemGroup Label="Disassembly">
-    <!-- Iced: MIT, .NET-native, Intel-maintained x86/x64 disassembler.
-         ARM64 will be added via a separate Capstone P/Invoke wrapper. -->
+    <!-- Iced: MIT, .NET-native, Intel-maintained x86/x64 disassembler. -->
     <PackageVersion Include="Iced" Version="1.21.0" />
+    <!-- AsmArm64: BSD-2-Clause, .NET-native, managed-only ARM64/AArch64 decoder. -->
+    <PackageVersion Include="AsmArm64" Version="2.0.0" />
   </ItemGroup>
 
   <ItemGroup Label="Hosting">

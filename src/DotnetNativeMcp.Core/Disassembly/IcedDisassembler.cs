@@ -8,8 +8,8 @@ using Iced.Intel;
 namespace DotnetNativeMcp.Core.Disassembly;
 
 /// <summary>
-/// Wraps <c>Iced.Intel</c> to disassemble x86/x64 code from a <see cref="NativeImage"/>.
-/// ARM64 is not yet supported — returns <see cref="ErrorKinds.DisassemblyUnsupported"/>.
+/// Wraps <c>Iced.Intel</c> to disassemble x86/x64 code, and routes ARM64 to
+/// <see cref="Arm64Disassembler"/>.
 /// </summary>
 public static class IcedDisassembler
 {
@@ -48,10 +48,12 @@ public static class IcedDisassembler
             case Architecture.X86:
                 bitness = 32;
                 break;
+            case Architecture.Arm64:
+                return Arm64Disassembler.Disassemble(image, rva, maxInstructions);
             default:
                 return NativeResult.Fail<IReadOnlyList<InstructionView>>(
                     ErrorKinds.DisassemblyUnsupported,
-                    $"Disassembly for {image.Architecture} is not supported in V0. Only x86/x64 is implemented.");
+                    $"Disassembly for {image.Architecture} is not supported in V0. Only x86/x64 and ARM64 are implemented.");
         }
 
         var section = image.FindSection(rva);
