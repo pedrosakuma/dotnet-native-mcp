@@ -55,6 +55,13 @@ dotnet run --project src/DotnetNativeMcp.Server -c Release          # HTTP on 87
 dotnet run --project src/DotnetNativeMcp.Server -c Release -- --stdio
 ```
 
+## Pre-PR review
+
+Before opening or merging any PR, dispatch a `code-review` sub-agent with
+model `gpt-5.5` over the PR diff (`git diff main...HEAD`, triple-dot from
+the merge-base) and address its findings. This is a standing rule — do not
+skip even for "obvious" or "trivial" changes.
+
 ## Out of scope (by design)
 
 - Managed metadata / IL / decompile-to-C# — use `dotnet-assembly-mcp`.
