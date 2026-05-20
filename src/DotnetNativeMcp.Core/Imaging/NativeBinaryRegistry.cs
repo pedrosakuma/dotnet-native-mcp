@@ -47,7 +47,8 @@ public sealed class NativeBinaryRegistry : INativeBinaryRegistry
             {
                 return NativeResult.Ok(
                     $"Returned cached image '{Path.GetFileName(absPath)}'. Handle: {cached.Handle.Value}.",
-                    cached);
+                    cached,
+                    NativeImageLoader.BuildLoadHints(cached));
             }
         }
 

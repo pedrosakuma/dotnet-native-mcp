@@ -1,7 +1,7 @@
 # dotnet-native-mcp
 
-> **Status:** V1 in progress. Six MCP tools are live:
-> `load_native_binary`, `list_native_symbols`, `resolve_symbol`, `extract_strings`, `symbolicate_stack`, `disassemble`.
+> **Status:** V1 in progress. Eight MCP tools are live:
+> `load_native_binary`, `list_native_symbols`, `resolve_symbol`, `extract_strings`, `symbolicate_stack`, `get_size_breakdown`, `compare_native_binaries`, `disassemble`.
 > See the [V0 tracking issue](https://github.com/pedrosakuma/dotnet-native-mcp/issues/1).
 
 MCP server for **navigating native .NET binaries** — NativeAOT, R2R-only,
@@ -41,6 +41,8 @@ are available.
 | `resolve_symbol`         | Address ↔ symbol lookup with ILC demangling. Accepts RVA or absolute VA. |
 | `extract_strings`        | Paginated printable ASCII / UTF-16LE scan over `.rodata` / `.rdata` / `.data.rel.ro` / `__const` (with `.data` fallback). Returns section + offset for forensics. |
 | `symbolicate_stack`      | Bulk stack symbolication for up to 200 frames. Accepts `NativeFrame`-style rows or raw hex addresses plus a default image handle; each row reports its own success/error state. |
+| `get_size_breakdown`     | Read the `.mstat` sidecar emitted by NativeAOT and aggregate native bytes by assembly, namespace, type, or method. |
+| `compare_native_binaries`| Diff two loaded images: build-id, format, arch, file/section size deltas, added/removed/size-changed symbols. |
 | `disassemble`            | Iced x86/x64 disassembly with CALL/JMP cross-ref hints. Default 64 instructions, capped at 2048. ARM64 returns `disassembly_unsupported`. |
 
 For crash logs or sampled stacks where `dotnet-diagnostics-mcp` is not in the loop, use `load_native_binary` once and then call `symbolicate_stack` with a `defaultImageHandle` plus raw hex addresses. When you already have `NativeFrame` handoffs, pass those rows directly and override `imageHandle` per frame as needed.

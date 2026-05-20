@@ -5,6 +5,7 @@ using DotnetNativeMcp.Core.Diff;
 using DotnetNativeMcp.Core.Disassembly;
 using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Imaging;
+using DotnetNativeMcp.Core.Mstat;
 using DotnetNativeMcp.Core.Strings;
 using DotnetNativeMcp.Core.Symbols;
 using ModelContextProtocol.Server;
@@ -147,6 +148,84 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
             new ResolveSymbolResult(sym.Index, sym.Name, sym.DemangledName, rvaHex, sym.Size, section, sym.IsFunction),
             [new NextActionHint("disassemble", "Disassemble native code at this symbol.",
                 new Dictionary<string, object?> { ["imageHandle"] = imageHandle, ["address"] = rvaHex })]);
+    }
+
+    [McpServerTool(Name = "get_size_breakdown")]
+    [Description(
+        "Reads the NativeAOT .mstat sidecar paired with a loaded binary and returns aggregated native size by assembly, namespace, type, or method. " +
+        "Defaults to method grouping and the top 25 rows. Max topN: 500.")]
+    public NativeResult<GetSizeBreakdownResult> GetSizeBreakdown(
+        [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
+        [Description("Grouping: assembly, namespace, type, or method. Default: method.")] string groupBy = "method",
+        [Description("Maximum rows to return. Default 25, capped at 500.")] int topN = MstatReader.DefaultTopN,
+        [Description("Optional absolute path override for the .mstat sidecar. Defaults to a sibling file next to the loaded binary.")] string? mstatPath = null)
+    {
+        if (!registry.TryGet(imageHandle, out var image) || image is null)
+            return NativeResult.Fail<GetSizeBreakdownResult>(
+                ErrorKinds.BinaryNotFound,
+                $"No image found for handle '{imageHandle}'. Call load_native_binary first.");
+
+        if (!TryParseGroupBy(groupBy, out var grouping))
+            return NativeResult.Fail<GetSizeBreakdownResult>(
+                ErrorKinds.InvalidArgument,
+                $"groupBy must be one of: assembly, namespace, type, method. Actual: '{groupBy}'.");
+
+        var resolvedMstatPath = string.IsNullOrWhiteSpace(mstatPath)
+            ? MstatReader.GetDefaultMstatPath(image.FilePath)
+            : Path.GetFullPath(mstatPath);
+
+        var mstat = MstatReader.Read(resolvedMstatPath);
+        if (mstat.IsError)
+            return NativeResult.Fail<GetSizeBreakdownResult>(mstat.Error!.Kind, mstat.Error.Message, mstat.Error.Detail);
+
+        var rows = MstatReader.Aggregate(mstat.Data!.Attributions, grouping, topN)
+            .Select(row => new SizeBreakdownRow(
+                row.Key,
+                row.AssemblyName,
+                row.NamespaceName,
+                row.TypeName,
+                row.MethodName,
+                row.TotalSize,
+                row.AttributionCount))
+            .ToList();
+
+        var hints = new List<NextActionHint>();
+        if (grouping != MstatGroupBy.Method)
+        {
+            hints.Add(new NextActionHint(
+                "get_size_breakdown",
+                "Drill into per-method size buckets for this image.",
+                new Dictionary<string, object?>
+                {
+                    ["imageHandle"] = imageHandle,
+                    ["groupBy"] = "method",
+                    ["mstatPath"] = resolvedMstatPath,
+                }));
+        }
+
+        return NativeResult.Ok(
+            $"Returned {rows.Count} {grouping.ToString().ToLowerInvariant()} size bucket(s) from '{Path.GetFileName(resolvedMstatPath)}'.",
+            new GetSizeBreakdownResult(
+                grouping.ToString().ToLowerInvariant(),
+                resolvedMstatPath,
+                mstat.Data.TotalSize,
+                rows),
+            hints);
+    }
+
+    private static bool TryParseGroupBy(string value, out MstatGroupBy groupBy)
+    {
+        var normalized = value.Trim().ToLowerInvariant();
+        groupBy = normalized switch
+        {
+            "assembly" => MstatGroupBy.Assembly,
+            "namespace" => MstatGroupBy.Namespace,
+            "type" => MstatGroupBy.Type,
+            "method" => MstatGroupBy.Method,
+            _ => default,
+        };
+
+        return normalized is "assembly" or "namespace" or "type" or "method";
     }
 
     [McpServerTool(Name = "compare_native_binaries")]
@@ -600,3 +679,20 @@ public sealed record ExtractStringsResult(
     IReadOnlyList<ExtractedStringRow> Strings,
     int TotalCount,
     int? NextCursor);
+
+/// <summary>Result payload for <c>get_size_breakdown</c>.</summary>
+public sealed record GetSizeBreakdownResult(
+    string GroupBy,
+    string MstatPath,
+    long TotalAttributedBytes,
+    IReadOnlyList<SizeBreakdownRow> Rows);
+
+/// <summary>One aggregated row returned by <c>get_size_breakdown</c>.</summary>
+public sealed record SizeBreakdownRow(
+    string Key,
+    string AssemblyName,
+    string NamespaceName,
+    string TypeName,
+    string? MethodName,
+    long TotalSize,
+    int AttributionCount);
