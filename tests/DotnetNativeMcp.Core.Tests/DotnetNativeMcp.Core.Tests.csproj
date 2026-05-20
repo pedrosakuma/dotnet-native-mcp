@@ -29,6 +29,11 @@
       Command="dotnet publish &quot;$(_FixtureSrc)&quot; -c Release -r linux-x64 --sc true -o &quot;$(_FixtureOutDir)&quot; --nologo -v quiet"
       ContinueOnError="true"
       ConsoleToMSBuild="false" />
+    <Copy
+      SourceFiles="$(MSBuildThisFileDirectory)..\fixtures\SampleAot\obj\Release\net10.0\linux-x64\native\SampleAot.mstat"
+      DestinationFolder="$(_FixtureOutDir)"
+      SkipUnchangedFiles="true"
+      Condition="Exists('$(MSBuildThisFileDirectory)..\fixtures\SampleAot\obj\Release\net10.0\linux-x64\native\SampleAot.mstat')" />
   </Target>
 
 </Project>

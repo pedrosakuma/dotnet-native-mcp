@@ -89,12 +89,22 @@ internal static class FixturePaths
     {
         get
         {
-            // Check next to the test assembly in a fixtures/ sub-directory.
             var dir = Path.GetDirectoryName(typeof(FixturePaths).Assembly.Location) ?? ".";
             var candidate = Path.Combine(dir, "fixtures", "SampleAot", "SampleAot");
-            if (File.Exists(candidate)) return candidate;
-            // Also check without extension on Linux.
-            return null;
+            return File.Exists(candidate) ? candidate : null;
+        }
+    }
+
+    public static string? SampleAotMstat
+    {
+        get
+        {
+            var binary = SampleAot;
+            if (binary is null)
+                return null;
+
+            var candidate = Path.ChangeExtension(binary, ".mstat");
+            return File.Exists(candidate) ? candidate : null;
         }
     }
 }

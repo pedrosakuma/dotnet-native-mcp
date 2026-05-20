@@ -1,6 +1,7 @@
 using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Imaging;
 using DotnetNativeMcp.Core.Identity;
+using DotnetNativeMcp.Core.Mstat;
 
 namespace DotnetNativeMcp.Core;
 
@@ -90,12 +91,29 @@ public static class NativeImageLoader
             $"Loaded {image.Format} {image.Architecture} binary '{Path.GetFileName(path)}' " +
             $"with {image.Symbols.Count} symbols. Handle: {image.Handle.Value}.",
             image,
-            [
-                new NextActionHint("list_native_symbols", "Enumerate all symbols in this image.",
-                    new Dictionary<string, object?> { ["imageHandle"] = image.Handle.Value }),
-                new NextActionHint("resolve_symbol", "Resolve a specific symbol by name or address.",
-                    new Dictionary<string, object?> { ["imageHandle"] = image.Handle.Value }),
-            ]);
+            BuildLoadHints(image));
+    }
+
+    /// <summary>Builds follow-up hints for a loaded image.</summary>
+    public static IReadOnlyList<NextActionHint> BuildLoadHints(NativeImage image)
+    {
+        var hints = new List<NextActionHint>
+        {
+            new("list_native_symbols", "Enumerate all symbols in this image.",
+                new Dictionary<string, object?> { ["imageHandle"] = image.Handle.Value }),
+            new("resolve_symbol", "Resolve a specific symbol by name or address.",
+                new Dictionary<string, object?> { ["imageHandle"] = image.Handle.Value }),
+        };
+
+        if (MstatReader.HasSiblingMstat(image.FilePath))
+        {
+            hints.Add(new NextActionHint(
+                "get_size_breakdown",
+                "A sibling .mstat sidecar is available for NativeAOT size analysis.",
+                new Dictionary<string, object?> { ["imageHandle"] = image.Handle.Value }));
+        }
+
+        return hints;
     }
 }
 

@@ -6,6 +6,7 @@
     <PublishAot>true</PublishAot>
     <StripSymbols>false</StripSymbols>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <IlcGenerateMstatFile>true</IlcGenerateMstatFile>
   </PropertyGroup>
 
 </Project>
