@@ -54,11 +54,25 @@ authority — open an issue here and update the contract.
 NativeFrame
   ├─ load_native_binary(binary)                  -> ImageHandle
   ├─ resolve_symbols(image, [address, ...])       -> [{ demangled, section, displacement }]
+  ├─ find_native_callers(image, target)          -> [{ callSite, mnemonic, source? }]
   └─ disassemble(image, address, n)              -> List<NativeInstruction>
 ```
 
 `resolve_symbols` is the batch variant: pass up to 200 hex or decimal address strings in a
 single call. Per-address failures are reported inline without aborting the whole batch.
+
+### `resolveSource` parameter
+
+Three tools surface a `SourceLocation` (file + line from DWARF/PDB debug info).
+All three expose a `resolveSource: bool` parameter to control whether PDB I/O is performed.
+
+| Tool                  | Default       | Rationale                                                                         |
+|-----------------------|---------------|-----------------------------------------------------------------------------------|
+| `resolve_symbols`     | `true`        | User explicitly asked to resolve symbols; file:line is the natural next step.     |
+| `find_native_callers` | `true`        | Caller context with file:line is high-value; opt out for perf-sensitive scans.    |
+| `disassemble`         | `false`       | Instruction streams can be thousands of lines; per-instruction lookup defaults off.|
+
+Set `resolveSource=false` when scanning large binaries where PDB reads are slow.
 
 ### Worked example
 
