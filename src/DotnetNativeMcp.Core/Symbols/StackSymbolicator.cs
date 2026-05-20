@@ -18,6 +18,29 @@ public sealed record NativeFrameInput(
     string? Binary = null);
 
 /// <summary>
+/// One row returned by batch address resolution via <c>resolve_symbols</c>.
+/// </summary>
+/// <param name="InputAddress">The original address string as supplied by the caller.</param>
+/// <param name="ResolvedRvaHex">Normalized 16-digit hex RVA after successful address parsing, or <c>null</c> on error.</param>
+/// <param name="MangledName">Resolved raw (mangled) symbol name on success.</param>
+/// <param name="DemangledName">Best-effort demangled symbol name on success.</param>
+/// <param name="SectionName">Containing section name when available.</param>
+/// <param name="Displacement">Byte offset from the start of the resolved symbol.</param>
+/// <param name="Error">Per-row error payload. The batch still succeeds when individual rows fail.</param>
+public sealed record ResolvedAddress(
+    string InputAddress,
+    string? ResolvedRvaHex,
+    string? MangledName,
+    string? DemangledName,
+    string? SectionName,
+    ulong? Displacement,
+    NativeError? Error = null)
+{
+    /// <summary>True when the row represents a per-address failure.</summary>
+    public bool IsError => Error is not null;
+}
+
+/// <summary>
 /// One row returned by batch native stack symbolication.
 /// </summary>
 /// <param name="Index">Zero-based position of the input frame.</param>
@@ -51,6 +74,156 @@ public static class StackSymbolicator
 {
     /// <summary>Maximum number of frames accepted by a single batch.</summary>
     public const int MaxFrameCount = 200;
+
+    /// <summary>
+    /// Resolves a batch of address strings against a single loaded native image.
+    /// Accepts hex (<c>0x</c>-prefixed or bare hex digits) and decimal strings.
+    /// An empty list returns an empty result without error.
+    /// Per-address failures (bad parse, symbol not found) are reported inline; the
+    /// top-level result only errors when the image itself is <c>null</c>.
+    /// </summary>
+    public static NativeResult<IReadOnlyList<ResolvedAddress>> ResolveAddresses(
+        NativeImage image,
+        IReadOnlyList<string>? addresses)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+
+        if (addresses is null || addresses.Count == 0)
+        {
+            return NativeResult.Ok(
+                "Resolved 0 of 0 addresses.",
+                (IReadOnlyList<ResolvedAddress>)[]);
+        }
+
+        var rows = new List<ResolvedAddress>(addresses.Count);
+        var resolvedCount = 0;
+        string? hintAddressHex = null;
+        string? hintSymbolName = null;
+
+        foreach (var raw in addresses)
+        {
+            var row = ResolveAddress(image, raw, out var resolvedFunction);
+            rows.Add(row);
+            if (!row.IsError)
+                resolvedCount++;
+
+            if (resolvedFunction is not null && hintAddressHex is null)
+            {
+                hintAddressHex = resolvedFunction.Value.AddressHex;
+                hintSymbolName = resolvedFunction.Value.SymbolName;
+            }
+        }
+
+        var hints = new List<NextActionHint>();
+        if (hintAddressHex is not null)
+        {
+            hints.Add(new NextActionHint(
+                "disassemble",
+                $"Disassemble the first resolved function ('{hintSymbolName}').",
+                new Dictionary<string, object?>
+                {
+                    ["imageHandle"] = image.Handle.Value,
+                    ["address"] = hintAddressHex,
+                }));
+        }
+
+        var errorCount = rows.Count - resolvedCount;
+        return NativeResult.Ok(
+            $"Resolved {resolvedCount} of {rows.Count} address(es); {errorCount} row(s) returned errors.",
+            (IReadOnlyList<ResolvedAddress>)rows,
+            hints);
+    }
+
+    private static ResolvedAddress ResolveAddress(
+        NativeImage image,
+        string raw,
+        out (string AddressHex, string SymbolName)? resolvedFunction)
+    {
+        resolvedFunction = null;
+
+        if (!TryParseAddress(raw, out var virtualAddress, out var normalizedHex))
+        {
+            return new ResolvedAddress(
+                raw,
+                null, null, null, null, null,
+                new NativeError(ErrorKinds.InvalidArgument, $"Cannot parse address '{raw}' as a hex or decimal value."));
+        }
+
+        var rva = SymbolResolution.VaToRva(virtualAddress, image.ImageBase);
+        var resolvedRvaHex = rva.ToString("x16", CultureInfo.InvariantCulture);
+        var section = image.FindSection(rva);
+        var symbol = SymbolResolution.FindByRva(image.Symbols, rva);
+
+        if (symbol is null)
+        {
+            if (section is null)
+            {
+                return new ResolvedAddress(
+                    raw,
+                    resolvedRvaHex, null, null, null, null,
+                    new NativeError(ErrorKinds.AddressOutOfRange,
+                        $"Address 0x{virtualAddress:x} is outside the known sections of the binary."));
+            }
+
+            return new ResolvedAddress(
+                raw,
+                resolvedRvaHex, null, null, section.Name, null,
+                new NativeError(ErrorKinds.SymbolNotFound,
+                    $"No symbol found for address 0x{virtualAddress:x} in section '{section.Name}'."));
+        }
+
+        var sectionName = symbol.Section ?? section?.Name;
+        var demangledName = string.IsNullOrEmpty(symbol.DemangledName)
+            ? NativeAotSymbolDemangler.Demangle(symbol.Name)
+            : symbol.DemangledName;
+        var displacement = rva - symbol.Rva;
+
+        if (symbol.IsFunction)
+            resolvedFunction = (normalizedHex, symbol.Name);
+
+        return new ResolvedAddress(raw, resolvedRvaHex, symbol.Name, demangledName, sectionName, displacement);
+    }
+
+    /// <summary>
+    /// Attempts to parse <paramref name="raw"/> as an address.
+    /// Accepts <c>0x</c>-prefixed hex, bare hex strings, and decimal strings.
+    /// </summary>
+    internal static bool TryParseAddress(string? raw, out ulong value, out string normalizedHex)
+    {
+        value = 0;
+        normalizedHex = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(raw))
+            return false;
+
+        var candidate = raw.Trim();
+
+        // Explicit hex prefix → always hex.
+        if (candidate.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        {
+            var hexPart = candidate[2..];
+            if (hexPart.Length == 0 || !ulong.TryParse(hexPart, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value))
+                return false;
+
+            normalizedHex = value.ToString("x16", CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        // No prefix: try decimal first, then hex.
+        if (ulong.TryParse(candidate, NumberStyles.None, CultureInfo.InvariantCulture, out value))
+        {
+            normalizedHex = value.ToString("x16", CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        if (ulong.TryParse(candidate, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value))
+        {
+            normalizedHex = value.ToString("x16", CultureInfo.InvariantCulture);
+            return true;
+        }
+
+        return false;
+    }
 
     /// <summary>
     /// Symbolicates a batch of native frames using images already present in the registry.
