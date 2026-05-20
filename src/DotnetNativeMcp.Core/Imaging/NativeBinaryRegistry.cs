@@ -11,6 +11,12 @@ public interface INativeBinaryRegistry
     /// <summary>Loads a binary from disk (or returns the cached instance if already loaded).</summary>
     NativeResult<NativeImage> Load(string path, string? expectedBuildId = null);
 
+    /// <summary>
+    /// Records a lazy path hint without opening the binary.
+    /// A later <see cref="Load"/> for the same path uses the hint's optional build-id for verification.
+    /// </summary>
+    void RegisterHint(string path, string? buildId = null);
+
     /// <summary>Attempts to retrieve a previously loaded image by handle string.</summary>
     bool TryGet(string imageHandle, out NativeImage? image);
 
@@ -26,11 +32,16 @@ public sealed class NativeBinaryRegistry : INativeBinaryRegistry
 {
     private readonly ConcurrentDictionary<string, NativeImage> _byHandle = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, NativeImage> _byPath = new(StringComparer.OrdinalIgnoreCase);
+    private readonly ConcurrentDictionary<string, string?> _hints = new(StringComparer.OrdinalIgnoreCase);
 
     /// <inheritdoc />
     public NativeResult<NativeImage> Load(string path, string? expectedBuildId = null)
     {
         var absPath = path.Length > 0 ? Path.GetFullPath(path) : path;
+
+        // Prefer hint's buildId when the caller didn't supply one
+        if (expectedBuildId is null && _hints.TryGetValue(absPath, out var hintBuildId))
+            expectedBuildId = hintBuildId;
 
         // Fast-path: already cached by path
         if (_byPath.TryGetValue(absPath, out var cached))
@@ -60,6 +71,13 @@ public sealed class NativeBinaryRegistry : INativeBinaryRegistry
             _byPath[absPath] = image;
         }
         return result;
+    }
+
+    /// <inheritdoc />
+    public void RegisterHint(string path, string? buildId = null)
+    {
+        var absPath = path.Length > 0 ? Path.GetFullPath(path) : path;
+        _hints[absPath] = buildId;
     }
 
     /// <inheritdoc />

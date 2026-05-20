@@ -32,4 +32,7 @@ public static class ErrorKinds
 
     /// <summary>An unexpected internal failure occurred.</summary>
     public const string InternalError = "internal_error";
+
+    /// <summary>Build-id provided in an eager manifest import did not match the on-disk binary.</summary>
+    public const string BuildIdMismatch = "build_id_mismatch";
 }

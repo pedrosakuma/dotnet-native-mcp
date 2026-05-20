@@ -9,6 +9,7 @@ using DotnetNativeMcp.Core.Imaging;
 using DotnetNativeMcp.Core.Mstat;
 using DotnetNativeMcp.Core.Strings;
 using DotnetNativeMcp.Core.Symbols;
+using DotnetNativeMcp.Core.Xref;
 using ModelContextProtocol.Server;
 
 namespace DotnetNativeMcp.Server.Tools;
@@ -18,7 +19,7 @@ namespace DotnetNativeMcp.Server.Tools;
 /// Accepts <c>NativeFrame</c> handoffs from <c>dotnet-diagnostics-mcp</c>.
 /// </summary>
 [McpServerToolType]
-public sealed class NativeTools(INativeBinaryRegistry registry)
+public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphCache callGraphCache)
 {
     [McpServerTool(Name = "load_native_binary")]
     [Description(
@@ -26,25 +27,104 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
         "(NativeAOT or ReadyToRun), and returns an ImageHandle used by all other tools. " +
         "Rejects arbitrary system .so/.dll files with 'not_a_native_dotnet_image'. " +
         "Optionally validates the build-id against a value from dotnet-diagnostics-mcp " +
-        "to prevent stale-binary mistakes.")]
-    public NativeResult<LoadNativeBinaryResult> LoadNativeBinary(
-        [Description("Absolute path to the native binary on disk.")] string path,
-        [Description("Optional build-id (hex) from dotnet-diagnostics-mcp NativeFrame.buildId. When supplied, the loaded binary's build-id must match or binary_mismatch is returned.")] string? buildId = null)
+        "to prevent stale-binary mistakes.\n\n" +
+        "BATCH / MANIFEST MODE: supply 'entries' instead of 'path' to register a list of " +
+        "binaries in one call (bulk handshake from dotnet-diagnostics-mcp). " +
+        "mode='lazy' (default) records path hints without opening each file; " +
+        "mode='eager' opens every entry immediately and verifies build-ids. " +
+        "Per-entry failures are reported inline — one bad entry does not fail the whole batch. " +
+        "Exactly one of 'path' or 'entries' must be supplied.")]
+    public object LoadNativeBinary(
+        [Description("Absolute path to the native binary on disk. Mutually exclusive with 'entries'.")] string? path = null,
+        [Description("Optional build-id (hex) from dotnet-diagnostics-mcp NativeFrame.buildId. When supplied, the loaded binary's build-id must match or binary_mismatch is returned. Only used with 'path'.")] string? buildId = null,
+        [Description("Batch manifest entries. Each entry has a 'path' and optional 'name' and 'buildId'. Mutually exclusive with 'path'.")] IReadOnlyList<BatchManifestEntry>? entries = null,
+        [Description("Batch mode: 'lazy' (default) records path hints without opening binaries; 'eager' opens and verifies each entry immediately.")] string mode = "lazy")
     {
-        var result = registry.Load(path, buildId);
-        if (result.IsError)
-            return NativeResult.Fail<LoadNativeBinaryResult>(result.Error!.Kind, result.Error.Message, result.Error.Detail);
+        var hasPath = !string.IsNullOrWhiteSpace(path);
+        var hasEntries = entries is not null;
 
-        var image = result.Data!;
-        var data = new LoadNativeBinaryResult(
-            image.Handle.Value,
-            image.Format.ToString(),
-            image.Architecture.ToString(),
-            image.Handle.BuildIdHex,
-            image.Symbols.Count,
-            image.Sections.Count);
+        if (hasPath == hasEntries)
+        {
+            var msg = hasPath
+                ? "Supply either 'path' or 'entries', not both."
+                : "Supply either 'path' or 'entries'.";
+            return NativeResult.Fail<LoadNativeBinaryResult>(ErrorKinds.InvalidArgument, msg);
+        }
 
-        return NativeResult.Ok(result.Summary, data, result.Hints);
+        // ---- single-path mode (existing behaviour) ----
+        if (hasPath)
+        {
+            var result = registry.Load(path!, buildId);
+            if (result.IsError)
+                return NativeResult.Fail<LoadNativeBinaryResult>(result.Error!.Kind, result.Error.Message, result.Error.Detail);
+
+            var image = result.Data!;
+            var data = new LoadNativeBinaryResult(
+                image.Handle.Value,
+                image.Format.ToString(),
+                image.Architecture.ToString(),
+                image.Handle.BuildIdHex,
+                image.Symbols.Count,
+                image.Sections.Count);
+
+            return NativeResult.Ok(result.Summary, data, result.Hints);
+        }
+
+        // ---- batch mode ----
+        var normalizedMode = mode.Trim().ToLowerInvariant();
+        if (normalizedMode is not ("lazy" or "eager"))
+            return NativeResult.Fail<BatchLoadData>(ErrorKinds.InvalidArgument,
+                $"mode must be 'lazy' or 'eager'. Actual: '{mode}'.");
+
+        var isEager = normalizedMode == "eager";
+        var batchEntries = entries!;
+        var results = new List<BatchLoadEntry>(batchEntries.Count);
+        var loadedCount = 0;
+
+        foreach (var entry in batchEntries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.Path))
+            {
+                results.Add(new BatchLoadEntry(
+                    entry.Path ?? string.Empty,
+                    entry.Name,
+                    null,
+                    "failed",
+                    new NativeError(ErrorKinds.InvalidArgument, "entry path must not be empty.", null)));
+                continue;
+            }
+
+            if (isEager)
+            {
+                var loadResult = registry.Load(entry.Path, entry.BuildId);
+                if (loadResult.IsError)
+                {
+                    // Remap binary_mismatch to build_id_mismatch for per-entry clarity
+                    var errKind = loadResult.Error!.Kind == ErrorKinds.BinaryMismatch
+                        ? ErrorKinds.BuildIdMismatch
+                        : loadResult.Error.Kind;
+                    results.Add(new BatchLoadEntry(entry.Path, entry.Name, null, "failed",
+                        new NativeError(errKind, loadResult.Error.Message, loadResult.Error.Detail)));
+                }
+                else
+                {
+                    loadedCount++;
+                    results.Add(new BatchLoadEntry(
+                        entry.Path, entry.Name, loadResult.Data!.Handle.Value, "loaded", null));
+                }
+            }
+            else
+            {
+                registry.RegisterHint(entry.Path, entry.BuildId);
+                loadedCount++;
+                results.Add(new BatchLoadEntry(entry.Path, entry.Name, null, "registered", null));
+            }
+        }
+
+        var total = batchEntries.Count;
+        var verb = isEager ? "Loaded" : "Registered";
+        var summary = $"{verb} {loadedCount} of {total} entries.";
+        return NativeResult.Ok(summary, new BatchLoadData(results, loadedCount, total));
     }
 
     [McpServerTool(Name = "list_native_symbols")]
@@ -579,6 +659,99 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
         return IcedDisassembler.Disassemble(image, rva, maxInstructions);
     }
 
+    [McpServerTool(Name = "find_native_callers")]
+    [Description(
+        "Scans all executable sections of a loaded native image using static disassembly (Iced, x86/x64 only) " +
+        "and returns every CALL/JMP instruction whose target resolves to the requested symbol or address. " +
+        "The full xref index is built lazily on the first call and cached per image handle; " +
+        "subsequent calls for the same image are O(callers). " +
+        "ARM64 returns 'disassembly_unsupported'. Use 'disassemble' to inspect any returned call site.")]
+    public NativeResult<FindCallersResult> FindNativeCallers(
+        [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
+        [Description(
+            "Target to find callers of. " +
+            "Accepts a raw mangled or demangled symbol name, a hex address (0x prefix optional), or a decimal address.")] string target)
+    {
+        if (!registry.TryGet(imageHandle, out var image) || image is null)
+            return NativeResult.Fail<FindCallersResult>(
+                ErrorKinds.BinaryNotFound,
+                $"No image found for handle '{imageHandle}'. Call load_native_binary first.");
+
+        if (string.IsNullOrWhiteSpace(target))
+            return NativeResult.Fail<FindCallersResult>(
+                ErrorKinds.InvalidArgument,
+                "target must not be empty.");
+
+        if (image.Architecture is not (Architecture.X64 or Architecture.X86))
+            return NativeResult.Fail<FindCallersResult>(
+                ErrorKinds.DisassemblyUnsupported,
+                $"Disassembly for {image.Architecture} is not supported in V0. Only x86/x64 is implemented.");
+
+        // Resolve target to an absolute virtual address.
+        ulong targetVa;
+        NativeSymbol? targetSym;
+
+        if (StackSymbolicator.TryParseAddress(target, out var parsedValue, out _))
+        {
+            // Normalise: if parsedValue < imageBase treat as RVA, otherwise as VA.
+            var rva = SymbolResolution.VaToRva(parsedValue, image.ImageBase);
+            targetVa = image.ImageBase + rva;
+
+            // Try to attribute the address to a symbol (best-effort; null is fine).
+            targetSym = SymbolResolution.FindByRva(image.Symbols, rva);
+
+            // Validate that the resolved RVA is inside a known section.
+            if (image.FindSection(rva) is null)
+                return NativeResult.Fail<FindCallersResult>(
+                    ErrorKinds.AddressOutOfRange,
+                    $"Address 0x{parsedValue:x} is outside the known sections of '{imageHandle}'.");
+        }
+        else
+        {
+            // Try by symbol name (mangled or demangled).
+            targetSym = SymbolResolution.FindByName(image.Symbols, target);
+            if (targetSym is null)
+                return NativeResult.Fail<FindCallersResult>(
+                    ErrorKinds.SymbolNotFound,
+                    $"Symbol '{target}' not found in '{imageHandle}'. Use list_native_symbols to browse.");
+
+            targetVa = image.ImageBase + targetSym.Rva;
+        }
+
+        var callers = callGraphCache.FindCallers(image, targetVa);
+
+        var targetAddrHex = targetVa.ToString("x16", CultureInfo.InvariantCulture);
+        var displayName = targetSym?.Name ?? target;
+
+        var rows = callers
+            .Select(site => new CallSiteRow(
+                site.SourceAddressHex,
+                site.CallerSymbol,
+                site.CallerDemangled,
+                site.Mnemonic,
+                site.Operands,
+                site.RawBytes))
+            .ToList();
+
+        var hints = new List<NextActionHint>();
+        if (rows.Count > 0)
+        {
+            hints.Add(new NextActionHint(
+                "disassemble",
+                $"Disassemble the first call site at 0x{rows[0].SourceAddressHex}.",
+                new Dictionary<string, object?>
+                {
+                    ["imageHandle"] = imageHandle,
+                    ["address"] = rows[0].SourceAddressHex,
+                }));
+        }
+
+        return NativeResult.Ok(
+            $"Found {rows.Count} caller(s) of '{displayName}' in '{imageHandle}'.",
+            new FindCallersResult(targetAddrHex, targetSym?.Name, targetSym?.DemangledName, rows.Count, rows),
+            hints);
+    }
+
     private static string ToHex(ulong value) => value.ToString("x16", CultureInfo.InvariantCulture);
 
     private static string FormatByteDelta(long delta)
@@ -773,7 +946,7 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
     }
 }
 
-/// <summary>Result payload for <c>load_native_binary</c>.</summary>
+/// <summary>Result payload for <c>load_native_binary</c> (single-path mode).</summary>
 /// <param name="ImageHandle">Opaque handle for subsequent tool calls.</param>
 /// <param name="Format">Binary format: <c>Elf</c> or <c>Pe</c>.</param>
 /// <param name="Architecture">CPU architecture: <c>X64</c>, <c>X86</c>, <c>Arm64</c>, or <c>Unknown</c>.</param>
@@ -787,6 +960,37 @@ public sealed record LoadNativeBinaryResult(
     string BuildIdHex,
     int SymbolCount,
     int SectionCount);
+
+/// <summary>One entry in a batch manifest supplied to <c>load_native_binary</c>.</summary>
+/// <param name="Path">Absolute path to the native binary on disk.</param>
+/// <param name="Name">Optional display name for the binary (defaults to the file name).</param>
+/// <param name="BuildId">Optional expected build-id hex. When supplied and mode is 'eager', the loaded binary's build-id must match.</param>
+public sealed record BatchManifestEntry(
+    string Path,
+    string? Name = null,
+    string? BuildId = null);
+
+/// <summary>Per-entry outcome in a batch manifest import.</summary>
+/// <param name="Path">Absolute path supplied in the manifest entry.</param>
+/// <param name="Name">Optional display name from the manifest entry.</param>
+/// <param name="BinaryHandle">ImageHandle when the binary was successfully loaded (eager mode); <c>null</c> in lazy mode or on failure.</param>
+/// <param name="Status"><c>loaded</c> (eager success), <c>registered</c> (lazy success), or <c>failed</c>.</param>
+/// <param name="Error">Populated on failure; <c>null</c> on success.</param>
+public sealed record BatchLoadEntry(
+    string Path,
+    string? Name,
+    string? BinaryHandle,
+    string Status,
+    NativeError? Error);
+
+/// <summary>Result payload for <c>load_native_binary</c> (batch mode).</summary>
+/// <param name="Entries">Per-entry outcomes in the same order as the input manifest.</param>
+/// <param name="LoadedCount">Number of entries that succeeded (loaded or registered).</param>
+/// <param name="TotalCount">Total number of entries submitted.</param>
+public sealed record BatchLoadData(
+    IReadOnlyList<BatchLoadEntry> Entries,
+    int LoadedCount,
+    int TotalCount);
 
 /// <summary>One row returned by <c>list_native_symbols</c>.</summary>
 public sealed record SymbolRow(
@@ -943,3 +1147,31 @@ public sealed record ResolvedAddressRow(
 
 /// <summary>Result payload for <c>resolve_symbols</c>.</summary>
 public sealed record ResolveSymbolsResult(IReadOnlyList<ResolvedAddressRow> Resolutions);
+
+/// <summary>One call-site row returned by <c>find_native_callers</c>.</summary>
+/// <param name="SourceAddressHex">Absolute virtual address of the calling instruction, lowercase hex.</param>
+/// <param name="CallerSymbol">Raw mangled name of the enclosing function, or <c>null</c>.</param>
+/// <param name="CallerDemangled">Best-effort demangled name of the enclosing function, or <c>null</c>.</param>
+/// <param name="Mnemonic">Lowercase transfer-of-control mnemonic (e.g. <c>call</c>, <c>jmp</c>).</param>
+/// <param name="Operands">Formatted operand text.</param>
+/// <param name="RawBytes">Hex-encoded raw bytes of the instruction.</param>
+public sealed record CallSiteRow(
+    string SourceAddressHex,
+    string? CallerSymbol,
+    string? CallerDemangled,
+    string Mnemonic,
+    string Operands,
+    string RawBytes);
+
+/// <summary>Result payload for <c>find_native_callers</c>.</summary>
+/// <param name="TargetAddressHex">Resolved absolute virtual address of the target, lowercase hex.</param>
+/// <param name="TargetSymbol">Raw mangled name of the target symbol, or <c>null</c> when only an address was supplied.</param>
+/// <param name="TargetDemangled">Best-effort demangled name of the target symbol, or <c>null</c>.</param>
+/// <param name="TotalCallers">Total number of call-sites found.</param>
+/// <param name="Callers">The list of call-sites that target this address.</param>
+public sealed record FindCallersResult(
+    string TargetAddressHex,
+    string? TargetSymbol,
+    string? TargetDemangled,
+    int TotalCallers,
+    IReadOnlyList<CallSiteRow> Callers);

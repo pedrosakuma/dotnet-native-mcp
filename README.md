@@ -1,7 +1,7 @@
 # dotnet-native-mcp
 
-> **Status:** V1 in progress. Nine MCP tools are live:
-> `load_native_binary`, `list_native_symbols`, `list_native_imports`, `resolve_symbols`, `extract_strings`, `get_size_breakdown`, `explain_retention`, `compare_native_binaries`, `disassemble`.
+> **Status:** V1 in progress. Ten MCP tools are live:
+> `load_native_binary`, `list_native_symbols`, `list_native_imports`, `resolve_symbols`, `extract_strings`, `get_size_breakdown`, `explain_retention`, `compare_native_binaries`, `disassemble`, `find_native_callers`.
 > See the [V0 tracking issue](https://github.com/pedrosakuma/dotnet-native-mcp/issues/1).
 
 MCP server for **navigating native .NET binaries** — NativeAOT, R2R-only,
@@ -32,7 +32,7 @@ are available.
 - **Generic reverse engineering** (full Ghidra-class decompilation, full
   dynamic instrumentation, kernel-mode debuggers). Out of scope by design.
 
-## Tool surface (9 tools, V1)
+## Tool surface (10 tools, V1)
 
 | Tool                     | Purpose                                                                 |
 |--------------------------|-------------------------------------------------------------------------|
@@ -45,6 +45,7 @@ are available.
 | `explain_retention`      | Read the DGML reachability sidecar emitted by NativeAOT and return the shortest root → target path that kept a type or method reachable. |
 | `compare_native_binaries`| Diff two loaded images: build-id, format, arch, file/section size deltas, added/removed/size-changed symbols. |
 | `disassemble`            | Iced x86/x64 disassembly with CALL/JMP cross-ref hints. Default 64 instructions, capped at 2048. ARM64 returns `disassembly_unsupported`. |
+| `find_native_callers`    | Lazily-built xref index: scan all executable sections of a loaded x86-64 image and return every CALL/JMP instruction that targets a given symbol name or hex address. ARM64 returns `disassembly_unsupported`. |
 
 For crash logs or sampled stacks where `dotnet-diagnostics-mcp` is not in the loop, use `load_native_binary` once and then call `resolve_symbols` with a list of raw hex addresses. When you already have `NativeFrame` handoffs with mangled addresses, pass those address strings directly to `resolve_symbols`.
 

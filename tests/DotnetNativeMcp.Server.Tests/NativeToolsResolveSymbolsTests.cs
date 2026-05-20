@@ -26,7 +26,7 @@ public class NativeToolsResolveSymbolsTests
     }
 
     private static NativeTools MakeTools(params NativeImage[] images) =>
-        new NativeTools(new TestBinaryRegistry(images));
+        new NativeTools(new TestBinaryRegistry(images), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache());
 
     // ---------------------------------------------------------------------------
     // Bad handle → top-level error
@@ -294,6 +294,8 @@ public class NativeToolsResolveSymbolsTests
 
         public NativeResult<NativeImage> Load(string path, string? expectedBuildId = null) =>
             throw new NotSupportedException();
+
+        public void RegisterHint(string path, string? buildId = null) { }
 
         public bool TryGet(string imageHandle, out NativeImage? image)
         {
