@@ -253,6 +253,53 @@ public class NativeToolsFindCallersTests
     }
 
     // ---------------------------------------------------------------------------
+    // resolveSource=true → Source field is null only when no PDB (expected in unit tests)
+    // resolveSource=false → Source field is always null on every CallSite
+    // ---------------------------------------------------------------------------
+
+    [Fact]
+    public void FindNativeCallers_ResolveSourceTrue_SourceIsNullWhenNoPdb()
+    {
+        var code = new byte[]
+        {
+            0xE8, 0x05, 0x00, 0x00, 0x00,
+            0x90, 0x90, 0x90, 0x90, 0x90,
+            0xC3,
+        };
+        var sym = new NativeSymbol(0, "tgt", "tgt", 10, 1, ".text", true);
+        var image = CreateImage(code, symbols: sym);
+        var tools = MakeTools(image);
+
+        // resolveSource=true (default) — no PDB present, so Source is null but no error.
+        var result = tools.FindNativeCallers(image.Handle.Value, "tgt", resolveSource: true);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.TotalCallers.Should().Be(1);
+        // Source will be null because no PDB is available in the test image.
+        result.Data.Callers[0].Source.Should().BeNull();
+    }
+
+    [Fact]
+    public void FindNativeCallers_ResolveSourceFalse_SourceIsNullOnEveryCallSite()
+    {
+        var code = new byte[]
+        {
+            0xE8, 0x05, 0x00, 0x00, 0x00,
+            0x90, 0x90, 0x90, 0x90, 0x90,
+            0xC3,
+        };
+        var sym = new NativeSymbol(0, "tgt", "tgt", 10, 1, ".text", true);
+        var image = CreateImage(code, symbols: sym);
+        var tools = MakeTools(image);
+
+        var result = tools.FindNativeCallers(image.Handle.Value, "tgt", resolveSource: false);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.TotalCallers.Should().Be(1);
+        result.Data.Callers.Should().OnlyContain(s => s.Source == null);
+    }
+
+    // ---------------------------------------------------------------------------
     // Cache: second call returns cached result (no re-scan)
     // ---------------------------------------------------------------------------
 

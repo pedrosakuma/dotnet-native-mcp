@@ -693,12 +693,15 @@ public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphC
         "and returns every CALL/JMP instruction whose target resolves to the requested symbol or address. " +
         "The full xref index is built lazily on the first call and cached per image handle; " +
         "subsequent calls for the same image are O(callers). " +
-        "ARM64 returns 'disassembly_unsupported'. Use 'disassemble' to inspect any returned call site.")]
+        "ARM64 returns 'disassembly_unsupported'. Use 'disassemble' to inspect any returned call site. " +
+        "When resolveSource is true (default) each call site is annotated with file:line from DWARF/PDB debug info. " +
+        "Set resolveSource=false to skip debug-info I/O for large binaries where PDB reads are slow.")]
     public NativeResult<FindCallersResult> FindNativeCallers(
         [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
         [Description(
             "Target to find callers of. " +
-            "Accepts a raw mangled or demangled symbol name, a hex address (0x prefix optional), or a decimal address.")] string target)
+            "Accepts a raw mangled or demangled symbol name, a hex address (0x prefix optional), or a decimal address.")] string target,
+        [Description("When true (default), annotates each call site with file:line from DWARF/PDB debug info. Set false to skip debug-info I/O.")] bool resolveSource = true)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
             return NativeResult.Fail<FindCallersResult>(
@@ -755,7 +758,7 @@ public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphC
             .Select(site =>
             {
                 SourceLocation? src = null;
-                if (ulong.TryParse(site.SourceAddressHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var siteVa))
+                if (resolveSource && ulong.TryParse(site.SourceAddressHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var siteVa))
                     src = sourceResolver.TrySourceFor(image, siteVa);
 
                 return new CallSiteRow(
