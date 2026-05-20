@@ -124,4 +124,21 @@ internal static class FixturePaths
             return File.Exists(candidate) ? candidate : null;
         }
     }
+
+    /// <summary>
+    /// Path to the portable PDB sidecar for <see cref="SampleAot"/>, or <c>null</c> if not present.
+    /// The PDB is built from the IL stage of the NativeAOT compile and carries SourceLink data.
+    /// </summary>
+    public static string? SampleAotPdb
+    {
+        get
+        {
+            var binary = SampleAot;
+            if (binary is null)
+                return null;
+
+            var candidate = Path.ChangeExtension(binary, ".pdb");
+            return File.Exists(candidate) ? candidate : null;
+        }
+    }
 }

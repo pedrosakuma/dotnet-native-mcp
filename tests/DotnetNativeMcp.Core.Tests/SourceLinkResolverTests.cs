@@ -25,20 +25,44 @@ public sealed class SourceLinkResolverTests
     }
 
     [Fact]
-    public void TryLoad_WithFixturePdb_SucceedsOrReturnsNullGracefully()
+    public void TryLoad_WithFixturePdb_LoadsAndResolvesSourceLinkUrl()
     {
-        var fixtureDir = Path.GetDirectoryName(typeof(SourceLinkResolverTests).Assembly.Location)!;
-        var pdbPath = Path.Combine(fixtureDir, "fixtures", "SampleAot", "SampleAot.pdb");
-        if (!File.Exists(pdbPath))
-            return; // fixture PDB not copied — skip
+        var pdbPath = FixturePaths.SampleAotPdb;
+        if (pdbPath is null)
+            return; // fixture PDB not built — skip (AOT toolchain unavailable)
 
-        // Should not throw; may return null if the PDB has no SourceLink data.
+        // PDB must be a valid portable PDB (BSJB magic).
+        var pdbBytes = File.ReadAllBytes(pdbPath);
+        Assert.True(pdbBytes.Length >= 4);
+        Assert.Equal(0x424A5342u, BitConverter.ToUInt32(pdbBytes, 0));
+
+        // SourceLinkResolver must load without throwing.
         var resolver = SourceLinkResolver.TryLoad(pdbPath);
-        if (resolver is not null)
+
+        // The fixture is built with Microsoft.SourceLink.GitHub, so SourceLink JSON is embedded.
+        // The resolver must not be null.
+        Assert.NotNull(resolver);
+
+        // Resolving the fixture source file must yield a raw.githubusercontent.com URL.
+        var fixtureSource = Path.GetFullPath(
+            Path.Combine(
+                Path.GetDirectoryName(typeof(SourceLinkResolverTests).Assembly.Location)!,
+                "..", "..", "..", "..", "..", "..",
+                "tests", "fixtures", "SampleAot", "Program.cs"));
+
+        var url = resolver.ResolveUrl(fixtureSource);
+        if (url is not null)
         {
-            // If SourceLink data was found, resolving a known path should not throw.
-            var url = resolver.ResolveUrl("/home/pedrotravi/dotnet-native-mcp/src/Program.cs");
-            // url may be null or a valid string — no exception expected.
+            Assert.StartsWith("https://", url, StringComparison.OrdinalIgnoreCase);
+        }
+        else
+        {
+            // The path heuristic failed (e.g. build machine path differs); at minimum
+            // confirm the resolver contains at least one mapping by probing with the
+            // well-known SourceLink prefix for this repo.
+            var repoUrl = resolver.ResolveUrl("/home/pedrotravi/dotnet-native-mcp/tests/fixtures/SampleAot/Program.cs");
+            Assert.NotNull(repoUrl);
+            Assert.StartsWith("https://raw.githubusercontent.com/", repoUrl, StringComparison.OrdinalIgnoreCase);
         }
     }
 }
