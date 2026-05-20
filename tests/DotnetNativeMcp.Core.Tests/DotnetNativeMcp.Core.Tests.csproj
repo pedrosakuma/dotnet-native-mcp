@@ -39,6 +39,11 @@
       DestinationFiles="$(_FixtureOutDir)\SampleAot.dgml"
       SkipUnchangedFiles="true"
       Condition="Exists('$(MSBuildThisFileDirectory)..\fixtures\SampleAot\obj\Release\net10.0\linux-x64\native\SampleAot.scan.dgml.xml')" />
+    <Copy
+      SourceFiles="$(MSBuildThisFileDirectory)..\fixtures\SampleAot\bin\Release\net10.0\linux-x64\SampleAot.pdb"
+      DestinationFolder="$(_FixtureOutDir)"
+      SkipUnchangedFiles="true"
+      Condition="Exists('$(MSBuildThisFileDirectory)..\fixtures\SampleAot\bin\Release\net10.0\linux-x64\SampleAot.pdb')" />
   </Target>
 
 </Project>

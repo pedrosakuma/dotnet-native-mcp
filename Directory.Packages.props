@@ -13,6 +13,10 @@
     <PackageVersion Include="System.IO.Hashing" Version="9.0.5" />
   </ItemGroup>
 
+  <ItemGroup Label="SourceLink">
+    <PackageVersion Include="Microsoft.SourceLink.GitHub" Version="8.0.0" />
+  </ItemGroup>
+
   <ItemGroup Label="Disassembly">
     <!-- Iced: MIT, .NET-native, Intel-maintained x86/x64 disassembler. -->
     <PackageVersion Include="Iced" Version="1.21.0" />

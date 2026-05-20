@@ -15,16 +15,14 @@ public sealed class SourceResolverTests
 
         var bytes = File.ReadAllBytes(binaryPath);
         var image = ElfReader.Read(new ReadOnlyMemory<byte>(bytes), binaryPath);
-        if (image is null)
-            return;
+        Assert.NotNull(image);
 
         var resolver = new SourceResolver();
 
-        // Try several addresses until we find one covered by DWARF.
-        // The image should have .debug_line data from the NativeAOT publish.
-        // We scan symbols to find a real code address.
+        // The NativeAOT fixture is built with StripSymbols=false, so DWARF is present.
+        // Scan symbols to find a real code address that maps to a source location.
         SourceLocation? found = null;
-        foreach (var sym in image.Symbols.Take(200))
+        foreach (var sym in image.Symbols.Take(500))
         {
             var va = image.ImageBase + sym.Rva;
             var loc = resolver.TrySourceFor(image, va);
@@ -35,13 +33,10 @@ public sealed class SourceResolverTests
             }
         }
 
-        // If the binary has DWARF, at least one symbol should resolve.
-        // If no DWARF, found remains null — that is acceptable (binary may lack debug info).
-        if (found is not null)
-        {
-            Assert.NotEmpty(found.File);
-            Assert.True(found.StartLine > 0);
-        }
+        // The fixture must resolve at least one symbol — the DWARF data is always present.
+        Assert.NotNull(found);
+        Assert.NotEmpty(found.File);
+        Assert.True(found.StartLine > 0, $"Expected StartLine > 0, got {found.StartLine}");
     }
 
     [Fact]

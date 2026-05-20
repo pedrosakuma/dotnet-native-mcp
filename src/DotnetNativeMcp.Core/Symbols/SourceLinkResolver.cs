@@ -6,7 +6,10 @@ namespace DotnetNativeMcp.Core.Symbols;
 
 public sealed class SourceLinkResolver
 {
-    private static readonly Guid SourceLinkGuid = new("CC110556-A091-4D38-9FEA-6C68D2148EA8");
+    // The official portable-PDB SourceLink GUID (Roslyn/ILC may use either variant).
+    private static readonly Guid SourceLinkGuid        = new("CC110556-A091-4D38-9FEA-6C68D2148EA8");
+    // NativeAOT ILC uses this GUID instead of the standard one.
+    private static readonly Guid SourceLinkGuidNativeAot = new("CC110556-A091-4D38-9FEC-25AB9A351A6A");
     private readonly IReadOnlyList<(string Prefix, string UrlTemplate)> _mappings;
 
     private SourceLinkResolver(IReadOnlyList<(string, string)> mappings) { _mappings = mappings; }
@@ -40,7 +43,8 @@ public sealed class SourceLinkResolver
         foreach (var handle in reader.CustomDebugInformation)
         {
             var cdi = reader.GetCustomDebugInformation(handle);
-            if (reader.GetGuid(cdi.Kind) != SourceLinkGuid) continue;
+            var kind = reader.GetGuid(cdi.Kind);
+            if (kind != SourceLinkGuid && kind != SourceLinkGuidNativeAot) continue;
             var blob = reader.GetBlobBytes(cdi.Value);
             var json = Encoding.UTF8.GetString(blob);
             var mappings = ParseSourceLinkJson(json);

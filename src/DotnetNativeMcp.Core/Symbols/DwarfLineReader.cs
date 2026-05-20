@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using DotnetNativeMcp.Core.Imaging;
 
 namespace DotnetNativeMcp.Core.Symbols;
@@ -10,11 +11,44 @@ internal static class DwarfLineReader
     {
         var section = image.Sections.FirstOrDefault(s => s.Name == ".debug_line");
         if (section is null || section.FileSize == 0) return [];
-        var data = image.GetSectionBytes(section).ToArray();
+        var raw = image.GetSectionBytes(section).ToArray();
+        // ELF SHF_COMPRESSED: Elf64_Chdr starts with ch_type==1 (ELFCOMPRESS_ZLIB).
+        var data = TryDecompressElf(raw) ?? raw;
         var rows = new List<LineRow>();
         ParseSection(data, rows);
         rows.Sort((a, b) => a.Address.CompareTo(b.Address));
         return rows;
+    }
+
+    /// <summary>
+    /// Detects and decompresses an SHF_COMPRESSED ELF section (ELFCOMPRESS_ZLIB only).
+    /// Returns <c>null</c> if the data is not in that format (caller uses raw data).
+    /// </summary>
+    private static byte[]? TryDecompressElf(byte[] data)
+    {
+        // Elf64_Chdr: ch_type(4) + ch_reserved(4) + ch_size(8) + ch_addralign(8) = 24 bytes.
+        if (data.Length < 24) return null;
+        if (ReadU32(data, 0) != 1) return null; // ch_type must be 1 (ELFCOMPRESS_ZLIB)
+        if (ReadU32(data, 4) != 0) return null; // ch_reserved must be 0
+        var uncompressedSize = (int)ReadU64(data, 8);
+        if (uncompressedSize <= 0 || uncompressedSize > 256 * 1024 * 1024) return null;
+        try
+        {
+            using var compressed = new MemoryStream(data, 24, data.Length - 24);
+            using var zlib = new ZLibStream(compressed, CompressionMode.Decompress);
+            var output = new byte[uncompressedSize];
+            int total = 0;
+            while (total < uncompressedSize)
+            {
+                int read = zlib.Read(output, total, uncompressedSize - total);
+                if (read == 0) return null; // truncated: declared ch_size > actual stream
+                total += read;
+            }
+            // Reject streams that inflate past the declared ch_size (malformed / hostile input).
+            if (zlib.ReadByte() != -1) return null;
+            return output;
+        }
+        catch { return null; }
     }
 
     public static LineRow? FindRow(IReadOnlyList<LineRow> rows, ulong address)
