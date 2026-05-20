@@ -1,7 +1,7 @@
 # dotnet-native-mcp
 
-> **Status:** V0 shipped. Four MCP tools are live:
-> `load_native_binary`, `list_native_symbols`, `resolve_symbol`, `disassemble`.
+> **Status:** V0 shipped. Five MCP tools are live:
+> `load_native_binary`, `list_native_symbols`, `resolve_symbol`, `extract_strings`, `disassemble`.
 > See the [V0 tracking issue](https://github.com/pedrosakuma/dotnet-native-mcp/issues/1).
 
 MCP server for **navigating native .NET binaries** — NativeAOT, R2R-only,
@@ -39,6 +39,7 @@ are available.
 | `load_native_binary`     | Open a PE/ELF, verify it's a managed-flavored native build, return a handle. Accepts NativeAOT and ReadyToRun. Validates optional `buildId` from `dotnet-diagnostics-mcp`. |
 | `list_native_symbols`    | Paginated symbol table. Source priority: `.map` sidecar → ELF `.symtab`/`.dynsym` → PE export table. Includes raw + demangled names. |
 | `resolve_symbol`         | Address ↔ symbol lookup with ILC demangling. Accepts RVA or absolute VA. |
+| `extract_strings`        | Paginated printable ASCII / UTF-16LE scan over `.rodata` / `.rdata` / `.data.rel.ro` / `__const` (with `.data` fallback). Returns section + offset for forensics. |
 | `disassemble`            | Iced x86/x64 disassembly with CALL/JMP cross-ref hints. Default 64 instructions, capped at 2048. ARM64 returns `disassembly_unsupported`. |
 
 ## Sidecar tier (V1+)

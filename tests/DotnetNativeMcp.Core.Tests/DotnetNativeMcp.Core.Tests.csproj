@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\DotnetNativeMcp.Core\DotnetNativeMcp.Core.csproj" />
+    <ProjectReference Include="..\..\src\DotnetNativeMcp.Server\DotnetNativeMcp.Server.csproj" />
   </ItemGroup>
 
   <!-- Build the NativeAOT fixture before the test project is built.
