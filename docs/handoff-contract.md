@@ -52,9 +52,45 @@ authority — open an issue here and update the contract.
 
 ```
 NativeFrame
-  ├─ load_native_binary(binary)            -> ImageHandle
-  ├─ resolve_symbol(image, symbol|address) -> { kind, demangled?, range }
-  └─ disassemble(image, address, n)        -> List<NativeInstruction>
+  ├─ load_native_binary(binary)                  -> ImageHandle
+  ├─ resolve_symbols(image, [address, ...])       -> [{ demangled, section, displacement }]
+  └─ disassemble(image, address, n)              -> List<NativeInstruction>
+```
+
+`resolve_symbols` is the batch variant: pass up to 200 hex or decimal address strings in a
+single call. Per-address failures are reported inline without aborting the whole batch.
+
+### Worked example
+
+```jsonc
+// Step 1 — load the binary (once per binary, reuse the handle)
+// Tool: load_native_binary
+{ "path": "/app/MyService", "buildId": "d8f3a4b1c2e5f607" }
+// -> { "summary": "Loaded NativeAOT ELF...", "data": { "imageHandle": "i:d8f3a4b1c2e5f607:3e9c" } }
+
+// Step 2 — resolve addresses from the hotspot report
+// Tool: resolve_symbols
+{
+  "imageHandle": "i:d8f3a4b1c2e5f607:3e9c",
+  "addresses": ["0x4012a0", "0x401380", "0xdeadbeef"]
+}
+// -> {
+//   "summary": "Resolved 2 of 3 addresses (1 error) in 'i:d8f3a4b1c2e5f607:3e9c'.",
+//   "data": {
+//     "rows": [
+//       { "inputAddress": "0x4012a0", "mangledName": "S_P_CoreLib_System_String__Concat",
+//         "demangledName": "System.String.Concat", "sectionName": ".text", "displacement": 0, "error": null },
+//       { "inputAddress": "0x401380", "mangledName": "S_P____MyApp_Program__Main",
+//         "demangledName": "MyApp.Program.Main", "sectionName": ".text", "displacement": 12, "error": null },
+//       { "inputAddress": "0xdeadbeef", "mangledName": null, "demangledName": null,
+//         "sectionName": null, "displacement": null, "error": "address_out_of_range" }
+//     ]
+//   }
+// }
+
+// Step 3 — optional: disassemble a hot symbol
+// Tool: disassemble
+{ "imageHandle": "i:d8f3a4b1c2e5f607:3e9c", "address": "4012a0", "maxInstructions": 32 }
 ```
 
 The consumer MUST NOT trust the path verbatim across container boundaries —
@@ -71,7 +107,11 @@ different path.
 | `not_a_native_dotnet_image`   | The binary opened, but isn't a managed-flavored native build.       |
 | `symbol_not_found`            | Symbol not in `.map` or `.symtab`.                                  |
 | `address_out_of_range`        | Address is not inside any known section.                            |
+| `mstat_not_found`             | No paired `.mstat` sidecar could be located.                        |
+| `dgml_not_found`              | No paired `.dgml` sidecar could be located.                         |
 | `disassembly_unsupported`     | Architecture not supported in this version (e.g. ARM64 pre-V1).     |
+| `invalid_argument`            | A supplied argument value was invalid (bad format, out of range).   |
+| `internal_error`              | An unexpected internal failure occurred.                            |
 
 Once a kind is published it is **never** repurposed. Add new kinds instead.
 

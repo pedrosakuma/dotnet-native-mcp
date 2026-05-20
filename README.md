@@ -32,7 +32,7 @@ are available.
 - **Generic reverse engineering** (full Ghidra-class decompilation, full
   dynamic instrumentation, kernel-mode debuggers). Out of scope by design.
 
-## V0 surface (shipped)
+## Tool surface (9 tools, V1)
 
 | Tool                     | Purpose                                                                 |
 |--------------------------|-------------------------------------------------------------------------|
