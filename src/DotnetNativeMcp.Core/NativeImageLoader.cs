@@ -3,6 +3,7 @@ using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Imaging;
 using DotnetNativeMcp.Core.Identity;
 using DotnetNativeMcp.Core.Mstat;
+using DotnetNativeMcp.Core.R2R;
 
 namespace DotnetNativeMcp.Core;
 
@@ -149,6 +150,20 @@ public static class NativeImageLoader
                 "explain_retention",
                 "A sibling .dgml sidecar is available for NativeAOT retention-path analysis.",
                 new Dictionary<string, object?> { ["imageHandle"] = image.Handle.Value }));
+        }
+
+        // R2R hint: if the PE has a valid R2R header, suggest get_r2r_header as next step
+        if (image.Format == BinaryFormat.Pe)
+        {
+            var r2rResult = ReadyToRunReader.ReadHeader(image);
+            if (!r2rResult.IsError)
+            {
+                hints.Add(new NextActionHint(
+                    "get_r2r_header",
+                    $"ReadyToRun header detected (v{r2rResult.Data!.Version}, {r2rResult.Data.Sections.Count} sections). " +
+                    "Use get_r2r_header to explore the R2R metadata.",
+                    new Dictionary<string, object?> { ["imageHandle"] = image.Handle.Value }));
+            }
         }
 
         return hints;
