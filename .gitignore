@@ -27,3 +27,6 @@ tests/external/
 tests/fixtures/SampleAot/bin/
 tests/fixtures/SampleAot/obj/
 .clean-wt
+
+## BenchmarkDotNet run artifacts — generated at bench runtime
+BenchmarkDotNet.Artifacts/
