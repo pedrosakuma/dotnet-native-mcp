@@ -27,61 +27,48 @@ public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphC
         "(NativeAOT or ReadyToRun), and returns an ImageHandle used by all other tools. " +
         "Rejects arbitrary system .so/.dll files with 'not_a_native_dotnet_image'. " +
         "Optionally validates the build-id against a value from dotnet-diagnostics-mcp " +
-        "to prevent stale-binary mistakes.\n\n" +
-        "BATCH / MANIFEST MODE: supply 'entries' instead of 'path' to register a list of " +
-        "binaries in one call (bulk handshake from dotnet-diagnostics-mcp). " +
+        "to prevent stale-binary mistakes.")]
+    public NativeResult<LoadNativeBinaryResult> LoadNativeBinary(
+        [Description("Absolute path to the native binary on disk.")] string path,
+        [Description("Optional build-id (hex) from dotnet-diagnostics-mcp NativeFrame.buildId. When supplied, the loaded binary's build-id must match or binary_mismatch is returned.")] string? buildId = null)
+    {
+        var result = registry.Load(path, buildId);
+        if (result.IsError)
+            return NativeResult.Fail<LoadNativeBinaryResult>(result.Error!.Kind, result.Error.Message, result.Error.Detail);
+
+        var image = result.Data!;
+        var data = new LoadNativeBinaryResult(
+            image.Handle.Value,
+            image.Format.ToString(),
+            image.Architecture.ToString(),
+            image.Handle.BuildIdHex,
+            image.Symbols.Count,
+            image.Sections.Count);
+
+        return NativeResult.Ok(result.Summary, data, result.Hints);
+    }
+
+    [McpServerTool(Name = "import_native_manifest")]
+    [Description(
+        "Bulk handshake from a producer (typically dotnet-diagnostics-mcp): registers a list of " +
+        "native binaries in one call. " +
         "mode='lazy' (default) records path hints without opening each file; " +
         "mode='eager' opens every entry immediately and verifies build-ids. " +
-        "Per-entry failures are reported inline — one bad entry does not fail the whole batch. " +
-        "Exactly one of 'path' or 'entries' must be supplied.")]
-    public object LoadNativeBinary(
-        [Description("Absolute path to the native binary on disk. Mutually exclusive with 'entries'.")] string? path = null,
-        [Description("Optional build-id (hex) from dotnet-diagnostics-mcp NativeFrame.buildId. When supplied, the loaded binary's build-id must match or binary_mismatch is returned. Only used with 'path'.")] string? buildId = null,
-        [Description("Batch manifest entries. Each entry has a 'path' and optional 'name' and 'buildId'. Mutually exclusive with 'path'.")] IReadOnlyList<BatchManifestEntry>? entries = null,
-        [Description("Batch mode: 'lazy' (default) records path hints without opening binaries; 'eager' opens and verifies each entry immediately.")] string mode = "lazy")
+        "Per-entry failures are reported inline — one bad entry does not fail the whole batch.")]
+    public NativeResult<ImportManifestData> ImportNativeManifest(
+        [Description("Manifest entries. Each entry has a 'path' and optional 'name' and 'buildId'.")] IReadOnlyList<BatchManifestEntry> entries,
+        [Description("'lazy' (default) records path hints without opening binaries; 'eager' opens and verifies each entry immediately.")] string mode = "lazy")
     {
-        var hasPath = !string.IsNullOrWhiteSpace(path);
-        var hasEntries = entries is not null;
-
-        if (hasPath == hasEntries)
-        {
-            var msg = hasPath
-                ? "Supply either 'path' or 'entries', not both."
-                : "Supply either 'path' or 'entries'.";
-            return NativeResult.Fail<LoadNativeBinaryResult>(ErrorKinds.InvalidArgument, msg);
-        }
-
-        // ---- single-path mode (existing behaviour) ----
-        if (hasPath)
-        {
-            var result = registry.Load(path!, buildId);
-            if (result.IsError)
-                return NativeResult.Fail<LoadNativeBinaryResult>(result.Error!.Kind, result.Error.Message, result.Error.Detail);
-
-            var image = result.Data!;
-            var data = new LoadNativeBinaryResult(
-                image.Handle.Value,
-                image.Format.ToString(),
-                image.Architecture.ToString(),
-                image.Handle.BuildIdHex,
-                image.Symbols.Count,
-                image.Sections.Count);
-
-            return NativeResult.Ok(result.Summary, data, result.Hints);
-        }
-
-        // ---- batch mode ----
         var normalizedMode = mode.Trim().ToLowerInvariant();
         if (normalizedMode is not ("lazy" or "eager"))
-            return NativeResult.Fail<BatchLoadData>(ErrorKinds.InvalidArgument,
+            return NativeResult.Fail<ImportManifestData>(ErrorKinds.InvalidArgument,
                 $"mode must be 'lazy' or 'eager'. Actual: '{mode}'.");
 
         var isEager = normalizedMode == "eager";
-        var batchEntries = entries!;
-        var results = new List<BatchLoadEntry>(batchEntries.Count);
+        var results = new List<BatchLoadEntry>(entries.Count);
         var loadedCount = 0;
 
-        foreach (var entry in batchEntries)
+        foreach (var entry in entries)
         {
             if (string.IsNullOrWhiteSpace(entry.Path))
             {
@@ -121,10 +108,10 @@ public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphC
             }
         }
 
-        var total = batchEntries.Count;
+        var total = entries.Count;
         var verb = isEager ? "Loaded" : "Registered";
         var summary = $"{verb} {loadedCount} of {total} entries.";
-        return NativeResult.Ok(summary, new BatchLoadData(results, loadedCount, total));
+        return NativeResult.Ok(summary, new ImportManifestData(results, loadedCount, total));
     }
 
     [McpServerTool(Name = "list_native_symbols")]
@@ -1002,7 +989,7 @@ public sealed record LoadNativeBinaryResult(
     int SymbolCount,
     int SectionCount);
 
-/// <summary>One entry in a batch manifest supplied to <c>load_native_binary</c>.</summary>
+/// <summary>One entry in a manifest supplied to <c>import_native_manifest</c>.</summary>
 /// <param name="Path">Absolute path to the native binary on disk.</param>
 /// <param name="Name">Optional display name for the binary (defaults to the file name).</param>
 /// <param name="BuildId">Optional expected build-id hex. When supplied and mode is 'eager', the loaded binary's build-id must match.</param>
@@ -1024,11 +1011,11 @@ public sealed record BatchLoadEntry(
     string Status,
     NativeError? Error);
 
-/// <summary>Result payload for <c>load_native_binary</c> (batch mode).</summary>
+/// <summary>Result payload for <c>import_native_manifest</c>.</summary>
 /// <param name="Entries">Per-entry outcomes in the same order as the input manifest.</param>
 /// <param name="LoadedCount">Number of entries that succeeded (loaded or registered).</param>
 /// <param name="TotalCount">Total number of entries submitted.</param>
-public sealed record BatchLoadData(
+public sealed record ImportManifestData(
     IReadOnlyList<BatchLoadEntry> Entries,
     int LoadedCount,
     int TotalCount);

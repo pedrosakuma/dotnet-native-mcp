@@ -10,8 +10,8 @@ using Xunit;
 
 namespace DotnetNativeMcp.Server.Tests;
 
-/// <summary>Tests for the batch/manifest mode of <c>load_native_binary</c>.</summary>
-public class NativeToolsLoadBatchTests
+/// <summary>Tests for <c>import_native_manifest</c>.</summary>
+public class NativeToolsImportManifestTests
 {
     // ---------------------------------------------------------------------------
     // Helpers
@@ -21,48 +21,20 @@ public class NativeToolsLoadBatchTests
         new NativeTools(registry ?? new BatchableTestRegistry(), new NativeCallGraphCache(), new SourceResolver());
 
     // ---------------------------------------------------------------------------
-    // Validation: both path + entries → invalid_argument
-    // ---------------------------------------------------------------------------
-
-    [Fact]
-    public void LoadNativeBinary_BothPathAndEntries_ReturnsInvalidArgument()
-    {
-        var tools = MakeTools();
-        var result = tools.LoadNativeBinary(path: "/some/path.so", entries: []);
-
-        var err = result.Should().BeOfType<NativeResult<LoadNativeBinaryResult>>().Subject;
-        err.IsError.Should().BeTrue();
-        err.Error!.Kind.Should().Be(ErrorKinds.InvalidArgument);
-        err.Error.Message.Should().Contain("both");
-    }
-
-    [Fact]
-    public void LoadNativeBinary_NeitherPathNorEntries_ReturnsInvalidArgument()
-    {
-        var tools = MakeTools();
-        var result = tools.LoadNativeBinary();
-
-        var err = result.Should().BeOfType<NativeResult<LoadNativeBinaryResult>>().Subject;
-        err.IsError.Should().BeTrue();
-        err.Error!.Kind.Should().Be(ErrorKinds.InvalidArgument);
-    }
-
-    // ---------------------------------------------------------------------------
     // Empty batch → 0/0 summary
     // ---------------------------------------------------------------------------
 
     [Fact]
-    public void LoadNativeBinary_EmptyEntries_ReturnsBatchResultWithZeroCount()
+    public void ImportNativeManifest_EmptyEntries_ReturnsResultWithZeroCount()
     {
         var tools = MakeTools();
-        var result = tools.LoadNativeBinary(entries: []);
+        var result = tools.ImportNativeManifest([]);
 
-        var ok = result.Should().BeOfType<NativeResult<BatchLoadData>>().Subject;
-        ok.IsError.Should().BeFalse();
-        ok.Data!.Entries.Should().BeEmpty();
-        ok.Data.LoadedCount.Should().Be(0);
-        ok.Data.TotalCount.Should().Be(0);
-        ok.Summary.Should().Contain("0 of 0");
+        result.IsError.Should().BeFalse();
+        result.Data!.Entries.Should().BeEmpty();
+        result.Data.LoadedCount.Should().Be(0);
+        result.Data.TotalCount.Should().Be(0);
+        result.Summary.Should().Contain("0 of 0");
     }
 
     // ---------------------------------------------------------------------------
@@ -70,26 +42,24 @@ public class NativeToolsLoadBatchTests
     // ---------------------------------------------------------------------------
 
     [Fact]
-    public void LoadNativeBinary_LazyBatch_AllEntriesRegisteredWithNullHandle()
+    public void ImportNativeManifest_LazyBatch_AllEntriesRegisteredWithNullHandle()
     {
         var registry = new BatchableTestRegistry();
         var tools = MakeTools(registry);
 
-        var result = tools.LoadNativeBinary(
-            entries:
+        var result = tools.ImportNativeManifest(
             [
                 new BatchManifestEntry("/a/binary1.so", "Binary1"),
                 new BatchManifestEntry("/a/binary2.so", null, "deadbeef"),
             ],
             mode: "lazy");
 
-        var ok = result.Should().BeOfType<NativeResult<BatchLoadData>>().Subject;
-        ok.IsError.Should().BeFalse();
-        ok.Data!.TotalCount.Should().Be(2);
-        ok.Data.LoadedCount.Should().Be(2);
-        ok.Summary.Should().Contain("Registered 2 of 2");
+        result.IsError.Should().BeFalse();
+        result.Data!.TotalCount.Should().Be(2);
+        result.Data.LoadedCount.Should().Be(2);
+        result.Summary.Should().Contain("Registered 2 of 2");
 
-        ok.Data.Entries.Should().AllSatisfy(e =>
+        result.Data.Entries.Should().AllSatisfy(e =>
         {
             e.Status.Should().Be("registered");
             e.BinaryHandle.Should().BeNull();
@@ -102,19 +72,18 @@ public class NativeToolsLoadBatchTests
     }
 
     [Fact]
-    public void LoadNativeBinary_LazyBatch_EmptyPathEntryFails()
+    public void ImportNativeManifest_LazyBatch_EmptyPathEntryFails()
     {
         var tools = MakeTools();
-        var result = tools.LoadNativeBinary(
-            entries: [new BatchManifestEntry("  ")],
+        var result = tools.ImportNativeManifest(
+            [new BatchManifestEntry("  ")],
             mode: "lazy");
 
-        var ok = result.Should().BeOfType<NativeResult<BatchLoadData>>().Subject;
-        ok.IsError.Should().BeFalse();
-        ok.Data!.TotalCount.Should().Be(1);
-        ok.Data.LoadedCount.Should().Be(0);
-        ok.Data.Entries[0].Status.Should().Be("failed");
-        ok.Data.Entries[0].Error!.Kind.Should().Be(ErrorKinds.InvalidArgument);
+        result.IsError.Should().BeFalse();
+        result.Data!.TotalCount.Should().Be(1);
+        result.Data.LoadedCount.Should().Be(0);
+        result.Data.Entries[0].Status.Should().Be("failed");
+        result.Data.Entries[0].Error!.Kind.Should().Be(ErrorKinds.InvalidArgument);
     }
 
     // ---------------------------------------------------------------------------
@@ -122,46 +91,44 @@ public class NativeToolsLoadBatchTests
     // ---------------------------------------------------------------------------
 
     [Fact]
-    public void LoadNativeBinary_EagerBatch_SuccessfulEntry_ReturnsHandle()
+    public void ImportNativeManifest_EagerBatch_SuccessfulEntry_ReturnsHandle()
     {
         var registry = new BatchableTestRegistry();
         registry.AddLoadResult("/a/good.so", null,
             NativeResult.Ok("ok", MakeImage("aabb", "good.so")));
 
         var tools = MakeTools(registry);
-        var result = tools.LoadNativeBinary(
-            entries: [new BatchManifestEntry("/a/good.so", "Good")],
+        var result = tools.ImportNativeManifest(
+            [new BatchManifestEntry("/a/good.so", "Good")],
             mode: "eager");
 
-        var ok = result.Should().BeOfType<NativeResult<BatchLoadData>>().Subject;
-        ok.IsError.Should().BeFalse();
-        ok.Data!.LoadedCount.Should().Be(1);
-        ok.Data.Entries[0].Status.Should().Be("loaded");
-        ok.Data.Entries[0].BinaryHandle.Should().NotBeNull();
-        ok.Data.Entries[0].Error.Should().BeNull();
+        result.IsError.Should().BeFalse();
+        result.Data!.LoadedCount.Should().Be(1);
+        result.Data.Entries[0].Status.Should().Be("loaded");
+        result.Data.Entries[0].BinaryHandle.Should().NotBeNull();
+        result.Data.Entries[0].Error.Should().BeNull();
     }
 
     [Fact]
-    public void LoadNativeBinary_EagerBatch_BuildIdMismatch_PerEntryFailure()
+    public void ImportNativeManifest_EagerBatch_BuildIdMismatch_PerEntryFailure()
     {
         var registry = new BatchableTestRegistry();
         registry.AddLoadResult("/a/binary.so", "wrong-id",
             NativeResult.Fail<NativeImage>(ErrorKinds.BinaryMismatch, "Build-id mismatch."));
 
         var tools = MakeTools(registry);
-        var result = tools.LoadNativeBinary(
-            entries: [new BatchManifestEntry("/a/binary.so", null, "wrong-id")],
+        var result = tools.ImportNativeManifest(
+            [new BatchManifestEntry("/a/binary.so", null, "wrong-id")],
             mode: "eager");
 
-        var ok = result.Should().BeOfType<NativeResult<BatchLoadData>>().Subject;
-        ok.IsError.Should().BeFalse();  // top-level is NOT an error
-        ok.Data!.LoadedCount.Should().Be(0);
-        ok.Data.Entries[0].Status.Should().Be("failed");
-        ok.Data.Entries[0].Error!.Kind.Should().Be(ErrorKinds.BuildIdMismatch);
+        result.IsError.Should().BeFalse();  // top-level is NOT an error
+        result.Data!.LoadedCount.Should().Be(0);
+        result.Data.Entries[0].Status.Should().Be("failed");
+        result.Data.Entries[0].Error!.Kind.Should().Be(ErrorKinds.BuildIdMismatch);
     }
 
     [Fact]
-    public void LoadNativeBinary_EagerBatch_MixedValidAndInvalid_PerEntryOutcomes()
+    public void ImportNativeManifest_EagerBatch_MixedValidAndInvalid_PerEntryOutcomes()
     {
         var registry = new BatchableTestRegistry();
         registry.AddLoadResult("/a/good.so", null,
@@ -170,23 +137,21 @@ public class NativeToolsLoadBatchTests
             NativeResult.Fail<NativeImage>(ErrorKinds.BinaryNotFound, "Not found."));
 
         var tools = MakeTools(registry);
-        var result = tools.LoadNativeBinary(
-            entries:
+        var result = tools.ImportNativeManifest(
             [
                 new BatchManifestEntry("/a/good.so"),
                 new BatchManifestEntry("/a/bad.so"),
             ],
             mode: "eager");
 
-        var ok = result.Should().BeOfType<NativeResult<BatchLoadData>>().Subject;
-        ok.IsError.Should().BeFalse();
-        ok.Data!.TotalCount.Should().Be(2);
-        ok.Data.LoadedCount.Should().Be(1);
-        ok.Summary.Should().Contain("Loaded 1 of 2");
+        result.IsError.Should().BeFalse();
+        result.Data!.TotalCount.Should().Be(2);
+        result.Data.LoadedCount.Should().Be(1);
+        result.Summary.Should().Contain("Loaded 1 of 2");
 
-        ok.Data.Entries[0].Status.Should().Be("loaded");
-        ok.Data.Entries[1].Status.Should().Be("failed");
-        ok.Data.Entries[1].Error!.Kind.Should().Be(ErrorKinds.BinaryNotFound);
+        result.Data.Entries[0].Status.Should().Be("loaded");
+        result.Data.Entries[1].Status.Should().Be("failed");
+        result.Data.Entries[1].Error!.Kind.Should().Be(ErrorKinds.BinaryNotFound);
     }
 
     // ---------------------------------------------------------------------------
@@ -194,14 +159,13 @@ public class NativeToolsLoadBatchTests
     // ---------------------------------------------------------------------------
 
     [Fact]
-    public void LoadNativeBinary_InvalidMode_ReturnsInvalidArgument()
+    public void ImportNativeManifest_InvalidMode_ReturnsInvalidArgument()
     {
         var tools = MakeTools();
-        var result = tools.LoadNativeBinary(entries: [], mode: "invalid");
+        var result = tools.ImportNativeManifest([], mode: "invalid");
 
-        var err = result.Should().BeOfType<NativeResult<BatchLoadData>>().Subject;
-        err.IsError.Should().BeTrue();
-        err.Error!.Kind.Should().Be(ErrorKinds.InvalidArgument);
+        result.IsError.Should().BeTrue();
+        result.Error!.Kind.Should().Be(ErrorKinds.InvalidArgument);
     }
 
     // ---------------------------------------------------------------------------
