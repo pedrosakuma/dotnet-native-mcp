@@ -1,0 +1,38 @@
+name: Bench
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: BenchmarkDotNet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Install NativeAOT toolchain
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+      - name: Restore
+        run: dotnet restore
+      - name: Build tests (builds SampleAot fixture)
+        run: dotnet build tests/DotnetNativeMcp.Core.Tests/DotnetNativeMcp.Core.Tests.csproj --configuration Release --no-restore
+      - name: Build bench
+        run: dotnet build tests/bench/DotnetNativeMcp.Bench/DotnetNativeMcp.Bench.csproj --configuration Release --no-restore
+      - name: Run benchmarks
+        run: >
+          dotnet run
+          --project tests/bench/DotnetNativeMcp.Bench/DotnetNativeMcp.Bench.csproj
+          --configuration Release
+          --no-build
+          -- --filter '*' --exporters json
+      - name: Upload BenchmarkDotNet artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmark-results
+          path: BenchmarkDotNet.Artifacts/results/

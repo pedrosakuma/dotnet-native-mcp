@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+    <!-- BenchmarkDotNet requires at least net6.0; we target net10.0 like the rest of the solution. -->
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- BDN emits reflection-heavy code; suppress spurious nullable warnings in generated glue. -->
+    <NoWarn>$(NoWarn);CS1591;CA1707;CA2007;CA1852</NoWarn>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\DotnetNativeMcp.Core\DotnetNativeMcp.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -7,4 +7,7 @@
     <Project Path="tests/DotnetNativeMcp.Core.Tests/DotnetNativeMcp.Core.Tests.csproj" />
     <Project Path="tests/DotnetNativeMcp.Server.Tests/DotnetNativeMcp.Server.Tests.csproj" />
   </Folder>
+  <Folder Name="/tests/bench/">
+    <Project Path="tests/bench/DotnetNativeMcp.Bench/DotnetNativeMcp.Bench.csproj" />
+  </Folder>
 </Solution>
