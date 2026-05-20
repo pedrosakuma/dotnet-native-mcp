@@ -61,7 +61,7 @@ public static class MstatReader
             if (!peReader.HasMetadata)
             {
                 return NativeResult.Fail<MstatDocument>(
-                    ErrorKinds.InternalError,
+                    ErrorKinds.MstatInvalid,
                     $"'{Path.GetFileName(fullPath)}' is not a valid .mstat metadata image.");
             }
 
@@ -71,7 +71,7 @@ public static class MstatReader
             if (methodsMethod.IsNil || typesMethod.IsNil)
             {
                 return NativeResult.Fail<MstatDocument>(
-                    ErrorKinds.InternalError,
+                    ErrorKinds.MstatInvalid,
                     $"'{Path.GetFileName(fullPath)}' does not expose the expected NativeAOT mstat tables.");
             }
 
@@ -96,8 +96,15 @@ public static class MstatReader
         catch (BadImageFormatException ex)
         {
             return NativeResult.Fail<MstatDocument>(
-                ErrorKinds.InternalError,
+                ErrorKinds.MstatInvalid,
                 $"'{Path.GetFileName(fullPath)}' is not a readable NativeAOT mstat image.",
+                ex.ToString());
+        }
+        catch (InvalidDataException ex)
+        {
+            return NativeResult.Fail<MstatDocument>(
+                ErrorKinds.MstatInvalid,
+                $"'{Path.GetFileName(fullPath)}' contains malformed NativeAOT mstat table data.",
                 ex.ToString());
         }
         catch (Exception ex)

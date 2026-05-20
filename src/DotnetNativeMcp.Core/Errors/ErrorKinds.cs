@@ -21,6 +21,9 @@ public static class ErrorKinds
     /// <summary>No paired .mstat sidecar could be found.</summary>
     public const string MstatNotFound = "mstat_not_found";
 
+    /// <summary>The .mstat sidecar exists and was opened, but its contents are not a parseable NativeAOT .mstat image (truncated, wrong format, unsupported version, bad table offsets, etc.).</summary>
+    public const string MstatInvalid = "mstat_invalid";
+
     /// <summary>No paired .dgml sidecar could be found.</summary>
     public const string DgmlNotFound = "dgml_not_found";
 

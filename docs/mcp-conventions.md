@@ -57,6 +57,21 @@ All tools return a `NativeResult<T>` envelope (mirrors `AssemblyResult<T>` in
 Error `kind` values are part of the contract. Once published, never repurposed
 (add new ones).
 
+| Kind | Meaning |
+|------|---------|
+| `binary_not_found` | Path doesn't resolve on the consumer's host. |
+| `binary_mismatch` | buildId disagrees with the on-disk binary. |
+| `not_a_native_dotnet_image` | The binary opened but isn't a managed-flavoured native build. |
+| `symbol_not_found` | Symbol not in `.map` or `.symtab`. |
+| `address_out_of_range` | Address is not inside any known section. |
+| `mstat_not_found` | No paired `.mstat` sidecar file could be located. |
+| `mstat_invalid` | The `.mstat` sidecar exists and was opened, but its contents are not a parseable NativeAOT `.mstat` image (truncated, wrong format, bad table offsets, etc.). |
+| `dgml_not_found` | No paired `.dgml` sidecar file could be located. |
+| `disassembly_unsupported` | Architecture not supported in this version (e.g. ARM64 pre-V1). |
+| `invalid_argument` | A supplied argument value was invalid. |
+| `build_id_mismatch` | Build-id provided in an eager manifest import did not match the on-disk binary. |
+| `internal_error` | An unexpected internal failure occurred. |
+
 ## 4. Handles, not paths
 
 Identities are stable handles, mirroring `(ModuleVersionId, MetadataToken)`
