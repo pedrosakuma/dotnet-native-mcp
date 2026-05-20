@@ -1,7 +1,7 @@
 # dotnet-native-mcp
 
-> **Status:** V0 shipped. Four MCP tools are live:
-> `load_native_binary`, `list_native_symbols`, `resolve_symbol`, `disassemble`.
+> **Status:** V1 in progress. Six MCP tools are live:
+> `load_native_binary`, `list_native_symbols`, `resolve_symbol`, `extract_strings`, `symbolicate_stack`, `disassemble`.
 > See the [V0 tracking issue](https://github.com/pedrosakuma/dotnet-native-mcp/issues/1).
 
 MCP server for **navigating native .NET binaries** — NativeAOT, R2R-only,
@@ -39,7 +39,11 @@ are available.
 | `load_native_binary`     | Open a PE/ELF, verify it's a managed-flavored native build, return a handle. Accepts NativeAOT and ReadyToRun. Validates optional `buildId` from `dotnet-diagnostics-mcp`. |
 | `list_native_symbols`    | Paginated symbol table. Source priority: `.map` sidecar → ELF `.symtab`/`.dynsym` → PE export table. Includes raw + demangled names. |
 | `resolve_symbol`         | Address ↔ symbol lookup with ILC demangling. Accepts RVA or absolute VA. |
+| `extract_strings`        | Paginated printable ASCII / UTF-16LE scan over `.rodata` / `.rdata` / `.data.rel.ro` / `__const` (with `.data` fallback). Returns section + offset for forensics. |
+| `symbolicate_stack`      | Bulk stack symbolication for up to 200 frames. Accepts `NativeFrame`-style rows or raw hex addresses plus a default image handle; each row reports its own success/error state. |
 | `disassemble`            | Iced x86/x64 disassembly with CALL/JMP cross-ref hints. Default 64 instructions, capped at 2048. ARM64 returns `disassembly_unsupported`. |
+
+For crash logs or sampled stacks where `dotnet-diagnostics-mcp` is not in the loop, use `load_native_binary` once and then call `symbolicate_stack` with a `defaultImageHandle` plus raw hex addresses. When you already have `NativeFrame` handoffs, pass those rows directly and override `imageHandle` per frame as needed.
 
 ## Sidecar tier (V1+)
 
@@ -69,6 +73,18 @@ docker run --rm -p 8789:8080 \
 
 Default port: **8789**. Slot picked to continue the convention started by
 `dotnet-diagnostics-mcp` (8787) and `dotnet-assembly-mcp` (8788).
+
+## Authentication
+
+HTTP transport supports optional bearer-token auth. Leave it unset for local/dev
+back-compat; set either `NATIVE_MCP_BEARER_TOKEN` or `NativeMcp:BearerToken` to
+require `Authorization: Bearer <token>` on every `/mcp` request. `/health`
+remains open. STDIO transport stays unauthenticated.
+
+```bash
+export NATIVE_MCP_BEARER_TOKEN="replace-me"
+dotnet-native-mcp
+```
 
 ## Building blocks
 

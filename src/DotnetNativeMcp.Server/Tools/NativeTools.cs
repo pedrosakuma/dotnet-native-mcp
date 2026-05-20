@@ -5,13 +5,14 @@ using DotnetNativeMcp.Core.Diff;
 using DotnetNativeMcp.Core.Disassembly;
 using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Imaging;
+using DotnetNativeMcp.Core.Strings;
 using DotnetNativeMcp.Core.Symbols;
 using ModelContextProtocol.Server;
 
 namespace DotnetNativeMcp.Server.Tools;
 
 /// <summary>
-/// MCP tools for navigating native .NET binaries (NativeAOT and ReadyToRun).
+/// V0 MCP tools for navigating native .NET binaries (NativeAOT and ReadyToRun).
 /// Accepts <c>NativeFrame</c> handoffs from <c>dotnet-diagnostics-mcp</c>.
 /// </summary>
 [McpServerToolType]
@@ -235,6 +236,111 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
             hints);
     }
 
+    [McpServerTool(Name = "extract_strings")]
+    [Description(
+        "Scans read-only data sections of a loaded native image for printable ASCII and UTF-16LE strings. " +
+        "Defaults to .rodata/.rdata/.data.rel.ro/__const and falls back to .data only when read-only sections are absent. " +
+        "Returns paginated results with section, offset, RVA, encoding, length, and value.")]
+    public NativeResult<ExtractStringsResult> ExtractStrings(
+        [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
+        [Description("Minimum string length in characters. Default 6, allowed range 1..4096.")] int minLength = 6,
+        [Description("Comma-separated encodings to scan: ascii, utf16le. Default 'ascii,utf16le'.")] string encodings = "ascii,utf16le",
+        [Description("Optional section name override. When supplied, only that section is scanned.")] string? section = null,
+        [Description("Page size. Default 200, max 5000.")] int pageSize = 200,
+        [Description("Opaque pagination cursor from a prior call. Omit or pass 0 for the first page.")] int cursor = 0)
+    {
+        if (!registry.TryGet(imageHandle, out var image) || image is null)
+            return NativeResult.Fail<ExtractStringsResult>(
+                ErrorKinds.BinaryNotFound,
+                $"No image found for handle '{imageHandle}'. Call load_native_binary first.");
+
+        if (minLength < 1 || minLength > 4096)
+            return NativeResult.Fail<ExtractStringsResult>(
+                ErrorKinds.InvalidArgument,
+                $"minLength must be between 1 and 4096. Got {minLength}.");
+
+        if (pageSize < 1 || pageSize > 5000)
+            return NativeResult.Fail<ExtractStringsResult>(
+                ErrorKinds.InvalidArgument,
+                $"pageSize must be between 1 and 5000. Got {pageSize}.");
+
+        if (!TryParseEncodings(encodings, out var scanAscii, out var scanUtf16, out var encodingError))
+            return NativeResult.Fail<ExtractStringsResult>(ErrorKinds.InvalidArgument, encodingError!);
+
+        if (!TrySelectSections(image, section, out var sections, out var sectionError))
+            return NativeResult.Fail<ExtractStringsResult>(ErrorKinds.InvalidArgument, sectionError!);
+
+        if (cursor < 0)
+            cursor = 0;
+
+        List<ExtractedStringRow> allRows = [];
+        foreach (var selectedSection in sections)
+        {
+            foreach (var extracted in StringExtractor.Extract(
+                image.GetSectionBytes(selectedSection).Span,
+                selectedSection.VirtualAddress,
+                selectedSection.Name,
+                minLength,
+                scanAscii,
+                scanUtf16))
+            {
+                var rva = ParseHex(extracted.RvaHex);
+                var offset = rva - selectedSection.VirtualAddress;
+                allRows.Add(new ExtractedStringRow(
+                    extracted.SectionName,
+                    offset.ToString("x16", CultureInfo.InvariantCulture),
+                    extracted.RvaHex,
+                    extracted.Encoding,
+                    extracted.Length,
+                    extracted.Value));
+            }
+        }
+
+        var ordered = allRows
+            .OrderBy(static row => row.SectionName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(static row => ParseHex(row.RvaHex))
+            .ToList();
+
+        if (cursor > ordered.Count)
+            cursor = ordered.Count;
+
+        var page = ordered.Skip(cursor).Take(pageSize).ToList();
+        var nextCursor = cursor + page.Count < ordered.Count ? cursor + page.Count : (int?)null;
+
+        var hints = new List<NextActionHint>();
+        if (nextCursor is not null)
+        {
+            hints.Add(new NextActionHint(
+                "extract_strings",
+                "More extracted strings available on the next page.",
+                new Dictionary<string, object?>
+                {
+                    ["imageHandle"] = imageHandle,
+                    ["minLength"] = minLength,
+                    ["encodings"] = encodings,
+                    ["section"] = section,
+                    ["pageSize"] = pageSize,
+                    ["cursor"] = nextCursor,
+                }));
+        }
+
+        var summary = page.Count == 0
+            ? $"No extracted strings found in '{imageHandle}'."
+            : $"Page {cursor}..{cursor + page.Count - 1} of {ordered.Count} extracted string(s) in '{imageHandle}'.";
+
+        return NativeResult.Ok(summary, new ExtractStringsResult(page, ordered.Count, nextCursor), hints);
+    }
+
+    [McpServerTool(Name = "symbolicate_stack")]
+    [Description(
+        "Batch resolves up to 200 native frames from dotnet-diagnostics-mcp NativeFrame payloads " +
+        "or a list of raw hex addresses against a single loaded image. " +
+        "Each row carries its own success or error state so malformed or missing frames do not fail the batch.")]
+    public NativeResult<IReadOnlyList<SymbolicatedFrame>> SymbolicateStack(
+        [Description("Frames to symbolicate. Each row needs an address and may override the imageHandle.")] IReadOnlyList<NativeFrameInput> frames,
+        [Description("Optional imageHandle applied to frames that omit imageHandle.")] string? defaultImageHandle = null) =>
+        StackSymbolicator.SymbolicateStack(registry, frames, defaultImageHandle);
+
     [McpServerTool(Name = "disassemble")]
     [Description(
         "Disassembles native machine code using Iced (x86/x64 only). " +
@@ -303,6 +409,86 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
 
         var format = unitIndex == 0 ? "0" : "0.0";
         return value.ToString(format, CultureInfo.InvariantCulture) + " " + units[unitIndex];
+    }
+
+    private static ulong ParseHex(string hex) => ulong.Parse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+
+    private static bool TryParseEncodings(string encodings, out bool ascii, out bool utf16, out string? error)
+    {
+        ascii = false;
+        utf16 = false;
+        error = null;
+
+        foreach (var token in encodings.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+        {
+            switch (token.ToLowerInvariant())
+            {
+                case "ascii":
+                    ascii = true;
+                    break;
+                case "utf16":
+                case "utf16le":
+                    utf16 = true;
+                    break;
+                default:
+                    error = $"Unsupported encoding '{token}'. Supported values: ascii, utf16le.";
+                    return false;
+            }
+        }
+
+        if (!ascii && !utf16)
+        {
+            error = "At least one encoding must be selected. Supported values: ascii, utf16le.";
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TrySelectSections(
+        NativeImage image,
+        string? section,
+        out IReadOnlyList<NativeSection> sections,
+        out string? error)
+    {
+        error = null;
+
+        if (!string.IsNullOrWhiteSpace(section))
+        {
+            var explicitSections = image.Sections
+                .Where(s => string.Equals(s.Name, section, StringComparison.OrdinalIgnoreCase))
+                .ToArray();
+            if (explicitSections.Length == 0)
+            {
+                sections = [];
+                error = $"Section '{section}' was not found in '{image.Handle.Value}'.";
+                return false;
+            }
+
+            sections = explicitSections;
+            return true;
+        }
+
+        var selectedSections = image.Sections
+            .Where(static s => string.Equals(s.Name, ".rodata", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(s.Name, ".rdata", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(s.Name, ".data.rel.ro", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(s.Name, "__const", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var hasReadOnlyData = image.Sections.Any(static s =>
+            string.Equals(s.Name, ".rodata", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(s.Name, ".rdata", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(s.Name, ".data.rel.ro", StringComparison.OrdinalIgnoreCase));
+
+        if (!hasReadOnlyData)
+        {
+            selectedSections.AddRange(image.Sections.Where(static s =>
+                string.Equals(s.Name, ".data", StringComparison.OrdinalIgnoreCase)));
+        }
+
+        sections = selectedSections;
+        return true;
     }
 }
 
@@ -399,3 +585,18 @@ public sealed record CompareNativeBinariesResult(
     IReadOnlyList<SymbolInventoryRow> AddedSymbols,
     IReadOnlyList<SymbolInventoryRow> RemovedSymbols,
     IReadOnlyList<ChangedSymbolDeltaRow> ChangedSymbols);
+
+/// <summary>One row returned by <c>extract_strings</c>.</summary>
+public sealed record ExtractedStringRow(
+    string SectionName,
+    string OffsetHex,
+    string RvaHex,
+    string Encoding,
+    int Length,
+    string Value);
+
+/// <summary>Result payload for <c>extract_strings</c>.</summary>
+public sealed record ExtractStringsResult(
+    IReadOnlyList<ExtractedStringRow> Strings,
+    int TotalCount,
+    int? NextCursor);
