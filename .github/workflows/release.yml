@@ -138,9 +138,9 @@ jobs:
         run: |
           cd artifacts/${{ matrix.rid }}
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            7z a ../dotnet-native-mcp-${{ needs.pack.outputs.version }}-${{ matrix.rid }}.zip dotnet-native-mcp.exe
+            7z a ../dotnet-native-mcp-${{ needs.pack.outputs.version }}-${{ matrix.rid }}.zip dotnet-native-mcp.exe appsettings*.json
           else
-            tar -czf ../dotnet-native-mcp-${{ needs.pack.outputs.version }}-${{ matrix.rid }}.tar.gz dotnet-native-mcp
+            tar -czf ../dotnet-native-mcp-${{ needs.pack.outputs.version }}-${{ matrix.rid }}.tar.gz dotnet-native-mcp appsettings*.json
           fi
 
       - name: Upload binary artifact
