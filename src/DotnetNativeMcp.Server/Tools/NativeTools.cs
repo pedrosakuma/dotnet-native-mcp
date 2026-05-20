@@ -147,6 +147,16 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
                 new Dictionary<string, object?> { ["imageHandle"] = imageHandle, ["address"] = rvaHex })]);
     }
 
+    [McpServerTool(Name = "symbolicate_stack")]
+    [Description(
+        "Batch resolves up to 200 native frames from dotnet-diagnostics-mcp NativeFrame payloads " +
+        "or a list of raw hex addresses against a single loaded image. " +
+        "Each row carries its own success or error state so malformed or missing frames do not fail the batch.")]
+    public NativeResult<IReadOnlyList<SymbolicatedFrame>> SymbolicateStack(
+        [Description("Frames to symbolicate. Each row needs an address and may override the imageHandle.")] IReadOnlyList<NativeFrameInput> frames,
+        [Description("Optional imageHandle applied to frames that omit imageHandle.")] string? defaultImageHandle = null) =>
+        StackSymbolicator.SymbolicateStack(registry, frames, defaultImageHandle);
+
     [McpServerTool(Name = "disassemble")]
     [Description(
         "Disassembles native machine code using Iced (x86/x64 only). " +
