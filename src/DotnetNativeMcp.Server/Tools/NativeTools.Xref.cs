@@ -20,6 +20,9 @@ public sealed partial class NativeTools
         "The index is persisted to disk under ~/.cache/dotnet-native-mcp/<build-id>.xref so large " +
         "NativeAOT binaries pay the scan cost only once across sessions. " +
         "Set DOTNET_NATIVE_MCP_XREF_CACHE=0 to disable the disk cache. " +
+        "When crossImage is true, also scans every other loaded image for call sites that resolve " +
+        "via PLT (ELF) or import thunks (PE) to the callee's exported name. " +
+        "Set DOTNET_NATIVE_MCP_CROSS_XREF=0 to disable cross-image scanning globally. " +
         "Use 'disassemble' to inspect any returned call site. " +
         "When resolveSource is true (default) each call site is annotated with file:line from DWARF/PDB debug info. " +
         "Set resolveSource=false to skip debug-info I/O for large binaries where PDB reads are slow.")]
@@ -28,7 +31,11 @@ public sealed partial class NativeTools
         [Description(
             "Target to find callers of. " +
             "Accepts a raw mangled or demangled symbol name, a hex address (0x prefix optional), or a decimal address.")] string target,
-        [Description("When true (default), annotates each call site with file:line from DWARF/PDB debug info. Set false to skip debug-info I/O.")] bool resolveSource = true)
+        [Description("When true (default), annotates each call site with file:line from DWARF/PDB debug info. Set false to skip debug-info I/O.")] bool resolveSource = true,
+        [Description(
+            "When true, also scans every other loaded image for call sites that target the callee's exported symbol " +
+            "via PLT (ELF) or import thunks (PE). Cross-image rows have isCrossImage=true and carry callerImageBuildId/callerImagePath. " +
+            "Ignored when DOTNET_NATIVE_MCP_CROSS_XREF=0. Default: false.")] bool crossImage = false)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
             return NativeResult.Fail<FindCallersResult>(
@@ -95,9 +102,46 @@ public sealed partial class NativeTools
                     site.Mnemonic,
                     site.Operands,
                     site.RawBytes,
-                    src);
+                    src,
+                    image.Handle.BuildIdHex,
+                    image.FilePath,
+                    false);
             })
             .ToList();
+
+        // Cross-image scanning (opt-in).
+        if (crossImage && targetSym is not null && NativeCallGraphCache.IsCrossXrefEnabled)
+        {
+            var crossCallers = callGraphCache.FindCrossImageCallers(
+                image, targetSym.Name, null, registry);
+
+            foreach (var xsite in crossCallers)
+            {
+                SourceLocation? crossSrc = null;
+                if (resolveSource)
+                {
+                    var callerImg = registry.List()
+                        .FirstOrDefault(img => string.Equals(img.FilePath, xsite.CallerImagePath, StringComparison.OrdinalIgnoreCase));
+                    if (callerImg is not null &&
+                        ulong.TryParse(xsite.SourceAddressHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var xsiteVa))
+                    {
+                        crossSrc = sourceResolver.TrySourceFor(callerImg, xsiteVa);
+                    }
+                }
+
+                rows.Add(new CallSiteRow(
+                    xsite.SourceAddressHex,
+                    xsite.CallerSymbol,
+                    xsite.CallerDemangled,
+                    xsite.Mnemonic,
+                    xsite.Operands,
+                    xsite.RawBytes,
+                    crossSrc,
+                    xsite.CallerImageBuildId,
+                    xsite.CallerImagePath,
+                    true));
+            }
+        }
 
         var hints = new List<NextActionHint>();
         if (rows.Count > 0)
@@ -127,6 +171,9 @@ public sealed partial class NativeTools
 /// <param name="Operands">Formatted operand text.</param>
 /// <param name="RawBytes">Hex-encoded raw bytes of the instruction.</param>
 /// <param name="Source">Source file+line from DWARF/PDB debug info, when available.</param>
+/// <param name="CallerImageBuildId">Build-id of the image that contains this call site.</param>
+/// <param name="CallerImagePath">Absolute path of the image that contains this call site.</param>
+/// <param name="IsCrossImage"><c>true</c> when the caller resides in a different image than the callee.</param>
 public sealed record CallSiteRow(
     string SourceAddressHex,
     string? CallerSymbol,
@@ -134,7 +181,10 @@ public sealed record CallSiteRow(
     string Mnemonic,
     string Operands,
     string RawBytes,
-    SourceLocation? Source = null);
+    SourceLocation? Source = null,
+    string? CallerImageBuildId = null,
+    string? CallerImagePath = null,
+    bool IsCrossImage = false);
 
 /// <summary>Result payload for <c>find_native_callers</c>.</summary>
 /// <param name="TargetAddressHex">Resolved absolute virtual address of the target, lowercase hex.</param>

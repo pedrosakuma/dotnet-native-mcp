@@ -92,12 +92,37 @@ public sealed class NativeCallGraphDiskCacheTests : IDisposable
         garbage[1] = (byte)'Y';
         garbage[2] = (byte)'Z';
         garbage[3] = (byte)'W';
-        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(garbage.AsSpan(4), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(garbage.AsSpan(4), 2);
         File.WriteAllBytes(path, garbage);
 
         var found = NativeCallGraphDiskCache.TryRead(path, out var read);
 
         found.Should().BeFalse();
+        read.Should().BeNull();
+    }
+
+    // ---------------------------------------------------------------------------
+    // Old NXR1 magic -> cache miss (format is incompatible)
+    // ---------------------------------------------------------------------------
+
+    [Fact]
+    public void TryRead_OldNxr1Magic_ReturnsFalse()
+    {
+        var path = NativeCallGraphDiskCache.GetCachePath("badbad04");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        // Write NXR1 (old format) — must be rejected to avoid silently reading incompatible data.
+        var header = new byte[8];
+        header[0] = (byte)'N';
+        header[1] = (byte)'X';
+        header[2] = (byte)'R';
+        header[3] = (byte)'1'; // old magic, not NXR2
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), 1);
+        File.WriteAllBytes(path, header);
+
+        var found = NativeCallGraphDiskCache.TryRead(path, out var read);
+
+        found.Should().BeFalse("NXR1 format must be rejected after magic bump to NXR2");
         read.Should().BeNull();
     }
 
@@ -111,12 +136,12 @@ public sealed class NativeCallGraphDiskCacheTests : IDisposable
         var path = NativeCallGraphDiskCache.GetCachePath("badbad02");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
-        // Correct magic but unknown version 99.
+        // Correct NXR2 magic but unknown version 99.
         var header = new byte[8];
         header[0] = (byte)'N';
         header[1] = (byte)'X';
         header[2] = (byte)'R';
-        header[3] = (byte)'1';
+        header[3] = (byte)'2'; // correct NXR2 magic
         System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), 99);
         File.WriteAllBytes(path, header);
 
@@ -140,8 +165,8 @@ public sealed class NativeCallGraphDiskCacheTests : IDisposable
         header[0] = (byte)'N';
         header[1] = (byte)'X';
         header[2] = (byte)'R';
-        header[3] = (byte)'1';
-        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), 1);
+        header[3] = (byte)'2'; // correct NXR2 magic
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), 2);
         var body = "{this is not valid json!!!"u8.ToArray();
         File.WriteAllBytes(path, [.. header, .. body]);
 
@@ -249,5 +274,66 @@ public sealed class NativeCallGraphDiskCacheTests : IDisposable
         path.Should().Contain(".cache");
         path.Should().Contain("dotnet-native-mcp");
         path.Should().EndWith("abc123.xref");
+    }
+
+    // ---------------------------------------------------------------------------
+    // Cross-refs round-trip
+    // ---------------------------------------------------------------------------
+
+    [Fact]
+    public void WriteAndRead_WithCrossRefs_RoundTrips()
+    {
+        var original = MakeSampleIndex();
+        var crossRef = new CrossImageCallSite(
+            "0000000000401010", "caller_x", null, "call", "0x400020", "e810000000",
+            "cafebabe", "/lib/caller.so");
+        var crossRefs = new Dictionary<string, IReadOnlyList<CrossImageCallSite>>
+        {
+            ["cafebabe::lib_func"] = [crossRef],
+        };
+
+        var path = NativeCallGraphDiskCache.GetCachePath("crossreftest");
+
+        NativeCallGraphDiskCache.Write(path, original, crossRefs);
+        var found = NativeCallGraphDiskCache.TryRead(path, out var readIndex, out var readCrossRefs);
+
+        found.Should().BeTrue();
+        readIndex.Should().NotBeNull();
+        readCrossRefs.Should().NotBeNull();
+        readCrossRefs!.Should().ContainKey("cafebabe::lib_func");
+
+        var sites = readCrossRefs!["cafebabe::lib_func"];
+        sites.Should().ContainSingle();
+        sites[0].CallerImageBuildId.Should().Be("cafebabe");
+        sites[0].CallerImagePath.Should().Be("/lib/caller.so");
+        sites[0].SourceAddressHex.Should().Be("0000000000401010");
+    }
+
+    [Fact]
+    public void WriteAndRead_WithNullCrossRefs_RoundTripsWithoutCrossRefs()
+    {
+        var original = MakeSampleIndex();
+        var path = NativeCallGraphDiskCache.GetCachePath("nocrossref");
+
+        NativeCallGraphDiskCache.Write(path, original, null);
+        var found = NativeCallGraphDiskCache.TryRead(path, out var readIndex, out var readCrossRefs);
+
+        found.Should().BeTrue();
+        readIndex.Should().NotBeNull();
+        readCrossRefs.Should().BeNull();
+    }
+
+    [Fact]
+    public void MakeCrossRefKey_IncludesAllComponents()
+    {
+        var key = NativeCallGraphDiskCache.MakeCrossRefKey("deadbeef", "liblib.so", "lib_func");
+        key.Should().Be("deadbeef:liblib.so:lib_func");
+    }
+
+    [Fact]
+    public void MakeCrossRefKey_NullLibrary_UsesEmptyString()
+    {
+        var key = NativeCallGraphDiskCache.MakeCrossRefKey("deadbeef", null, "lib_func");
+        key.Should().Be("deadbeef::lib_func");
     }
 }
