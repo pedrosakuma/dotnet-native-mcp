@@ -35,13 +35,13 @@ All tools return a `NativeResult<T>` envelope (mirrors `AssemblyResult<T>` in
 
 ```jsonc
 {
-  "summary": "Loaded symbols for apphost",
+  "summary": "Resolved 3 of 3 addresses in apphost",
   "data": { /* typed payload */ },
   "hints": [
     {
-      "nextTool": "get_symbol_by_handle",
-      "reason": "Fetch full symbol details for the hot frame.",
-      "suggestedArguments": { "handle": "s:i:...:42" }
+      "nextTool": "disassemble",
+      "reason": "Disassemble the hot frame to inspect the native code.",
+      "suggestedArguments": { "imageHandle": "i:d8f3...:42a1", "address": "004012a0" }
     }
   ],
   "error": null
