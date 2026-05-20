@@ -40,10 +40,10 @@ public sealed partial class NativeTools
                 ErrorKinds.InvalidArgument,
                 "target must not be empty.");
 
-        if (image.Architecture is not (Architecture.X64 or Architecture.X86))
+        if (image.Architecture is not (Architecture.X64 or Architecture.X86 or Architecture.Arm64))
             return NativeResult.Fail<FindCallersResult>(
                 ErrorKinds.DisassemblyUnsupported,
-                $"Disassembly for {image.Architecture} is not supported in V0. Only x86/x64 is implemented.");
+                $"Disassembly for {image.Architecture} is not supported. Only x86/x64 and ARM64 are implemented.");
 
         // Resolve target to an absolute virtual address.
         ulong targetVa;
