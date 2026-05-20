@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
@@ -5,7 +6,8 @@ using System.Text;
 namespace DotnetNativeMcp.Core.Identity;
 
 /// <summary>
-/// Extracts a stable build identity from ELF (NT_GNU_BUILD_ID) or PE (CodeView GUID+Age) binaries.
+/// Extracts a stable build identity from ELF (NT_GNU_BUILD_ID), PE (CodeView GUID+Age),
+/// or Mach-O (LC_UUID) binaries.
 /// Falls back to a SHA-256 prefix of the raw file bytes when neither header is present.
 /// </summary>
 public static class BuildId
@@ -14,6 +16,11 @@ public static class BuildId
     private const byte ElfMagic1 = (byte)'E';
     private const byte ElfMagic2 = (byte)'L';
     private const byte ElfMagic3 = (byte)'F';
+
+    // Mach-O magic numbers (little-endian read)
+    private const uint MachOMagic64Le = 0xFEEDFACF;
+    private const uint MachOMagic32Le = 0xFEEDFACE;
+    private const uint LcUuid = 0x1B;
 
     /// <summary>
     /// Extracts the build id from the given file bytes.
@@ -33,9 +40,45 @@ public static class BuildId
             var peId = TryExtractPeBuildId(bytes);
             if (peId is not null) return peId;
         }
+        else if (bytes.Length >= 4)
+        {
+            var machMagic = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
+            if (machMagic == MachOMagic64Le || machMagic == MachOMagic32Le)
+            {
+                var machoId = TryExtractMachOBuildId(bytes, machMagic == MachOMagic64Le);
+                if (machoId is not null) return machoId;
+            }
+        }
 
         // SHA-256 prefix fallback
         return ComputeSha256Prefix(bytes);
+    }
+
+    private static string? TryExtractMachOBuildId(ReadOnlySpan<byte> bytes, bool is64)
+    {
+        var headerSize = is64 ? 32 : 28;
+        if (bytes.Length < headerSize) return null;
+        var ncmds = BinaryPrimitives.ReadUInt32LittleEndian(bytes[16..]);
+        var cmdOffset = headerSize;
+        for (var i = 0u; i < ncmds; i++)
+        {
+            if (cmdOffset + 8 > bytes.Length) break;
+            var cmd = BinaryPrimitives.ReadUInt32LittleEndian(bytes[cmdOffset..]);
+            var cmdsize = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(cmdOffset + 4)..]);
+            if (cmdsize < 8 || cmdOffset + cmdsize > (uint)bytes.Length) break;
+            if (cmd == LcUuid)
+            {
+                // LC_UUID: cmd(4)+cmdsize(4)+uuid(16) — total 24 bytes
+                if (cmdOffset + 24 > bytes.Length) break;
+                var uuid = bytes[(cmdOffset + 8)..(cmdOffset + 24)];
+                var sb = new StringBuilder(32);
+                foreach (var b in uuid)
+                    sb.Append(b.ToString("x2", System.Globalization.CultureInfo.InvariantCulture));
+                return sb.ToString();
+            }
+            cmdOffset += (int)cmdsize;
+        }
+        return null;
     }
 
     private static string? TryExtractElfBuildId(ReadOnlySpan<byte> bytes)

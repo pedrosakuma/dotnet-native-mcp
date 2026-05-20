@@ -5,11 +5,14 @@ namespace DotnetNativeMcp.Core.Imaging;
 /// <summary>Binary format of the loaded native image.</summary>
 public enum BinaryFormat
 {
-    /// <summary>ELF (Linux/macOS NativeAOT).</summary>
+    /// <summary>ELF (Linux NativeAOT).</summary>
     Elf,
 
     /// <summary>PE (Windows NativeAOT or ReadyToRun).</summary>
     Pe,
+
+    /// <summary>Mach-O (macOS NativeAOT).</summary>
+    MachO,
 }
 
 /// <summary>
