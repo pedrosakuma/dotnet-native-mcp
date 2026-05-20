@@ -53,6 +53,7 @@ authority — open an issue here and update the contract.
 ```
 NativeFrame
   ├─ load_native_binary(binary)                  -> ImageHandle
+  ├─ import_native_manifest(entries[], mode?)    -> per-entry outcomes (bulk handshake)
   ├─ resolve_symbols(image, [address, ...])       -> [{ demangled, section, displacement }]
   ├─ find_native_callers(image, target)          -> [{ callSite, mnemonic, source? }]
   └─ disassemble(image, address, n)              -> List<NativeInstruction>
@@ -60,6 +61,11 @@ NativeFrame
 
 `resolve_symbols` is the batch variant: pass up to 200 hex or decimal address strings in a
 single call. Per-address failures are reported inline without aborting the whole batch.
+
+When `dotnet-diagnostics-mcp` emits a manifest of all native images it saw in a process,
+use `import_native_manifest` (not `load_native_binary`) to register them in bulk. Lazy mode
+(default) records path hints without opening files — actual loading is deferred until a tool
+call requires the handle. Eager mode opens and verifies every entry immediately.
 
 ### `resolveSource` parameter
 

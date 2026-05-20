@@ -1,7 +1,7 @@
 # dotnet-native-mcp
 
-> **Status:** V1 in progress. Ten MCP tools are live:
-> `load_native_binary`, `list_native_symbols`, `list_native_imports`, `resolve_symbols`, `extract_strings`, `get_size_breakdown`, `explain_retention`, `compare_native_binaries`, `disassemble`, `find_native_callers`.
+> **Status:** V1 in progress. Eleven MCP tools are live:
+> `load_native_binary`, `import_native_manifest`, `list_native_symbols`, `list_native_imports`, `resolve_symbols`, `extract_strings`, `get_size_breakdown`, `explain_retention`, `compare_native_binaries`, `disassemble`, `find_native_callers`.
 > See the [V0 tracking issue](https://github.com/pedrosakuma/dotnet-native-mcp/issues/1).
 
 MCP server for **navigating native .NET binaries** — NativeAOT, R2R-only,
@@ -32,11 +32,12 @@ are available.
 - **Generic reverse engineering** (full Ghidra-class decompilation, full
   dynamic instrumentation, kernel-mode debuggers). Out of scope by design.
 
-## Tool surface (10 tools, V1)
+## Tool surface (11 tools, V1)
 
 | Tool                     | Purpose                                                                 |
 |--------------------------|-------------------------------------------------------------------------|
-| `load_native_binary`     | Open a PE/ELF, verify it's a managed-flavored native build, return a handle. **Single-path mode**: accepts `path` + optional `buildId`. **Batch/manifest mode**: accepts `entries: [{path, name?, buildId?}]` + `mode` (`lazy`\|`eager`) — bulk registration from `dotnet-diagnostics-mcp`. Per-entry failures reported inline without failing the batch. |
+| `load_native_binary`     | Open a PE/ELF/Mach-O, verify it's a managed-flavored native build, return a handle. Accepts `path` + optional `buildId`. |
+| `import_native_manifest` | Bulk handshake from a producer (typically `dotnet-diagnostics-mcp`): register a list of native binaries in one call. Accepts `entries: [{path, name?, buildId?}]` + `mode` (`lazy`\|`eager`). Per-entry failures reported inline without failing the batch. |
 | `list_native_symbols`    | Paginated symbol table. Source priority: `.map` sidecar → ELF `.symtab`/`.dynsym` → PE export table. Includes raw + demangled names. |
 | `list_native_imports`    | Paginated import/dependency walk. `kind="functions"` lists ELF undefined `.dynsym` imports or PE Import Directory entries; `kind="libraries"` lists ELF `DT_NEEDED` or PE imported DLL names. |
 | `resolve_symbols`        | Batch address ↔ symbol lookup with ILC demangling. Accepts up to 200 hex (`0x`-prefixed or bare) or decimal address strings against a single image. Per-address failures are reported inline without failing the whole batch. Replaces the former single-address `resolve_symbol` and multi-frame `symbolicate_stack` tools. |
