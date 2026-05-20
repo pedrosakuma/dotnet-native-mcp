@@ -174,56 +174,44 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
             libraryHints);
     }
 
-    [McpServerTool(Name = "resolve_symbol")]
+    [McpServerTool(Name = "resolve_symbols")]
     [Description(
-        "Resolves a symbol by mangled name OR by hex address (RVA or absolute VA). " +
-        "Returns the raw name, demangled name, RVA, size, and section. " +
-        "Applies NativeAOT ILC demangling to surface a managed-looking name. " +
-        "When resolving by address the nearest symbol whose range contains the address is returned.")]
-    public NativeResult<ResolveSymbolResult> ResolveSymbol(
+        "Batch resolves up to 200 addresses against a single loaded native image. " +
+        "Accepts hex strings with or without a '0x' prefix, and plain decimal strings. " +
+        "Returns one row per address with the raw mangled name, demangled name, section, " +
+        "and byte displacement from the symbol start. " +
+        "Per-address failures (bad parse, symbol not found) are reported inline — a bad " +
+        "address does not fail the whole batch. Supplying an empty list returns an empty " +
+        "result without error. Replaces the former single-address 'resolve_symbol' and " +
+        "the batch 'symbolicate_stack' tools.")]
+    public NativeResult<ResolveSymbolsResult> ResolveSymbols(
         [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
-        [Description("Mangled or demangled symbol name to look up. Mutually exclusive with 'address'.")] string? name = null,
-        [Description("Hex address (RVA or absolute VA, no 0x prefix). Mutually exclusive with 'name'.")] string? address = null)
+        [Description("Addresses to resolve (hex with optional 0x prefix, or decimal). Up to 200 entries.")] IReadOnlyList<string> addresses)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
-            return NativeResult.Fail<ResolveSymbolResult>(
+            return NativeResult.Fail<ResolveSymbolsResult>(
                 ErrorKinds.BinaryNotFound,
                 $"No image found for handle '{imageHandle}'. Call load_native_binary first.");
 
-        if (string.IsNullOrEmpty(name) && string.IsNullOrEmpty(address))
-            return NativeResult.Fail<ResolveSymbolResult>(
-                ErrorKinds.InvalidArgument, "Supply either 'name' or 'address'.");
+        if (addresses.Count > StackSymbolicator.MaxFrameCount)
+            return NativeResult.Fail<ResolveSymbolsResult>(
+                ErrorKinds.InvalidArgument,
+                $"Address count {addresses.Count} exceeds the maximum of {StackSymbolicator.MaxFrameCount}.");
 
-        NativeSymbol? sym = null;
-
-        if (!string.IsNullOrEmpty(name))
-        {
-            sym = SymbolResolution.FindByName(image.Symbols, name);
-            if (sym is null)
-                return NativeResult.Fail<ResolveSymbolResult>(
-                    ErrorKinds.SymbolNotFound, $"Symbol '{name}' not found in '{imageHandle}'.");
-        }
-        else
-        {
-            if (!ulong.TryParse(address, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var va))
-                return NativeResult.Fail<ResolveSymbolResult>(
-                    ErrorKinds.InvalidArgument, $"Cannot parse address '{address}' as a hex value.");
-
-            var rva = SymbolResolution.VaToRva(va, image.ImageBase);
-            sym = SymbolResolution.FindByRva(image.Symbols, rva);
-            if (sym is null)
-                return NativeResult.Fail<ResolveSymbolResult>(
-                    ErrorKinds.SymbolNotFound, $"No symbol found at address 0x{va:x}.");
-        }
-
-        var rvaHex = sym.Rva.ToString("x16", CultureInfo.InvariantCulture);
-        var section = sym.Section ?? image.FindSection(sym.Rva)?.Name;
+        var inner = StackSymbolicator.ResolveAddresses(image, addresses);
+        var rows = inner.Data!.Select(r => new ResolvedAddressRow(
+            r.InputAddress,
+            r.ResolvedRvaHex,
+            r.MangledName,
+            r.DemangledName,
+            r.SectionName,
+            r.Displacement,
+            r.Error)).ToList();
 
         return NativeResult.Ok(
-            $"Resolved '{sym.Name}' at RVA 0x{sym.Rva:x}.",
-            new ResolveSymbolResult(sym.Index, sym.Name, sym.DemangledName, rvaHex, sym.Size, section, sym.IsFunction),
-            [new NextActionHint("disassemble", "Disassemble native code at this symbol.",
-                new Dictionary<string, object?> { ["imageHandle"] = imageHandle, ["address"] = rvaHex })]);
+            inner.Summary,
+            new ResolveSymbolsResult(rows),
+            inner.Hints);
     }
 
     [McpServerTool(Name = "get_size_breakdown")]
@@ -437,12 +425,12 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
         if (comparison.ChangedSymbols.Count > 0)
         {
             hints.Add(new NextActionHint(
-                "resolve_symbol",
+                "resolve_symbols",
                 "Inspect the largest size-changed symbol in the current image.",
                 new Dictionary<string, object?>
                 {
                     ["imageHandle"] = currentHandle,
-                    ["name"] = comparison.ChangedSymbols[0].Name,
+                    ["addresses"] = new[] { ToHex(comparison.ChangedSymbols[0].CurrentRva) },
                 }));
         }
 
@@ -546,16 +534,6 @@ public sealed class NativeTools(INativeBinaryRegistry registry)
 
         return NativeResult.Ok(summary, new ExtractStringsResult(page, ordered.Count, nextCursor), hints);
     }
-
-    [McpServerTool(Name = "symbolicate_stack")]
-    [Description(
-        "Batch resolves up to 200 native frames from dotnet-diagnostics-mcp NativeFrame payloads " +
-        "or a list of raw hex addresses against a single loaded image. " +
-        "Each row carries its own success or error state so malformed or missing frames do not fail the batch.")]
-    public NativeResult<IReadOnlyList<SymbolicatedFrame>> SymbolicateStack(
-        [Description("Frames to symbolicate. Each row needs an address and may override the imageHandle.")] IReadOnlyList<NativeFrameInput> frames,
-        [Description("Optional imageHandle applied to frames that omit imageHandle.")] string? defaultImageHandle = null) =>
-        StackSymbolicator.SymbolicateStack(registry, frames, defaultImageHandle);
 
     [McpServerTool(Name = "disassemble")]
     [Description(
@@ -844,16 +822,6 @@ public sealed record ListNativeImportsResult(
     int TotalCount,
     int? NextCursor);
 
-/// <summary>Result payload for <c>resolve_symbol</c>.</summary>
-public sealed record ResolveSymbolResult(
-    int Index,
-    string Name,
-    string DemangledName,
-    string RvaHex,
-    ulong Size,
-    string? Section,
-    bool IsFunction);
-
 /// <summary>Simple baseline/current delta payload.</summary>
 public sealed record ValueDeltaResult(
     string Baseline,
@@ -955,3 +923,23 @@ public sealed record RetentionPathNodeRow(
     string Label,
     string? Category,
     string? EdgeLabelFromPrevious);
+
+/// <summary>One resolved address row returned by <c>resolve_symbols</c>.</summary>
+/// <param name="InputAddress">The original address string as supplied by the caller.</param>
+/// <param name="ResolvedRvaHex">Normalized 16-digit hex RVA, or <c>null</c> when parsing failed.</param>
+/// <param name="MangledName">Raw mangled symbol name on success.</param>
+/// <param name="DemangledName">Best-effort demangled name on success.</param>
+/// <param name="SectionName">Containing section name when available.</param>
+/// <param name="Displacement">Byte offset from the start of the resolved symbol.</param>
+/// <param name="Error">Per-row error; <c>null</c> on success.</param>
+public sealed record ResolvedAddressRow(
+    string InputAddress,
+    string? ResolvedRvaHex,
+    string? MangledName,
+    string? DemangledName,
+    string? SectionName,
+    ulong? Displacement,
+    NativeError? Error);
+
+/// <summary>Result payload for <c>resolve_symbols</c>.</summary>
+public sealed record ResolveSymbolsResult(IReadOnlyList<ResolvedAddressRow> Resolutions);

@@ -1,7 +1,7 @@
 # dotnet-native-mcp
 
-> **Status:** V1 in progress. Ten MCP tools are live:
-> `load_native_binary`, `list_native_symbols`, `list_native_imports`, `resolve_symbol`, `extract_strings`, `symbolicate_stack`, `get_size_breakdown`, `explain_retention`, `compare_native_binaries`, `disassemble`.
+> **Status:** V1 in progress. Nine MCP tools are live:
+> `load_native_binary`, `list_native_symbols`, `list_native_imports`, `resolve_symbols`, `extract_strings`, `get_size_breakdown`, `explain_retention`, `compare_native_binaries`, `disassemble`.
 > See the [V0 tracking issue](https://github.com/pedrosakuma/dotnet-native-mcp/issues/1).
 
 MCP server for **navigating native .NET binaries** — NativeAOT, R2R-only,
@@ -39,15 +39,14 @@ are available.
 | `load_native_binary`     | Open a PE/ELF, verify it's a managed-flavored native build, return a handle. Accepts NativeAOT and ReadyToRun. Validates optional `buildId` from `dotnet-diagnostics-mcp`. |
 | `list_native_symbols`    | Paginated symbol table. Source priority: `.map` sidecar → ELF `.symtab`/`.dynsym` → PE export table. Includes raw + demangled names. |
 | `list_native_imports`    | Paginated import/dependency walk. `kind="functions"` lists ELF undefined `.dynsym` imports or PE Import Directory entries; `kind="libraries"` lists ELF `DT_NEEDED` or PE imported DLL names. |
-| `resolve_symbol`         | Address ↔ symbol lookup with ILC demangling. Accepts RVA or absolute VA. |
+| `resolve_symbols`        | Batch address ↔ symbol lookup with ILC demangling. Accepts up to 200 hex (`0x`-prefixed or bare) or decimal address strings against a single image. Per-address failures are reported inline without failing the whole batch. Replaces the former single-address `resolve_symbol` and multi-frame `symbolicate_stack` tools. |
 | `extract_strings`        | Paginated printable ASCII / UTF-16LE scan over `.rodata` / `.rdata` / `.data.rel.ro` / `__const` (with `.data` fallback). Returns section + offset for forensics. |
-| `symbolicate_stack`      | Bulk stack symbolication for up to 200 frames. Accepts `NativeFrame`-style rows or raw hex addresses plus a default image handle; each row reports its own success/error state. |
 | `get_size_breakdown`     | Read the `.mstat` sidecar emitted by NativeAOT and aggregate native bytes by assembly, namespace, type, or method. |
 | `explain_retention`      | Read the DGML reachability sidecar emitted by NativeAOT and return the shortest root → target path that kept a type or method reachable. |
 | `compare_native_binaries`| Diff two loaded images: build-id, format, arch, file/section size deltas, added/removed/size-changed symbols. |
 | `disassemble`            | Iced x86/x64 disassembly with CALL/JMP cross-ref hints. Default 64 instructions, capped at 2048. ARM64 returns `disassembly_unsupported`. |
 
-For crash logs or sampled stacks where `dotnet-diagnostics-mcp` is not in the loop, use `load_native_binary` once and then call `symbolicate_stack` with a `defaultImageHandle` plus raw hex addresses. When you already have `NativeFrame` handoffs, pass those rows directly and override `imageHandle` per frame as needed.
+For crash logs or sampled stacks where `dotnet-diagnostics-mcp` is not in the loop, use `load_native_binary` once and then call `resolve_symbols` with a list of raw hex addresses. When you already have `NativeFrame` handoffs with mangled addresses, pass those address strings directly to `resolve_symbols`.
 
 ## Sidecar tier (V1+)
 
