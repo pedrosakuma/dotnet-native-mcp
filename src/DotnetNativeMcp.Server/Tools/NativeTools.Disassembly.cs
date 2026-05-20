@@ -14,9 +14,11 @@ public sealed partial class NativeTools
     [McpServerTool(Name = "disassemble")]
     [Description(
         "Disassembles native machine code using Iced (x86/x64) or AsmArm64 (ARM64/AArch64). " +
-        "Two modes: (1) registered-handle mode — supply imageHandle (returned by load_native_binary) " +
+        "Three modes: (1) registered-handle mode — supply imageHandle (returned by load_native_binary) " +
         "plus address or symbolName; (2) raw-bytes mode — supply imagePath + rva + size directly, " +
-        "bypassing load_native_binary (works on any PE/ELF/Mach-O including managed PEs with R2R bodies). " +
+        "bypassing load_native_binary (works on any PE/ELF/Mach-O including managed PEs with R2R bodies); " +
+        "(3) raw-blob mode — supply imagePath + size + architecture + baseAddress + rawBlob=true to decode " +
+        "a plain byte buffer with no PE/ELF/Mach-O header (e.g. JIT-emitted code from dotnet-diagnostics-mcp.capture_method_bytes). " +
         "Exactly one of {imageHandle, imagePath} must be present. " +
         "Each instruction includes absolute address, raw bytes, mnemonic, operands, " +
         "and a cross-ref hint for CALL/JMP/BL/B targets that can be resolved against the symbol table. " +
@@ -29,11 +31,12 @@ public sealed partial class NativeTools
         [Description("Symbol name to disassemble (looked up then resolved to its RVA). Mutually exclusive with 'address'.")] string? symbolName = null,
         [Description("Maximum instructions to decode. Default 64, capped at 2048.")] int maxInstructions = IcedDisassembler.DefaultMaxInstructions,
         [Description("When true, annotates each instruction with file:line from DWARF debug info (may be noisy). Default false.")] bool resolveSource = false,
-        [Description("Absolute path to a PE, ELF, or Mach-O binary (raw-bytes mode). Mutually exclusive with imageHandle.")] string? imagePath = null,
-        [Description("Start RVA within imagePath (required when imagePath is supplied).")] int? rva = null,
-        [Description("Number of code bytes to decode from imagePath (required when imagePath is supplied).")] int? size = null,
-        [Description("CPU architecture override for imagePath mode: 'x64', 'x86', or 'arm64'. Detected from the binary header when omitted.")] string? architecture = null,
-        [Description("Image base for absolute-address formatting in imagePath mode. Detected from the binary header when omitted.")] ulong? baseAddress = null)
+        [Description("Absolute path to a PE, ELF, or Mach-O binary (raw-bytes mode), or to a raw instruction blob (rawBlob=true). Mutually exclusive with imageHandle.")] string? imagePath = null,
+        [Description("Start RVA within imagePath (required when imagePath is supplied without rawBlob); byte offset into the blob when rawBlob=true (defaults to 0).")] int? rva = null,
+        [Description("Number of code bytes to decode (required when imagePath is supplied; required when rawBlob=true).")] int? size = null,
+        [Description("CPU architecture override: 'x64', 'x86', or 'arm64'. Detected from the binary header in raw-bytes mode; required when rawBlob=true.")] string? architecture = null,
+        [Description("Image base for absolute-address formatting. Detected from the binary header in raw-bytes mode; required when rawBlob=true.")] ulong? baseAddress = null,
+        [Description("When true, treats imagePath as a raw instruction blob with no PE/ELF/Mach-O header. Requires size, architecture, and baseAddress. Mutually exclusive with imageHandle.")] bool rawBlob = false)
     {
         var hasHandle = !string.IsNullOrEmpty(imageHandle);
         var hasPath = !string.IsNullOrEmpty(imagePath);
@@ -47,6 +50,52 @@ public sealed partial class NativeTools
             return NativeResult.Fail<IReadOnlyList<InstructionView>>(
                 ErrorKinds.InvalidArgument,
                 "Supply either 'imageHandle' (registered-handle mode) or 'imagePath' (raw-bytes mode).");
+
+        // ── Raw-blob mode ─────────────────────────────────────────────────────────
+        if (rawBlob)
+        {
+            if (hasHandle)
+                return NativeResult.Fail<IReadOnlyList<InstructionView>>(
+                    ErrorKinds.InvalidArgument,
+                    "'imageHandle' and 'rawBlob=true' are mutually exclusive. Supply 'imagePath' with rawBlob.");
+
+            if (size is null || size.Value <= 0)
+                return NativeResult.Fail<IReadOnlyList<InstructionView>>(
+                    ErrorKinds.RawBlobMissingSize,
+                    "'size' is required when rawBlob=true and must be > 0.");
+
+            if (string.IsNullOrEmpty(architecture))
+                return NativeResult.Fail<IReadOnlyList<InstructionView>>(
+                    ErrorKinds.RawBlobMissingArchitecture,
+                    "'architecture' is required when rawBlob=true. Supply 'x64', 'x86', or 'arm64'.");
+
+            if (baseAddress is null)
+                return NativeResult.Fail<IReadOnlyList<InstructionView>>(
+                    ErrorKinds.RawBlobMissingBaseAddress,
+                    "'baseAddress' is required when rawBlob=true so that call/jmp target addresses render correctly.");
+
+            var parsedBlobArch = architecture.Trim().ToLowerInvariant() switch
+            {
+                "x64" or "amd64" => (Core.Imaging.Architecture?)Core.Imaging.Architecture.X64,
+                "x86" or "i386" => Core.Imaging.Architecture.X86,
+                "arm64" or "aarch64" => Core.Imaging.Architecture.Arm64,
+                _ => null,
+            };
+            if (parsedBlobArch is null)
+                return NativeResult.Fail<IReadOnlyList<InstructionView>>(
+                    ErrorKinds.DisassemblyUnsupported,
+                    $"Unknown architecture '{architecture}' for rawBlob mode. Valid values: x64, x86, arm64.");
+
+            // resolveSource is silently ignored for raw blobs (no PDB/DWARF available).
+            var blobOffset = rva ?? 0;
+            return RawDisassembler.DisassembleBlob(
+                imagePath!,
+                blobOffset,
+                size.Value,
+                parsedBlobArch.Value,
+                baseAddress.Value,
+                maxInstructions);
+        }
 
         // ── Raw-bytes mode ───────────────────────────────────────────────────────
         if (hasPath)

@@ -53,4 +53,13 @@ public static class ErrorKinds
 
     /// <summary>The requested R2R section type is not present in this image.</summary>
     public const string R2RSectionNotPresent = "r2r_section_not_present";
+
+    /// <summary>rawBlob=true requires 'architecture' because there is no header to infer it from.</summary>
+    public const string RawBlobMissingArchitecture = "raw_blob_missing_architecture";
+
+    /// <summary>rawBlob=true requires 'baseAddress' so that call/jmp absolute targets render correctly.</summary>
+    public const string RawBlobMissingBaseAddress = "raw_blob_missing_base_address";
+
+    /// <summary>rawBlob=true requires 'size' because there is no section table to bound the code slice.</summary>
+    public const string RawBlobMissingSize = "raw_blob_missing_size";
 }

@@ -113,6 +113,72 @@ public static class RawDisassembler
         return IcedDisassembler.Disassemble(synthImage, (ulong)rva, maxInstructions);
     }
 
+    /// <summary>
+    /// Disassembles up to <paramref name="maxInstructions"/> instructions from a raw
+    /// byte blob (no PE/ELF/Mach-O header). All parameters are required because there
+    /// is no header from which to infer them.
+    /// </summary>
+    /// <param name="blobPath">Absolute path to the raw instruction bytes.</param>
+    /// <param name="offset">Byte offset within the blob to begin decoding (typically 0).</param>
+    /// <param name="size">Number of bytes of code to supply to the decoder.</param>
+    /// <param name="arch">CPU architecture — must be supplied.</param>
+    /// <param name="baseAddress">
+    /// Absolute virtual address of byte 0 of the blob. Used to format absolute
+    /// addresses for call/jmp targets correctly.
+    /// </param>
+    /// <param name="maxInstructions">Maximum number of instructions to decode.</param>
+    public static NativeResult<IReadOnlyList<InstructionView>> DisassembleBlob(
+        string blobPath,
+        int offset,
+        int size,
+        Architecture arch,
+        ulong baseAddress,
+        int maxInstructions)
+    {
+        if (!File.Exists(blobPath))
+            return NativeResult.Fail<IReadOnlyList<InstructionView>>(
+                ErrorKinds.BinaryNotFound,
+                $"File not found: '{blobPath}'.");
+
+        byte[] rawBytes;
+        try
+        {
+            rawBytes = File.ReadAllBytes(blobPath);
+        }
+        catch (Exception ex)
+        {
+            return NativeResult.Fail<IReadOnlyList<InstructionView>>(
+                ErrorKinds.BinaryNotFound,
+                $"Failed to read '{blobPath}': {ex.Message}");
+        }
+
+        if (offset < 0 || size <= 0 || offset > rawBytes.Length || size > rawBytes.Length - offset)
+            return NativeResult.Fail<IReadOnlyList<InstructionView>>(
+                ErrorKinds.AddressOutOfRange,
+                $"Offset {offset} + size {size} (end offset {offset + size}) exceeds blob length {rawBytes.Length}.");
+
+        // Build a minimal synthetic NativeImage: section VirtualAddress=offset, FileOffset=0
+        // so RvaToFileOffset(offset) → 0 inside the code slice.
+        // imageBase = baseAddress so ip = imageBase + rva = baseAddress + offset,
+        // giving the correct absolute VA for each decoded instruction.
+        var codeBytes = new ReadOnlyMemory<byte>(rawBytes, offset, size);
+        var handle = ImageHandle.From(
+            $"blob-{Math.Abs(blobPath.GetHashCode()):x}",
+            Path.GetFileName(blobPath));
+        var synthSection = new NativeSection(".text", (ulong)offset, (ulong)size, 0, (ulong)size);
+        var synthImage = new NativeImage(
+            handle,
+            blobPath,
+            BinaryFormat.Pe,
+            arch,
+            [synthSection],
+            [],
+            codeBytes,
+            baseAddress);
+
+        return IcedDisassembler.Disassemble(synthImage, (ulong)offset, maxInstructions);
+    }
+
     private static NativeImage? TryParseHeaders(byte[] bytes, string filePath)
     {
         var mem = new ReadOnlyMemory<byte>(bytes);
