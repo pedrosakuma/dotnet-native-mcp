@@ -7,9 +7,9 @@ using DotnetNativeMcp.Core.Mstat;
 namespace DotnetNativeMcp.Core;
 
 /// <summary>
-/// Loads and validates native binaries (ELF or PE).
+/// Loads and validates native binaries (ELF, PE, or Mach-O).
 /// Verifies that the binary is a managed-flavored native build (NativeAOT or ReadyToRun)
-/// before accepting it. Arbitrary system .so/.dll files are rejected with
+/// before accepting it. Arbitrary system .so/.dll/.dylib files are rejected with
 /// <see cref="ErrorKinds.NotANativeDotnetImage"/>.
 /// </summary>
 public static class NativeImageLoader
@@ -51,10 +51,19 @@ public static class NativeImageLoader
         {
             image = PeNativeReader.Read(memory, path);
         }
+        else if (MachOReader.IsFatBinary(bytes))
+        {
+            return NativeResult.Fail<NativeImage>(ErrorKinds.InvalidArgument,
+                $"'{path}' is a fat (universal) Mach-O binary. Extract the target architecture slice first.");
+        }
+        else if (MachOReader.IsMachO(bytes))
+        {
+            image = MachOReader.Read(memory, path);
+        }
 
         if (image is null)
             return NativeResult.Fail<NativeImage>(ErrorKinds.NotANativeDotnetImage,
-                $"'{path}' is not a supported ELF or PE binary.");
+                $"'{path}' is not a supported ELF, PE, or Mach-O binary.");
 
         // Build-id verification
         if (expectedBuildId is not null)
@@ -66,9 +75,12 @@ public static class NativeImageLoader
         }
 
         // Managed-native detection heuristic
-        var looksManaged = image.Format == BinaryFormat.Elf
-            ? ElfReader.LooksLikeManagedNativeBuild(image)
-            : PeNativeReader.LooksLikeManagedNativeBuild(image, bytes);
+        var looksManaged = image.Format switch
+        {
+            BinaryFormat.Elf => ElfReader.LooksLikeManagedNativeBuild(image),
+            BinaryFormat.MachO => MachOReader.LooksLikeManagedNativeBuild(image),
+            _ => PeNativeReader.LooksLikeManagedNativeBuild(image, bytes),
+        };
 
         if (!looksManaged)
             return NativeResult.Fail<NativeImage>(ErrorKinds.NotANativeDotnetImage,

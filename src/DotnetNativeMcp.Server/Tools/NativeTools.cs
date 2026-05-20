@@ -843,6 +843,7 @@ public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphC
         {
             BinaryFormat.Elf => ElfReader.ReadImportedFunctions(image),
             BinaryFormat.Pe => PeNativeReader.ReadImportedFunctions(image),
+            BinaryFormat.MachO => MachOReader.ReadImportedFunctions(image),
             _ => NativeResult.Fail<IReadOnlyList<ImportedFunction>>(ErrorKinds.InternalError, $"Unsupported binary format '{image.Format}'."),
         };
 
@@ -851,6 +852,7 @@ public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphC
         {
             BinaryFormat.Elf => ElfReader.ReadImportedLibraries(image),
             BinaryFormat.Pe => PeNativeReader.ReadImportedLibraries(image),
+            BinaryFormat.MachO => MachOReader.ReadImportedLibraries(image),
             _ => NativeResult.Fail<IReadOnlyList<ImportedLibrary>>(ErrorKinds.InternalError, $"Unsupported binary format '{image.Format}'."),
         };
 
@@ -984,7 +986,7 @@ public sealed class NativeTools(INativeBinaryRegistry registry, NativeCallGraphC
 
 /// <summary>Result payload for <c>load_native_binary</c> (single-path mode).</summary>
 /// <param name="ImageHandle">Opaque handle for subsequent tool calls.</param>
-/// <param name="Format">Binary format: <c>Elf</c> or <c>Pe</c>.</param>
+/// <param name="Format">Binary format: <c>Elf</c>, <c>Pe</c>, or <c>MachO</c>.</param>
 /// <param name="Architecture">CPU architecture: <c>X64</c>, <c>X86</c>, <c>Arm64</c>, or <c>Unknown</c>.</param>
 /// <param name="BuildIdHex">Build-id as lowercase hex.</param>
 /// <param name="SymbolCount">Total symbol count after loading.</param>
