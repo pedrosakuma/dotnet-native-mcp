@@ -1,9 +1,11 @@
+using System.Buffers.Binary;
 using System.Reflection.PortableExecutable;
 using DotnetNativeMcp.Core;
 using DotnetNativeMcp.Core.Disassembly;
 using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Identity;
 using DotnetNativeMcp.Core.Imaging;
+using DotnetNativeMcp.Core.R2R;
 using DotnetNativeMcp.Core.Symbols;
 using DotnetNativeMcp.Core.Xref;
 using DotnetNativeMcp.Server.Tools;
@@ -120,39 +122,43 @@ public class NativeToolsDisassembleRawTests
     // ── imagePath: managed PE ────────────────────────────────────────────────
 
     [Fact]
-    public void Disassemble_ImagePath_ManagedPe_ReturnsInstructions()
+    public void Disassemble_ImagePath_ReadyToRunSystemPrivateCoreLib_ReturnsInstructions()
     {
-        // Use the test assembly itself — a plain managed PE that load_native_binary rejects.
-        var selfPath = typeof(NativeToolsDisassembleRawTests).Assembly.Location;
-        if (!File.Exists(selfPath)) return;
-
-        // Dynamically resolve the .text section start RVA so the test stays
-        // portable across builds.
-        int textRva;
-        try
-        {
-            using var ms = new System.IO.MemoryStream(File.ReadAllBytes(selfPath));
-            using var pe = new PEReader(ms, PEStreamOptions.Default);
-            var text = pe.PEHeaders.SectionHeaders.FirstOrDefault(s => s.Name == ".text");
-            if (text.Name is null) return; // no .text section — skip
-            textRva = text.VirtualAddress;
-        }
-        catch
-        {
-            return;
-        }
+        var fixturePath = FindSystemPrivateCoreLib();
+        var rva = fixturePath is null ? null : FindFirstReadyToRunMethodRva(fixturePath);
+        if (fixturePath is null || rva is null) return;
 
         var tools = EmptyTools();
 
         var result = tools.Disassemble(
-            imagePath: selfPath,
-            rva: textRva,
+            imagePath: fixturePath,
+            rva: rva.Value,
             size: 64,
             maxInstructions: 10);
 
-        // Should succeed — the raw path does NOT reject managed PEs.
         result.IsError.Should().BeFalse(result.Error?.Message ?? string.Empty);
         result.Data.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void Disassemble_ImagePath_NonR2RManagedPe_PreservesUnsupportedError()
+    {
+        var selfPath = typeof(NativeToolsDisassembleRawTests).Assembly.Location;
+        var patchedPath = CreatePatchedCeeAssembly(selfPath, "native-tools-cee.dll");
+        var textRva = patchedPath is null ? null : FindTextSectionRva(patchedPath);
+        if (patchedPath is null || textRva is null) return;
+
+        var tools = EmptyTools();
+
+        var result = tools.Disassemble(
+            imagePath: patchedPath,
+            rva: textRva.Value,
+            size: 64,
+            maxInstructions: 10);
+
+        result.IsError.Should().BeTrue();
+        result.Error!.Kind.Should().Be(ErrorKinds.DisassemblyUnsupported);
+        result.Error.Message.Should().Contain("Unknown");
     }
 
     // ── imageHandle: existing path still works ───────────────────────────────
@@ -187,6 +193,88 @@ public class NativeToolsDisassembleRawTests
         var dir = Path.GetDirectoryName(typeof(NativeToolsDisassembleRawTests).Assembly.Location) ?? ".";
         var candidate = Path.Combine(dir, "fixtures", "SampleAot", "SampleAot");
         return File.Exists(candidate) ? candidate : null;
+    }
+
+    private static string? FindSystemPrivateCoreLib()
+    {
+        var dir = Path.GetDirectoryName(typeof(NativeToolsDisassembleRawTests).Assembly.Location);
+        while (dir is not null)
+        {
+            if (File.Exists(Path.Combine(dir, "DotnetNativeMcp.slnx")))
+            {
+                var candidate = Path.Combine(
+                    dir,
+                    "tests", "fixtures", "SampleAot",
+                    "bin", "Release", "net10.0", "linux-x64",
+                    "System.Private.CoreLib.dll");
+                return File.Exists(candidate) ? candidate : null;
+            }
+
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        return null;
+    }
+
+    private static int? FindFirstReadyToRunMethodRva(string path)
+    {
+        var bytes = File.ReadAllBytes(path);
+        var image = PeNativeReader.Read(new ReadOnlyMemory<byte>(bytes), path);
+        if (image is null)
+            return null;
+
+        var headerResult = ReadyToRunReader.ReadHeader(image);
+        if (headerResult.IsError)
+            return null;
+
+        var runtimeFunctions = headerResult.Data!.FindSection(ReadyToRunSectionType.RuntimeFunctions);
+        var fileOffset = runtimeFunctions is null ? null : image.RvaToFileOffset(runtimeFunctions.VirtualAddress);
+        if (fileOffset is null || fileOffset.Value + 12 > bytes.Length)
+            return null;
+
+        return checked((int)BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(fileOffset.Value)));
+    }
+
+    private static int? FindTextSectionRva(string path)
+    {
+        try
+        {
+            using var stream = new MemoryStream(File.ReadAllBytes(path));
+            using var peReader = new PEReader(stream, PEStreamOptions.Default);
+            var textSection = peReader.PEHeaders.SectionHeaders.FirstOrDefault(section => section.Name == ".text");
+            return textSection.Name is null ? null : textSection.VirtualAddress;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string? CreatePatchedCeeAssembly(string sourcePath, string fileName)
+    {
+        try
+        {
+            var bytes = File.ReadAllBytes(sourcePath);
+            if (bytes.Length < 0x40)
+                return null;
+
+            var peOffset = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(0x3C));
+            if (peOffset <= 0 || peOffset + 6 > bytes.Length)
+                return null;
+
+            BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(peOffset + 4), 0xFD1D);
+
+            var scratchDir = Path.Combine(Path.GetDirectoryName(sourcePath)!, "scratch");
+            Directory.CreateDirectory(scratchDir);
+
+            var patchedPath = Path.Combine(scratchDir, fileName);
+            File.WriteAllBytes(patchedPath, bytes);
+            return patchedPath;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private sealed class TestBinaryRegistry(params NativeImage[] images) : INativeBinaryRegistry
