@@ -1,3 +1,4 @@
+using System.Reflection;
 using DotnetNativeMcp.Core.Errors;
 using FluentAssertions;
 using Xunit;
@@ -86,6 +87,8 @@ public class NativeImageLoaderTests
 /// <summary>Paths to optional NativeAOT fixture binaries built at test time.</summary>
 internal static class FixturePaths
 {
+    private static readonly string? RepoRoot = FindRepoRoot();
+
     /// <summary>
     /// Path to the published NativeAOT SampleAot binary, or <c>null</c> if not built.
     /// </summary>
@@ -143,6 +146,27 @@ internal static class FixturePaths
     }
 
     /// <summary>
+    /// Path to the ReadyToRun <c>System.Private.CoreLib.dll</c> fixture published alongside SampleAot,
+    /// or <c>null</c> if not present.
+    /// </summary>
+    public static string? SystemPrivateCoreLib
+    {
+        get
+        {
+            if (RepoRoot is null)
+                return null;
+
+            var candidate = Path.Combine(
+                RepoRoot,
+                "tests", "fixtures", "SampleAot",
+                "bin", "Release", "net10.0", "linux-x64",
+                "System.Private.CoreLib.dll");
+
+            return File.Exists(candidate) ? candidate : null;
+        }
+    }
+
+    /// <summary>
     /// Path to the <c>EmbeddedPdb.dll</c> fixture built with <c>&lt;DebugType&gt;embedded&lt;/DebugType&gt;</c>,
     /// or <c>null</c> if not present. This fixture is used to test embedded-PDB extraction (#58).
     /// </summary>
@@ -154,5 +178,19 @@ internal static class FixturePaths
             var candidate = Path.Combine(dir, "fixtures", "EmbeddedPdb", "EmbeddedPdb.dll");
             return File.Exists(candidate) ? candidate : null;
         }
+    }
+
+    private static string? FindRepoRoot()
+    {
+        var dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+        while (dir is not null)
+        {
+            if (File.Exists(Path.Combine(dir, "DotnetNativeMcp.slnx")))
+                return dir;
+
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        return null;
     }
 }

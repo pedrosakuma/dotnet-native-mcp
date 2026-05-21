@@ -1,7 +1,10 @@
+using System.Buffers.Binary;
+using System.Globalization;
+using System.Reflection.PortableExecutable;
 using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Identity;
 using DotnetNativeMcp.Core.Imaging;
-using System.Globalization;
+using DotnetNativeMcp.Core.R2R;
 
 namespace DotnetNativeMcp.Core.Disassembly;
 
@@ -68,13 +71,14 @@ public static class RawDisassembler
                 $"'{imagePath}' is not a recognised PE, ELF, or Mach-O binary. " +
                 "Supply 'architecture' explicitly to disassemble an unknown format.");
 
-        var resolvedArch = arch ?? parsed!.Architecture;
+        var parsedImage = arch is null ? TryApplyReadyToRunArchitectureFallback(parsed) : parsed;
+        var resolvedArch = arch ?? parsedImage!.Architecture;
 
         // Resolve RVA → file offset using section table when available.
         int fileOffset;
-        if (parsed is not null)
+        if (parsedImage is not null)
         {
-            var fo = parsed.RvaToFileOffset((ulong)rva);
+            var fo = parsedImage.RvaToFileOffset((ulong)rva);
             if (fo is null)
                 return NativeResult.Fail<IReadOnlyList<InstructionView>>(
                     ErrorKinds.AddressOutOfRange,
@@ -100,11 +104,11 @@ public static class RawDisassembler
             $"raw-{Math.Abs(imagePath.GetHashCode()):x}",
             Path.GetFileName(imagePath));
         var synthSection = new NativeSection(".text", (ulong)rva, (ulong)size, 0, (ulong)size);
-        var imageBase = baseAddress ?? (parsed?.ImageBase ?? 0UL);
+        var imageBase = baseAddress ?? (parsedImage?.ImageBase ?? 0UL);
         var synthImage = new NativeImage(
             handle,
             imagePath,
-            parsed?.Format ?? BinaryFormat.Pe,
+            parsedImage?.Format ?? BinaryFormat.Pe,
             resolvedArch,
             [synthSection],
             [],
@@ -220,4 +224,143 @@ public static class RawDisassembler
 
         return null;
     }
+
+    private static NativeImage? TryApplyReadyToRunArchitectureFallback(NativeImage? image)
+    {
+        if (image is null || image.Format != BinaryFormat.Pe || image.Architecture != Architecture.Unknown)
+            return image;
+
+        var inferredArchitecture = TryInferReadyToRunArchitecture(image);
+        return inferredArchitecture is null ? image : WithArchitecture(image, inferredArchitecture.Value);
+    }
+
+    private static Architecture? TryInferReadyToRunArchitecture(NativeImage image)
+    {
+        var headerResult = ReadyToRunReader.ReadHeader(image);
+        if (headerResult.IsError)
+            return null;
+
+        var header = headerResult.Data!;
+        var runtimeFunctions = header.FindSection(ReadyToRunSectionType.RuntimeFunctions);
+        if (runtimeFunctions is not null)
+        {
+            if (LooksLikeX64RuntimeFunctions(image, runtimeFunctions))
+                return Architecture.X64;
+
+            if (LooksLikeArm64RuntimeFunctions(image, header, runtimeFunctions))
+                return Architecture.Arm64;
+        }
+
+        try
+        {
+            using var stream = new MemoryStream(image.RawBytes.ToArray(), writable: false);
+            using var peReader = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
+            if (peReader.PEHeaders.PEHeader?.Magic == PEMagic.PE32)
+                return Architecture.X86;
+        }
+        catch
+        {
+            return null;
+        }
+
+        return null;
+    }
+
+    private static bool LooksLikeX64RuntimeFunctions(NativeImage image, ReadyToRunSection runtimeFunctions)
+    {
+        const int RuntimeFunctionSize = 12;
+
+        if (runtimeFunctions.Size < RuntimeFunctionSize || runtimeFunctions.Size % RuntimeFunctionSize != 0)
+            return false;
+
+        var fileOffset = image.RvaToFileOffset(runtimeFunctions.VirtualAddress);
+        if (fileOffset is null)
+            return false;
+
+        var bytes = image.RawBytes.Span;
+        var sampleCount = Math.Min(5, (int)(runtimeFunctions.Size / RuntimeFunctionSize));
+        if (sampleCount == 0)
+            return false;
+
+        for (var i = 0; i < sampleCount; i++)
+        {
+            var entryOffset = fileOffset.Value + (i * RuntimeFunctionSize);
+            if (entryOffset + RuntimeFunctionSize > bytes.Length)
+                return false;
+
+            var beginAddress = BinaryPrimitives.ReadUInt32LittleEndian(bytes[entryOffset..]);
+            var endAddress = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(entryOffset + 4)..]);
+            var unwindInfoAddress = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(entryOffset + 8)..]);
+
+            if (beginAddress == 0 || endAddress <= beginAddress)
+                return false;
+
+            if (image.RvaToFileOffset(beginAddress) is null ||
+                image.RvaToFileOffset(endAddress - 1u) is null ||
+                image.RvaToFileOffset(unwindInfoAddress) is null)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool LooksLikeArm64RuntimeFunctions(
+        NativeImage image,
+        ReadyToRunHeader header,
+        ReadyToRunSection runtimeFunctions)
+    {
+        const int RuntimeFunctionSize = 8;
+
+        if (runtimeFunctions.Size < RuntimeFunctionSize || runtimeFunctions.Size % RuntimeFunctionSize != 0)
+            return false;
+
+        var fileOffset = image.RvaToFileOffset(runtimeFunctions.VirtualAddress);
+        if (fileOffset is null)
+            return false;
+
+        var arm64Image = WithArchitecture(image, Architecture.Arm64);
+        var bytes = image.RawBytes.Span;
+        var sampleCount = Math.Min(5, (int)(runtimeFunctions.Size / RuntimeFunctionSize));
+        if (sampleCount == 0)
+            return false;
+
+        for (var i = 0; i < sampleCount; i++)
+        {
+            var entryOffset = fileOffset.Value + (i * RuntimeFunctionSize);
+            if (entryOffset + RuntimeFunctionSize > bytes.Length)
+                return false;
+
+            var beginAddress = BinaryPrimitives.ReadUInt32LittleEndian(bytes[entryOffset..]);
+            if (beginAddress == 0 || arm64Image.RvaToFileOffset(beginAddress) is null)
+                return false;
+
+            var functionResult = ReadyToRunReader.FindRuntimeFunction(arm64Image, header, beginAddress);
+            if (functionResult.IsError)
+                return false;
+
+            var function = functionResult.Data!;
+            if (function.Index != i ||
+                function.BeginAddress != beginAddress ||
+                function.EndAddress <= beginAddress ||
+                arm64Image.RvaToFileOffset(function.EndAddress - 1u) is null)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static NativeImage WithArchitecture(NativeImage image, Architecture architecture) =>
+        new(
+            image.Handle,
+            image.FilePath,
+            image.Format,
+            architecture,
+            image.Sections,
+            image.Symbols,
+            image.RawBytes,
+            image.ImageBase);
 }
