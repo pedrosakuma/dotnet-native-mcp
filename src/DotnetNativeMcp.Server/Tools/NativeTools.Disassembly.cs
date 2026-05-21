@@ -36,6 +36,7 @@ public sealed partial class NativeTools
         [Description("Number of code bytes to decode (required when imagePath is supplied; required when rawBlob=true).")] int? size = null,
         [Description("CPU architecture override: 'x64', 'x86', or 'arm64'. Detected from the binary header in raw-bytes mode; required when rawBlob=true.")] string? architecture = null,
         [Description("Image base for absolute-address formatting. Detected from the binary header in raw-bytes mode; required when rawBlob=true.")] ulong? baseAddress = null,
+        [Description("Optional path to a UTF-8 .ilmap sidecar for rawBlob=true. Each line is '<nativeOffsetHex>\\t<ilOffsetHex|prolog|epilog|noinfo>'. Invalid for non-rawBlob modes.")] string? ilMapPath = null,
         [Description("When true, treats imagePath as a raw instruction blob with no PE/ELF/Mach-O header. Requires size, architecture, and baseAddress. Mutually exclusive with imageHandle.")] bool rawBlob = false)
     {
         var hasHandle = !string.IsNullOrEmpty(imageHandle);
@@ -50,6 +51,11 @@ public sealed partial class NativeTools
             return NativeResult.Fail<IReadOnlyList<InstructionView>>(
                 ErrorKinds.InvalidArgument,
                 "Supply either 'imageHandle' (registered-handle mode) or 'imagePath' (raw-bytes mode).");
+
+        if (!rawBlob && !string.IsNullOrWhiteSpace(ilMapPath))
+            return NativeResult.Fail<IReadOnlyList<InstructionView>>(
+                ErrorKinds.InvalidArgument,
+                "'ilMapPath' is only supported when rawBlob=true.");
 
         // ── Raw-blob mode ─────────────────────────────────────────────────────────
         if (rawBlob)
@@ -86,6 +92,19 @@ public sealed partial class NativeTools
                     ErrorKinds.DisassemblyUnsupported,
                     $"Unknown architecture '{architecture}' for rawBlob mode. Valid values: x64, x86, arm64.");
 
+            JitIlMap? ilMap = null;
+            if (!string.IsNullOrWhiteSpace(ilMapPath))
+            {
+                var ilMapResult = JitIlMap.Load(ilMapPath!);
+                if (ilMapResult.IsError)
+                    return NativeResult.Fail<IReadOnlyList<InstructionView>>(
+                        ilMapResult.Error!.Kind,
+                        ilMapResult.Error.Message,
+                        ilMapResult.Error.Detail);
+
+                ilMap = ilMapResult.Data;
+            }
+
             // resolveSource is silently ignored for raw blobs (no PDB/DWARF available).
             var blobOffset = rva ?? 0;
             return RawDisassembler.DisassembleBlob(
@@ -94,7 +113,8 @@ public sealed partial class NativeTools
                 size.Value,
                 parsedBlobArch.Value,
                 baseAddress.Value,
-                maxInstructions);
+                maxInstructions,
+                ilMap);
         }
 
         // ── Raw-bytes mode ───────────────────────────────────────────────────────

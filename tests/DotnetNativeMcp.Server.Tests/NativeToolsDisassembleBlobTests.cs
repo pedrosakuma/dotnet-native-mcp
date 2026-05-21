@@ -25,8 +25,24 @@ public class NativeToolsDisassembleBlobTests : IDisposable
 
     private string WriteTempBlob(byte[] bytes)
     {
-        var path = Path.Combine(Path.GetTempPath(), $"blob-test-{Guid.NewGuid():N}.bin");
+        var path = Path.Combine(
+            Path.GetDirectoryName(typeof(NativeToolsDisassembleBlobTests).Assembly.Location)!,
+            "scratch",
+            $"blob-test-{Guid.NewGuid():N}.bin");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllBytes(path, bytes);
+        _tempFiles.Add(path);
+        return path;
+    }
+
+    private string WriteTempText(string fileName, string content)
+    {
+        var path = Path.Combine(
+            Path.GetDirectoryName(typeof(NativeToolsDisassembleBlobTests).Assembly.Location)!,
+            "scratch",
+            $"{Guid.NewGuid():N}-{fileName}");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, content);
         _tempFiles.Add(path);
         return path;
     }
@@ -53,6 +69,8 @@ public class NativeToolsDisassembleBlobTests : IDisposable
         0x01, 0x00, 0x00, 0x94, // bl +4
         0xC0, 0x03, 0x5F, 0xD6, // ret
     ];
+
+    private static readonly byte[] NopBlob = Enumerable.Repeat((byte)0x90, 32).ToArray();
 
     // ── happy path: x64 blob ──────────────────────────────────────────────────
 
@@ -112,6 +130,42 @@ public class NativeToolsDisassembleBlobTests : IDisposable
         // First instruction must be at baseAddress + 5.
         ulong instrAddr = Convert.ToUInt64(result.Data![0].AddressHex, 16);
         instrAddr.Should().Be(baseAddress + 5);
+    }
+
+    [Fact]
+    public void DisassembleBlob_WithIlMap_AnnotatesEachInstructionRange()
+    {
+        const ulong baseAddress = 0x20000000UL;
+        var blobPath = WriteTempBlob(NopBlob);
+        var ilMapPath = WriteTempText("blob.ilmap", """
+            # comment
+            7	noinfo
+            0	prolog
+            2	0
+            5	a
+            """);
+        var tools = MakeTools();
+
+        var result = tools.Disassemble(
+            imagePath: blobPath,
+            size: NopBlob.Length,
+            architecture: "x64",
+            baseAddress: baseAddress,
+            ilMapPath: ilMapPath,
+            maxInstructions: 8,
+            rawBlob: true);
+
+        result.IsError.Should().BeFalse(result.Error?.Message ?? string.Empty);
+        result.Data!.Should().HaveCount(8);
+        result.Data!.Select(instruction => instruction.IlOffset).Should().Equal(
+            "prolog",
+            "prolog",
+            "0",
+            "0",
+            "0",
+            "a",
+            "a",
+            "noinfo");
     }
 
     // ── happy path: ARM64 blob ────────────────────────────────────────────────
@@ -224,6 +278,25 @@ public class NativeToolsDisassembleBlobTests : IDisposable
 
         result.IsError.Should().BeTrue();
         result.Error!.Kind.Should().Be(ErrorKinds.InvalidArgument);
+    }
+
+    [Fact]
+    public void DisassembleBlob_IlMapWithoutRawBlob_ReturnsInvalidArgument()
+    {
+        var blobPath = WriteTempBlob(X64Blob);
+        var ilMapPath = WriteTempText("blob.ilmap", "0\t0\n");
+        var tools = MakeTools();
+
+        var result = tools.Disassemble(
+            imagePath: blobPath,
+            rva: 0,
+            size: X64Blob.Length,
+            architecture: "x64",
+            ilMapPath: ilMapPath);
+
+        result.IsError.Should().BeTrue();
+        result.Error!.Kind.Should().Be(ErrorKinds.InvalidArgument);
+        result.Error.Message.Should().Contain("ilMapPath");
     }
 
     // ── file not found ────────────────────────────────────────────────────────

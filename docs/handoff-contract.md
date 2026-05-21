@@ -124,6 +124,38 @@ marker symbols or an R2R header that this server can detect).
 When using `imagePath`, the resulting instructions **will not** have symbolic cross-ref
 hints resolved (no symbol table is available without a registered image).
 
+### Raw-blob IL map sidecar (`ilMapPath`)
+
+`disassemble(rawBlob=true)` accepts an optional `ilMapPath` sidecar for producer-supplied
+IL-to-native mappings. This is the consumer side of the JIT handoff; emitting the `.ilmap`
+file from `dotnet-diagnostics-mcp.capture_method_bytes` is tracked separately on the producer.
+
+**Format**
+
+- Plain text, UTF-8, no BOM.
+- One mapping per line: `<nativeOffsetHex>\t<ilOffsetHex>\n`
+- `nativeOffsetHex` is the byte offset from the start of the raw blob, lowercase hex, no `0x`.
+- `ilOffsetHex` is lowercase hex, no `0x`, or one of the sentinel values `prolog`, `epilog`, `noinfo`.
+- Lines starting with `#` are comments.
+- The file may be unsorted; the consumer sorts by native offset before building ranges.
+
+Each entry covers the byte range from its native offset up to (but not including) the next
+entry's native offset. `InstructionView.ilOffset` is populated by looking up the instruction
+start offset within those ranges. The emitted `ilOffset` value uses lowercase hex without `0x`
+for ordinary IL offsets, or the literal sentinel string for `prolog`, `epilog`, and `noinfo`.
+
+**Example**
+
+```text
+# JIT IL-to-native map for a captured raw blob
+0	prolog
+2	0
+5	a
+7	noinfo
+```
+
+`ilMapPath` is only valid with `rawBlob=true`; other disassembly modes return `invalid_argument`.
+
 ### `resolveSource` parameter
 
 Three tools surface a `SourceLocation` (file + line from DWARF/PDB debug info).

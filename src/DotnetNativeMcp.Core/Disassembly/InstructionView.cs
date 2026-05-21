@@ -9,10 +9,12 @@ namespace DotnetNativeMcp.Core.Disassembly;
 /// <param name="Operands">Operand text (e.g. <c>rax, [rbx+8]</c>); empty for no-operand instructions.</param>
 /// <param name="CrossRef">Populated for CALL/JMP instructions that target a resolvable address; <c>null</c> otherwise.</param>
 /// <param name="Source">Source file+line from DWARF/PDB debug info, when resolveSource=true; <c>null</c> otherwise.</param>
+/// <param name="IlOffset">IL offset for rawBlob disassembly with an <c>.ilmap</c> sidecar; lowercase hex without <c>0x</c>, or one of <c>prolog</c>, <c>epilog</c>, <c>noinfo</c>.</param>
 public sealed record InstructionView(
     string AddressHex,
     string Bytes,
     string Mnemonic,
     string Operands,
     CrossRefHint? CrossRef,
-    SourceLocation? Source = null);
+    SourceLocation? Source = null,
+    string? IlOffset = null);
