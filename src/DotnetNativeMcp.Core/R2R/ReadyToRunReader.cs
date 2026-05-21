@@ -7,8 +7,7 @@ namespace DotnetNativeMcp.Core.R2R;
 
 /// <summary>
 /// Parses ReadyToRun (R2R) metadata from a managed PE binary.
-/// Only x64 <c>RUNTIME_FUNCTION</c> layout is supported in v1; ARM64 is rejected with
-/// <see cref="ErrorKinds.R2RArchUnsupported"/>.
+/// RuntimeFunctions decoding currently supports x64 and ARM64 layouts.
 /// </summary>
 public static class ReadyToRunReader
 {
@@ -23,6 +22,21 @@ public static class ReadyToRunReader
 
     /// <summary>Byte size of one x64 RUNTIME_FUNCTION entry (begin + end + unwindInfo).</summary>
     private const int RuntimeFunctionSizeX64 = 12;
+
+    /// <summary>Byte size of one ARM64 pdata entry (begin + unwindData/xdata RVA).</summary>
+    private const int RuntimeFunctionSizeArm64 = 8;
+
+    private const uint Arm64PackedFlagMask = 0x3u;
+    private const int Arm64PackedFunctionLengthShift = 2;
+    private const uint Arm64PackedFunctionLengthMask = 0x7FFu;
+    private const uint Arm64XdataFunctionLengthMask = 0x3FFFFu;
+    private const int Arm64FunctionLengthScale = 4;
+
+    private enum RuntimeFunctionLayout
+    {
+        X64,
+        Arm64,
+    }
 
     /// <summary>
     /// Reads the <c>READYTORUN_HEADER</c> from the managed-native header of a PE binary.
@@ -106,7 +120,7 @@ public static class ReadyToRunReader
     /// <summary>
     /// Reads the <c>RuntimeFunctions</c> section from the R2R header.
     /// Returns paginated results; pass the <c>NextCursor</c> from the result to fetch the next page.
-    /// Only x64 layout is supported.
+    /// Supports x64 and ARM64 layouts.
     /// </summary>
     public static NativeResult<ReadyToRunRuntimeFunctionsPage> ReadRuntimeFunctions(
         NativeImage image,
@@ -117,11 +131,11 @@ public static class ReadyToRunReader
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(header);
 
-        if (image.Architecture != Architecture.X64)
+        var layout = GetRuntimeFunctionLayout(image);
+        if (layout is null)
             return NativeResult.Fail<ReadyToRunRuntimeFunctionsPage>(
                 ErrorKinds.R2RArchUnsupported,
-                $"Only x64 RUNTIME_FUNCTION layout is supported in v1; " +
-                $"this image is {image.Architecture}.");
+                $"Only x64 and ARM64 RuntimeFunctions layouts are supported; this image is {image.Architecture}.");
 
         var rtSection = header.FindSection(ReadyToRunSectionType.RuntimeFunctions);
         if (rtSection is null)
@@ -130,7 +144,8 @@ public static class ReadyToRunReader
                 "This R2R image does not contain a RuntimeFunctions section (type 5). " +
                 "Newer R2R versions (>= 14) use MethodHeaderAndCodeInfo (type 105) instead.");
 
-        var totalEntries = (int)(rtSection.Size / RuntimeFunctionSizeX64);
+        var entrySize = GetRuntimeFunctionEntrySize(layout.Value);
+        var totalEntries = (int)(rtSection.Size / (uint)entrySize);
         if (totalEntries == 0)
             return NativeResult.Ok(
                 "RuntimeFunctions section is empty.",
@@ -151,20 +166,20 @@ public static class ReadyToRunReader
                 ErrorKinds.InvalidArgument,
                 $"RuntimeFunctions RVA 0x{rtSection.VirtualAddress:X8} could not be mapped to a file offset.");
 
-        var bytes = image.RawBytes.Span;
         var take = Math.Min(pageSize, totalEntries - cursor);
         var results = new List<RuntimeFunction>(take);
 
         for (var i = 0; i < take; i++)
         {
             var idx = cursor + i;
-            var off = fileOffset.Value + idx * RuntimeFunctionSizeX64;
-            if (off + RuntimeFunctionSizeX64 > bytes.Length) break;
+            var functionResult = ReadRuntimeFunctionAtIndex(image, layout.Value, fileOffset.Value, idx);
+            if (functionResult.IsError)
+                return NativeResult.Fail<ReadyToRunRuntimeFunctionsPage>(
+                    functionResult.Error!.Kind,
+                    functionResult.Error.Message,
+                    functionResult.Error.Detail);
 
-            var begin = BinaryPrimitives.ReadUInt32LittleEndian(bytes[off..]);
-            var end = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(off + 4)..]);
-            var unwind = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(off + 8)..]);
-            results.Add(new RuntimeFunction(idx, begin, end, unwind));
+            results.Add(functionResult.Data!);
         }
 
         int? nextCursor = cursor + results.Count < totalEntries ? cursor + results.Count : null;
@@ -186,11 +201,11 @@ public static class ReadyToRunReader
         ArgumentNullException.ThrowIfNull(image);
         ArgumentNullException.ThrowIfNull(header);
 
-        if (image.Architecture != Architecture.X64)
+        var layout = GetRuntimeFunctionLayout(image);
+        if (layout is null)
             return NativeResult.Fail<RuntimeFunction>(
                 ErrorKinds.R2RArchUnsupported,
-                $"Only x64 RUNTIME_FUNCTION layout is supported in v1; " +
-                $"this image is {image.Architecture}.");
+                $"Only x64 and ARM64 RuntimeFunctions layouts are supported; this image is {image.Architecture}.");
 
         var rtSection = header.FindSection(ReadyToRunSectionType.RuntimeFunctions);
         if (rtSection is null)
@@ -204,8 +219,7 @@ public static class ReadyToRunReader
                 ErrorKinds.InvalidArgument,
                 $"RuntimeFunctions RVA 0x{rtSection.VirtualAddress:X8} could not be mapped to a file offset.");
 
-        var bytes = image.RawBytes.Span;
-        var totalEntries = (int)(rtSection.Size / RuntimeFunctionSizeX64);
+        var totalEntries = (int)(rtSection.Size / (uint)GetRuntimeFunctionEntrySize(layout.Value));
 
         // Binary search on BeginAddress
         var lo = 0;
@@ -215,25 +229,23 @@ public static class ReadyToRunReader
         while (lo <= hi)
         {
             var mid = lo + (hi - lo) / 2;
-            var off = fileOffset.Value + mid * RuntimeFunctionSizeX64;
-            if (off + RuntimeFunctionSizeX64 > bytes.Length) break;
+            var functionResult = ReadRuntimeFunctionAtIndex(image, layout.Value, fileOffset.Value, mid);
+            if (functionResult.IsError)
+                return functionResult;
 
-            var begin = BinaryPrimitives.ReadUInt32LittleEndian(bytes[off..]);
-            var end = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(off + 4)..]);
-            var unwind = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(off + 8)..]);
+            var candidate = functionResult.Data!;
 
-            if (rva < begin)
+            if (rva < candidate.BeginAddress)
             {
                 hi = mid - 1;
             }
-            else if (rva >= end)
+            else if (rva >= candidate.EndAddress)
             {
                 lo = mid + 1;
             }
             else
             {
-                // rva is within [begin, end)
-                best = new RuntimeFunction(mid, begin, end, unwind);
+                best = candidate;
                 break;
             }
         }
@@ -246,6 +258,130 @@ public static class ReadyToRunReader
         return NativeResult.Ok(
             $"Found RuntimeFunction #{best.Index}: [0x{best.BeginAddress:X8}, 0x{best.EndAddress:X8})",
             best);
+    }
+
+    private static RuntimeFunctionLayout? GetRuntimeFunctionLayout(NativeImage image)
+    {
+        if (image.Architecture == Architecture.X64)
+        {
+            return RuntimeFunctionLayout.X64;
+        }
+
+        if (image.Architecture == Architecture.Arm64)
+        {
+            return RuntimeFunctionLayout.Arm64;
+        }
+
+        var peMachine = TryGetPeMachine(image.RawBytes.Span);
+        return peMachine switch
+        {
+            Machine.Amd64 => RuntimeFunctionLayout.X64,
+            Machine.Arm64 => RuntimeFunctionLayout.Arm64,
+            _ => null,
+        };
+    }
+
+    private static int GetRuntimeFunctionEntrySize(RuntimeFunctionLayout layout) =>
+        layout == RuntimeFunctionLayout.X64 ? RuntimeFunctionSizeX64 : RuntimeFunctionSizeArm64;
+
+    private static NativeResult<RuntimeFunction> ReadRuntimeFunctionAtIndex(
+        NativeImage image,
+        RuntimeFunctionLayout layout,
+        int tableFileOffset,
+        int index)
+    {
+        var entrySize = GetRuntimeFunctionEntrySize(layout);
+        var bytes = image.RawBytes.Span;
+        var off = tableFileOffset + index * entrySize;
+        if (off + entrySize > bytes.Length)
+            return NativeResult.Fail<RuntimeFunction>(
+                ErrorKinds.InvalidArgument,
+                $"RuntimeFunctions entry {index} exceeds the file size.");
+
+        var begin = BinaryPrimitives.ReadUInt32LittleEndian(bytes[off..]);
+        if (layout == RuntimeFunctionLayout.X64)
+        {
+            var end = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(off + 4)..]);
+            var unwind = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(off + 8)..]);
+            return NativeResult.Ok(
+                $"Decoded RuntimeFunction #{index}.",
+                new RuntimeFunction(index, begin, end, unwind));
+        }
+
+        var unwindData = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(off + 4)..]);
+        var endResult = ComputeArm64EndAddress(image, begin, unwindData, index);
+        if (endResult.IsError)
+            return NativeResult.Fail<RuntimeFunction>(
+                endResult.Error!.Kind,
+                endResult.Error.Message,
+                endResult.Error.Detail);
+
+        return NativeResult.Ok(
+            $"Decoded RuntimeFunction #{index}.",
+            new RuntimeFunction(index, begin, endResult.Data, unwindData));
+    }
+
+    private static NativeResult<uint> ComputeArm64EndAddress(
+        NativeImage image,
+        uint beginAddress,
+        uint unwindData,
+        int index)
+    {
+        uint functionLengthUnits;
+
+        if ((unwindData & Arm64PackedFlagMask) != 0)
+        {
+            functionLengthUnits = (unwindData >> Arm64PackedFunctionLengthShift) & Arm64PackedFunctionLengthMask;
+        }
+        else
+        {
+            var xdataFileOffset = image.RvaToFileOffset(unwindData);
+            if (xdataFileOffset is null)
+                return NativeResult.Fail<uint>(
+                    ErrorKinds.InvalidArgument,
+                    $"ARM64 RuntimeFunctions entry {index} references xdata RVA 0x{unwindData:X8}, which could not be mapped to a file offset.");
+
+            var bytes = image.RawBytes.Span;
+            if (xdataFileOffset.Value + sizeof(uint) > bytes.Length)
+                return NativeResult.Fail<uint>(
+                    ErrorKinds.InvalidArgument,
+                    $"ARM64 RuntimeFunctions entry {index} has a truncated xdata header at RVA 0x{unwindData:X8}.");
+
+            var xdataHeader = BinaryPrimitives.ReadUInt32LittleEndian(bytes[xdataFileOffset.Value..]);
+            functionLengthUnits = xdataHeader & Arm64XdataFunctionLengthMask;
+        }
+
+        var functionLengthBytes = functionLengthUnits * Arm64FunctionLengthScale;
+        var endAddress = beginAddress + functionLengthBytes;
+        if (endAddress < beginAddress)
+            return NativeResult.Fail<uint>(
+                ErrorKinds.InvalidArgument,
+                $"ARM64 RuntimeFunctions entry {index} overflowed while computing the end RVA.");
+
+        return NativeResult.Ok(
+            $"Computed end RVA 0x{endAddress:X8} for ARM64 RuntimeFunctions entry {index}.",
+            endAddress);
+    }
+
+    private static Machine? TryGetPeMachine(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.Length < 0x40 || bytes[0] != 0x4D || bytes[1] != 0x5A)
+        {
+            return null;
+        }
+
+        var e_lfanew = (int)BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x3C..]);
+        if (e_lfanew < 0 || e_lfanew + 6 > bytes.Length)
+        {
+            return null;
+        }
+
+        if (bytes[e_lfanew] != 'P' || bytes[e_lfanew + 1] != 'E' || bytes[e_lfanew + 2] != 0 || bytes[e_lfanew + 3] != 0)
+        {
+            return null;
+        }
+
+        return (Machine)BinaryPrimitives.ReadUInt16LittleEndian(bytes[(e_lfanew + 4)..]);
     }
 
     /// <summary>

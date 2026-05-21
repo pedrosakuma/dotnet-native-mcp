@@ -48,7 +48,7 @@ public static class ErrorKinds
     /// <summary>The R2R header version is not supported by this tool version.</summary>
     public const string R2RUnsupportedVersion = "r2r_unsupported_version";
 
-    /// <summary>The target architecture is not supported for the requested R2R operation (e.g. ARM64 RuntimeFunctions in v1).</summary>
+    /// <summary>The target architecture is not supported for the requested R2R operation (for example x86/ARM32 RuntimeFunctions).</summary>
     public const string R2RArchUnsupported = "r2r_arch_unsupported";
 
     /// <summary>The requested R2R section type is not present in this image.</summary>
