@@ -1,6 +1,7 @@
 using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Identity;
 using DotnetNativeMcp.Core.Imaging;
+using System.Globalization;
 
 namespace DotnetNativeMcp.Core.Disassembly;
 
@@ -127,13 +128,15 @@ public static class RawDisassembler
     /// addresses for call/jmp targets correctly.
     /// </param>
     /// <param name="maxInstructions">Maximum number of instructions to decode.</param>
+    /// <param name="ilMap">Optional IL-to-native map used to annotate each decoded instruction with its IL offset.</param>
     public static NativeResult<IReadOnlyList<InstructionView>> DisassembleBlob(
         string blobPath,
         int offset,
         int size,
         Architecture arch,
         ulong baseAddress,
-        int maxInstructions)
+        int maxInstructions,
+        JitIlMap? ilMap = null)
     {
         if (!File.Exists(blobPath))
             return NativeResult.Fail<IReadOnlyList<InstructionView>>(
@@ -176,7 +179,22 @@ public static class RawDisassembler
             codeBytes,
             baseAddress);
 
-        return IcedDisassembler.Disassemble(synthImage, (ulong)offset, maxInstructions);
+        var disassembly = IcedDisassembler.Disassemble(synthImage, (ulong)offset, maxInstructions);
+        if (disassembly.IsError || ilMap is null)
+            return disassembly;
+
+        var annotated = disassembly.Data!
+            .Select(instruction =>
+            {
+                if (!ulong.TryParse(instruction.AddressHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var address) ||
+                    address < baseAddress)
+                    return instruction;
+
+                return instruction with { IlOffset = ilMap.FindIlOffset(address - baseAddress) };
+            })
+            .ToList();
+
+        return NativeResult.Ok(disassembly.Summary, (IReadOnlyList<InstructionView>)annotated, disassembly.Hints);
     }
 
     private static NativeImage? TryParseHeaders(byte[] bytes, string filePath)

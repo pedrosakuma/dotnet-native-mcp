@@ -47,7 +47,7 @@ public sealed class SourceLinkResolverTests
         var fixtureSource = Path.GetFullPath(
             Path.Combine(
                 Path.GetDirectoryName(typeof(SourceLinkResolverTests).Assembly.Location)!,
-                "..", "..", "..", "..", "..", "..",
+                "..", "..", "..", "..", "..",
                 "tests", "fixtures", "SampleAot", "Program.cs"));
 
         var url = resolver.ResolveUrl(fixtureSource);
