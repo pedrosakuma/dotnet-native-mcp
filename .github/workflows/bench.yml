@@ -2,16 +2,44 @@ name: Bench
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/bench.yml
+      - Directory.Build.props
+      - Directory.Packages.props
+      - DotnetNativeMcp.slnx
+      - global.json
+      - src/**
+      - tests/bench/**
+      - tests/DotnetNativeMcp.Core.Tests/**
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, labeled]
+    paths:
+      - .github/workflows/bench.yml
+      - Directory.Build.props
+      - Directory.Packages.props
+      - DotnetNativeMcp.slnx
+      - global.json
+      - src/**
+      - tests/bench/**
+      - tests/DotnetNativeMcp.Core.Tests/**
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   bench:
     name: BenchmarkDotNet
-    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'perf')
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
@@ -19,6 +47,25 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
       - name: Restore
         run: dotnet restore
+      - name: Prepare benchmark storage branch
+        env:
+          BENCHMARK_BRANCH: gh-pages
+        run: |
+          if git show-ref --verify --quiet "refs/heads/$BENCHMARK_BRANCH"; then
+            git branch -D "$BENCHMARK_BRANCH"
+          fi
+
+          if git ls-remote --exit-code --heads origin "$BENCHMARK_BRANCH" >/dev/null 2>&1; then
+            git fetch origin "$BENCHMARK_BRANCH:$BENCHMARK_BRANCH"
+            exit 0
+          fi
+
+          git switch --orphan "$BENCHMARK_BRANCH"
+          git reset --hard
+          touch .nojekyll
+          git add .nojekyll
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Initialize benchmark data branch"
+          git checkout -
       - name: Build tests (builds SampleAot fixture)
         run: dotnet build tests/DotnetNativeMcp.Core.Tests/DotnetNativeMcp.Core.Tests.csproj --configuration Release --no-restore
       - name: Build bench
@@ -30,6 +77,45 @@ jobs:
           --configuration Release
           --no-build
           -- --filter '*' --exporters json
+      - name: Store FindNativeCallers benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: FindNativeCallers Benchmark
+          tool: benchmarkdotnet
+          output-file-path: BenchmarkDotNet.Artifacts/results/DotnetNativeMcp.Bench.FindNativeCallersBench-report-full-compressed.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          auto-push: ${{ github.event_name == 'push' }}
+          skip-fetch-gh-pages: true
+          summary-always: true
+          alert-threshold: '110%'
+          fail-on-alert: ${{ github.event_name == 'pull_request' }}
+      - name: Store Disassemble benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Disassemble Benchmark
+          tool: benchmarkdotnet
+          output-file-path: BenchmarkDotNet.Artifacts/results/DotnetNativeMcp.Bench.DisassembleBench-report-full-compressed.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          auto-push: ${{ github.event_name == 'push' }}
+          skip-fetch-gh-pages: true
+          summary-always: true
+          alert-threshold: '110%'
+          fail-on-alert: ${{ github.event_name == 'pull_request' }}
+      - name: Store ExtractStrings benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: ExtractStrings Benchmark
+          tool: benchmarkdotnet
+          output-file-path: BenchmarkDotNet.Artifacts/results/DotnetNativeMcp.Bench.ExtractStringsBench-report-full-compressed.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          auto-push: ${{ github.event_name == 'push' }}
+          skip-fetch-gh-pages: true
+          summary-always: true
+          alert-threshold: '110%'
+          fail-on-alert: ${{ github.event_name == 'pull_request' }}
       - name: Upload BenchmarkDotNet artifacts
         uses: actions/upload-artifact@v4
         if: always()

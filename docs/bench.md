@@ -27,8 +27,17 @@ The CI `bench.yml` workflow uploads them as a GitHub Actions artifact named `ben
 
 ## CI
 
-The benchmark CI workflow (`.github/workflows/bench.yml`) is **manual-only** (`workflow_dispatch`).
-It is never triggered per-PR so it does not affect CI time.
+The benchmark CI workflow (`.github/workflows/bench.yml`) keeps `workflow_dispatch` and now also:
+
+- updates the stored baseline on pushes to `main`
+- runs on PRs only when the PR already carries the `perf` label
+- limits PR/push runs to perf-relevant source and benchmark paths
+
+BenchmarkDotNet JSON export stays command-line driven (`--exporters json`). The workflow feeds the
+three `*-report-full-compressed.json` files into `benchmark-action/github-action-benchmark`, using a
+`110%` regression threshold for mean time. It also bootstraps a local `gh-pages` branch when the repo
+has no stored baseline yet, so the first `main` run can publish the baseline without manual setup.
+Allocation regression gating remains out of scope for now.
 
 ## Cache tier methodology (FindNativeCallersBench)
 
