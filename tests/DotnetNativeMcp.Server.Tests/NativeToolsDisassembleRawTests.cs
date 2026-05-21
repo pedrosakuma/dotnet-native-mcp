@@ -124,8 +124,7 @@ public class NativeToolsDisassembleRawTests
     [Fact]
     public void Disassemble_ImagePath_ReadyToRunSystemPrivateCoreLib_ReturnsInstructions()
     {
-        var fixturePath = FindSystemPrivateCoreLib();
-        var rva = fixturePath is null ? null : FindFirstReadyToRunMethodRva(fixturePath);
+        var (fixturePath, rva) = FindModernSystemPrivateCoreLibDisassemblyTarget();
         if (fixturePath is null || rva is null) return;
 
         var tools = EmptyTools();
@@ -138,6 +137,7 @@ public class NativeToolsDisassembleRawTests
 
         result.IsError.Should().BeFalse(result.Error?.Message ?? string.Empty);
         result.Data.Should().NotBeEmpty();
+        result.Data!.Should().OnlyContain(instruction => instruction.Mnemonic != "unknown");
     }
 
     [Fact]
@@ -195,8 +195,28 @@ public class NativeToolsDisassembleRawTests
         return File.Exists(candidate) ? candidate : null;
     }
 
-    private static string? FindSystemPrivateCoreLib()
+    private static (string? Path, int? Rva) FindModernSystemPrivateCoreLibDisassemblyTarget()
     {
+        const string ExactRuntimePath = "/home/pedrotravi/.dotnet/shared/Microsoft.NETCore.App/10.0.5/System.Private.CoreLib.dll";
+        const int ExactRuntimeRva = 0x23CCA0;
+
+        if (File.Exists(ExactRuntimePath))
+            return (ExactRuntimePath, ExactRuntimeRva);
+
+        const string SharedRuntimeRoot = "/home/pedrotravi/.dotnet/shared/Microsoft.NETCore.App";
+        if (Directory.Exists(SharedRuntimeRoot))
+        {
+            foreach (var runtimeDir in Directory.GetDirectories(SharedRuntimeRoot)
+                         .Select(path => new DirectoryInfo(path))
+                         .Where(dir => Version.TryParse(dir.Name, out var version) && version.Major >= 8)
+                         .OrderByDescending(dir => Version.Parse(dir.Name)))
+            {
+                var candidate = Path.Combine(runtimeDir.FullName, "System.Private.CoreLib.dll");
+                if (File.Exists(candidate))
+                    return (candidate, FindFirstReadyToRunMethodRva(candidate) ?? FindTextSectionRva(candidate));
+            }
+        }
+
         var dir = Path.GetDirectoryName(typeof(NativeToolsDisassembleRawTests).Assembly.Location);
         while (dir is not null)
         {
@@ -207,13 +227,14 @@ public class NativeToolsDisassembleRawTests
                     "tests", "fixtures", "SampleAot",
                     "bin", "Release", "net10.0", "linux-x64",
                     "System.Private.CoreLib.dll");
-                return File.Exists(candidate) ? candidate : null;
+                if (File.Exists(candidate))
+                    return (candidate, FindFirstReadyToRunMethodRva(candidate) ?? FindTextSectionRva(candidate));
             }
 
             dir = Path.GetDirectoryName(dir);
         }
 
-        return null;
+        return (null, null);
     }
 
     private static int? FindFirstReadyToRunMethodRva(string path)
