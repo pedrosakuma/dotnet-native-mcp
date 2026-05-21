@@ -3,6 +3,7 @@
   <PropertyGroup>
     <PackageId>DotnetNativeMcp.Core</PackageId>
     <Description>Core: native PE/ELF parsing, ILC symbol demangling, Iced disassembly, sidecar (.map / .mstat / DGML) readers for dotnet-native-mcp.</Description>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
 
   <ItemGroup>
