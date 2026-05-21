@@ -17,17 +17,22 @@ public static class CrossImageCallGraphScanner
     /// <param name="callerGraph">Pre-built call-graph index for <paramref name="callerImage"/> (target VA → callers).</param>
     /// <param name="targetSymbolName">The exported symbol name to match against (mangled or demangled).</param>
     /// <param name="targetLibrary">Optional library qualifier (SONAME / DLL name). When <c>null</c>, all libraries are matched.</param>
+    /// <param name="calleeMachOExports">Optional Mach-O export map for the target image.</param>
+    /// <param name="callerMachOStubs">Optional Mach-O stub map for the caller image.</param>
     /// <returns>A list of <see cref="CrossImageCallSite"/> instances, empty when no callers are found.</returns>
     public static IReadOnlyList<CrossImageCallSite> FindCallers(
         NativeImage callerImage,
         IReadOnlyDictionary<ulong, IReadOnlyList<CallSite>> callerGraph,
         string targetSymbolName,
-        string? targetLibrary)
+        string? targetLibrary,
+        IReadOnlyDictionary<string, ulong>? calleeMachOExports = null,
+        IReadOnlyDictionary<ulong, string>? callerMachOStubs = null)
     {
         return callerImage.Format switch
         {
             BinaryFormat.Elf => FindElfCallers(callerImage, callerGraph, targetSymbolName, targetLibrary),
             BinaryFormat.Pe => FindPeCallers(callerImage, callerGraph, targetSymbolName, targetLibrary),
+            BinaryFormat.MachO => FindMachOCallers(callerImage, callerGraph, targetSymbolName, calleeMachOExports, callerMachOStubs),
             _ => [],
         };
     }
@@ -121,6 +126,42 @@ public static class CrossImageCallGraphScanner
             var thunkVa = callerImage.ImageBase + sym.Rva;
             if (!callerGraph.TryGetValue(thunkVa, out var sites))
                 continue;
+
+            foreach (var site in sites)
+            {
+                result.Add(new CrossImageCallSite(
+                    site.SourceAddressHex,
+                    site.CallerSymbol,
+                    site.CallerDemangled,
+                    site.Mnemonic,
+                    site.Operands,
+                    site.RawBytes,
+                    callerImage.Handle.BuildIdHex,
+                    callerImage.FilePath));
+            }
+        }
+
+        return result;
+    }
+
+    private static List<CrossImageCallSite> FindMachOCallers(
+        NativeImage callerImage,
+        IReadOnlyDictionary<ulong, IReadOnlyList<CallSite>> callerGraph,
+        string targetSymbolName,
+        IReadOnlyDictionary<string, ulong>? calleeExports,
+        IReadOnlyDictionary<ulong, string>? stubTargets)
+    {
+        if (calleeExports is null || stubTargets is null || !calleeExports.ContainsKey(targetSymbolName))
+            return [];
+
+        var result = new List<CrossImageCallSite>();
+        foreach (var (stubVa, symbolName) in stubTargets)
+        {
+            if (!string.Equals(symbolName, targetSymbolName, StringComparison.Ordinal) ||
+                !callerGraph.TryGetValue(stubVa, out var sites))
+            {
+                continue;
+            }
 
             foreach (var site in sites)
             {

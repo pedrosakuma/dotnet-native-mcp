@@ -1,3 +1,4 @@
+using DotnetNativeMcp.Core.Imaging;
 using DotnetNativeMcp.Core.Xref;
 using FluentAssertions;
 using Xunit;
@@ -102,27 +103,27 @@ public sealed class NativeCallGraphDiskCacheTests : IDisposable
     }
 
     // ---------------------------------------------------------------------------
-    // Old NXR1 magic -> cache miss (format is incompatible)
+    // Old NXR2 magic -> cache miss (format is incompatible)
     // ---------------------------------------------------------------------------
 
     [Fact]
-    public void TryRead_OldNxr1Magic_ReturnsFalse()
+    public void TryRead_OldNxr2Magic_ReturnsFalse()
     {
         var path = NativeCallGraphDiskCache.GetCachePath("badbad04");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
-        // Write NXR1 (old format) — must be rejected to avoid silently reading incompatible data.
+        // Write NXR2 (old format) — must be rejected to avoid silently reading incompatible data.
         var header = new byte[8];
         header[0] = (byte)'N';
         header[1] = (byte)'X';
         header[2] = (byte)'R';
-        header[3] = (byte)'1'; // old magic, not NXR2
-        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), 1);
+        header[3] = (byte)'2'; // old magic, not NXR3
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), 2);
         File.WriteAllBytes(path, header);
 
         var found = NativeCallGraphDiskCache.TryRead(path, out var read);
 
-        found.Should().BeFalse("NXR1 format must be rejected after magic bump to NXR2");
+        found.Should().BeFalse("NXR2 format must be rejected after magic bump to NXR3");
         read.Should().BeNull();
     }
 
@@ -136,12 +137,12 @@ public sealed class NativeCallGraphDiskCacheTests : IDisposable
         var path = NativeCallGraphDiskCache.GetCachePath("badbad02");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
-        // Correct NXR2 magic but unknown version 99.
+        // Correct NXR3 magic but unknown version 99.
         var header = new byte[8];
         header[0] = (byte)'N';
         header[1] = (byte)'X';
         header[2] = (byte)'R';
-        header[3] = (byte)'2'; // correct NXR2 magic
+        header[3] = (byte)'3'; // correct NXR3 magic
         System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), 99);
         File.WriteAllBytes(path, header);
 
@@ -165,8 +166,8 @@ public sealed class NativeCallGraphDiskCacheTests : IDisposable
         header[0] = (byte)'N';
         header[1] = (byte)'X';
         header[2] = (byte)'R';
-        header[3] = (byte)'2'; // correct NXR2 magic
-        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), 2);
+        header[3] = (byte)'3'; // correct NXR3 magic
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(header.AsSpan(4), 3);
         var body = "{this is not valid json!!!"u8.ToArray();
         File.WriteAllBytes(path, [.. header, .. body]);
 
@@ -335,5 +336,27 @@ public sealed class NativeCallGraphDiskCacheTests : IDisposable
     {
         var key = NativeCallGraphDiskCache.MakeCrossRefKey("deadbeef", null, "lib_func");
         key.Should().Be("deadbeef::lib_func");
+    }
+
+    [Fact]
+    public void WriteAndRead_WithMachOMetadata_RoundTrips()
+    {
+        var original = MakeSampleIndex();
+        var machO = new MachOCrossImageMetadata(
+            new Dictionary<ulong, string> { [0x2000UL] = "foo" },
+            new Dictionary<string, ulong>(StringComparer.Ordinal) { ["foo"] = 0x40UL });
+        var path = NativeCallGraphDiskCache.GetCachePath("macho-metadata");
+
+        NativeCallGraphDiskCache.Write(path, original, null, machO);
+        var found = NativeCallGraphDiskCache.TryRead(path, out var readIndex, out var readCrossRefs, out var readMachO);
+
+        found.Should().BeTrue();
+        readIndex.Should().NotBeNull();
+        readCrossRefs.Should().BeNull();
+        readMachO.Should().NotBeNull();
+        readMachO!.StubTargets.Should().ContainKey(0x2000UL);
+        readMachO.StubTargets[0x2000UL].Should().Be("foo");
+        readMachO.Exports.Should().ContainKey("foo");
+        readMachO.Exports["foo"].Should().Be(0x40UL);
     }
 }

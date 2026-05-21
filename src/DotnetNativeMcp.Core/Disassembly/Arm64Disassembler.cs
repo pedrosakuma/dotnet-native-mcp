@@ -97,6 +97,9 @@ public static class Arm64Disassembler
         Dictionary<ulong, List<CallSite>> index)
     {
         var fileStart = (int)section.FileOffset;
+        if (fileStart < 0 || fileStart >= image.RawBytes.Length)
+            return;
+
         var fileSize = (int)Math.Min(section.FileSize, (ulong)(image.RawBytes.Length - fileStart));
         if (fileSize < 4)
             return;

@@ -29,6 +29,10 @@ public static class NativeCallGraphBuilder
             ".init",
             ".fini",
             "CODE",
+            "__TEXT,__text",
+            "__TEXT_EXEC,__text",
+            "__TEXT,__stubs",
+            "__TEXT,__stub_helper",
         };
 
     /// <summary>
@@ -85,9 +89,11 @@ public static class NativeCallGraphBuilder
 
     private static bool IsCodeSection(NativeSection section)
     {
-        // Match exact names or names that start with ".text" (e.g. ".text.startup").
         return CodeSectionNames.Contains(section.Name) ||
-               section.Name.StartsWith(".text", StringComparison.OrdinalIgnoreCase);
+               section.Name.StartsWith(".text", StringComparison.OrdinalIgnoreCase) ||
+               section.Name.EndsWith(",__text", StringComparison.OrdinalIgnoreCase) ||
+               section.Name.EndsWith(",__stubs", StringComparison.OrdinalIgnoreCase) ||
+               section.Name.EndsWith(",__stub_helper", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void ScanSection(
@@ -97,6 +103,9 @@ public static class NativeCallGraphBuilder
         Dictionary<ulong, List<CallSite>> index)
     {
         var fileStart = (int)section.FileOffset;
+        if (fileStart < 0 || fileStart >= image.RawBytes.Length)
+            return;
+
         var fileSize = (int)Math.Min(section.FileSize, (ulong)(image.RawBytes.Length - fileStart));
         if (fileSize <= 0)
             return;
