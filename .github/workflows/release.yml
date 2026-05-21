@@ -1,6 +1,6 @@
 name: Release
 
-# Publishes NuGet packages (Core + global tool) + per-OS single-file binaries on tag push.
+# Publishes NuGet package (global tool) + per-OS single-file binaries on tag push.
 # Requires the maintainer to have configured the NUGET_API_KEY secret.
 
 on:
@@ -18,9 +18,9 @@ permissions:
   contents: write   # required to create + attach artifacts to a Release
 
 jobs:
-  # ----- 1) Build + pack the NuGet packages (Core + global tool) -----
+  # ----- 1) Build + pack the NuGet package (global tool) -----
   pack:
-    name: Pack NuGet packages
+    name: Pack NuGet package
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.derive-version.outputs.version }}
@@ -53,14 +53,6 @@ jobs:
 
       - name: Restore
         run: dotnet restore
-
-      - name: Pack Core
-        run: |
-          dotnet pack src/DotnetNativeMcp.Core/DotnetNativeMcp.Core.csproj \
-            -c Release \
-            -o artifacts/nupkg \
-            -p:Version=${{ steps.derive-version.outputs.version }} \
-            --no-restore
 
       - name: Pack global tool
         run: |
@@ -172,7 +164,7 @@ jobs:
             artifacts/nupkg/*.nupkg
             artifacts/binary-*/dotnet-native-mcp-*
 
-  # ----- 4) Publish NuGet packages (gated on NUGET_API_KEY) -----
+  # ----- 4) Publish NuGet package (gated on NUGET_API_KEY) -----
   publish-nuget:
     name: Publish to NuGet.org
     runs-on: ubuntu-latest
