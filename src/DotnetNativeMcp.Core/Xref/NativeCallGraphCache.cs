@@ -25,6 +25,9 @@ public sealed class NativeCallGraphCache
     /// </summary>
     private readonly ConcurrentDictionary<string, IReadOnlyList<CrossImageCallSite>> _crossCache = new();
 
+    /// <summary>Lazy Mach-O stub/export metadata keyed by image handle.</summary>
+    private readonly ConcurrentDictionary<string, MachOCrossImageMetadata> _machOCache = new();
+
     /// <summary>
     /// Returns <see langword="true"/> when cross-image scanning is permitted.
     /// Controlled by <c>DOTNET_NATIVE_MCP_CROSS_XREF</c>: set to <c>"0"</c> to disable.
@@ -45,20 +48,78 @@ public sealed class NativeCallGraphCache
         return _cache.GetOrAdd(image.Handle.Value, _ => BuildWithDiskCache(image));
     }
 
-    private static IReadOnlyDictionary<ulong, IReadOnlyList<CallSite>> BuildWithDiskCache(NativeImage image)
-    {
-        if (NativeCallGraphDiskCache.IsEnabled)
-        {
-            var cachePath = NativeCallGraphDiskCache.GetCachePath(image.Handle.BuildIdHex);
-            if (NativeCallGraphDiskCache.TryRead(cachePath, out var cached) && cached is not null)
-                return cached;
+    public IReadOnlyDictionary<string, ulong> GetOrBuildMachOExports(NativeImage image)
+        => GetOrBuildMachOMetadata(image).Exports;
 
-            var built = NativeCallGraphBuilder.Build(image);
-            NativeCallGraphDiskCache.Write(cachePath, built);
-            return built;
+    public IReadOnlyDictionary<ulong, string> GetOrBuildMachOStubTargets(NativeImage image)
+        => GetOrBuildMachOMetadata(image).StubTargets;
+
+    private MachOCrossImageMetadata GetOrBuildMachOMetadata(NativeImage image)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        if (image.Format != BinaryFormat.MachO)
+            return MachOCrossImageMetadata.Empty;
+
+        return _machOCache.GetOrAdd(image.Handle.Value, _ => BuildMachOMetadataWithDiskCache(image));
+    }
+
+    private IReadOnlyDictionary<ulong, IReadOnlyList<CallSite>> BuildWithDiskCache(NativeImage image)
+    {
+        if (!NativeCallGraphDiskCache.IsEnabled)
+            return NativeCallGraphBuilder.Build(image);
+
+        var cachePath = NativeCallGraphDiskCache.GetCachePath(image.Handle.BuildIdHex);
+        if (NativeCallGraphDiskCache.TryRead(cachePath, out var cached, out _, out var machO) && cached is not null)
+        {
+            if (machO is not null)
+                _machOCache.TryAdd(image.Handle.Value, machO);
+            return cached;
         }
 
-        return NativeCallGraphBuilder.Build(image);
+        var built = NativeCallGraphBuilder.Build(image);
+        MachOCrossImageMetadata? builtMachO = null;
+        if (image.Format == BinaryFormat.MachO)
+        {
+            builtMachO = MachOReader.BuildCrossImageMetadata(image);
+            _machOCache[image.Handle.Value] = builtMachO;
+        }
+
+        NativeCallGraphDiskCache.Write(cachePath, built, null, builtMachO);
+        return built;
+    }
+
+    private MachOCrossImageMetadata BuildMachOMetadataWithDiskCache(NativeImage image)
+    {
+        if (!NativeCallGraphDiskCache.IsEnabled)
+            return MachOReader.BuildCrossImageMetadata(image);
+
+        var cachePath = NativeCallGraphDiskCache.GetCachePath(image.Handle.BuildIdHex);
+        if (NativeCallGraphDiskCache.TryRead(cachePath, out var sameImage, out var crossRefs, out var machO))
+        {
+            if (sameImage is not null)
+                _cache.TryAdd(image.Handle.Value, sameImage);
+            if (machO is not null)
+                return machO;
+            if (crossRefs is not null)
+            {
+                foreach (var (key, value) in crossRefs)
+                    _crossCache.TryAdd($"{image.Handle.Value}|{key}", value);
+            }
+        }
+
+        var built = MachOReader.BuildCrossImageMetadata(image);
+        var sameImageToPersist = _cache.TryGetValue(image.Handle.Value, out var inMemorySameImage)
+            ? inMemorySameImage
+            : sameImage;
+
+        if (sameImageToPersist is null)
+        {
+            sameImageToPersist = NativeCallGraphBuilder.Build(image);
+            _cache.TryAdd(image.Handle.Value, sameImageToPersist);
+        }
+
+        NativeCallGraphDiskCache.Write(cachePath, sameImageToPersist, crossRefs, built);
+        return built;
     }
 
     /// <summary>
@@ -73,7 +134,7 @@ public sealed class NativeCallGraphCache
 
     /// <summary>
     /// Scans all images in <paramref name="registry"/> (except <paramref name="calleeImage"/>)
-    /// for call sites that resolve via PLT/IAT to the requested symbol.
+    /// for call sites that resolve via PLT/IAT/stubs to the requested symbol.
     /// Results are cached per (callee, caller, symbol) tuple and persisted to disk lazily.
     /// </summary>
     /// <param name="calleeImage">The image that exports the target symbol.</param>
@@ -100,10 +161,19 @@ public sealed class NativeCallGraphCache
             ? NativeCallGraphDiskCache.GetCachePath(calleeImage.Handle.BuildIdHex)
             : null;
 
-        // Load any existing cross-refs from the disk cache for this callee image.
+        IReadOnlyDictionary<ulong, IReadOnlyList<CallSite>>? persistedSameImage = null;
         Dictionary<string, IReadOnlyList<CrossImageCallSite>>? persistedCrossRefs = null;
+        MachOCrossImageMetadata? calleeMachO = null;
         if (cachePath is not null)
-            NativeCallGraphDiskCache.TryRead(cachePath, out _, out persistedCrossRefs);
+        {
+            NativeCallGraphDiskCache.TryRead(cachePath, out persistedSameImage, out persistedCrossRefs, out calleeMachO);
+            if (persistedSameImage is not null)
+                _cache.TryAdd(calleeImage.Handle.Value, persistedSameImage);
+            if (calleeMachO is not null)
+                _machOCache.TryAdd(calleeImage.Handle.Value, calleeMachO);
+        }
+
+        calleeMachO ??= calleeImage.Format == BinaryFormat.MachO ? GetOrBuildMachOMetadata(calleeImage) : null;
 
         var newCrossRefs = new Dictionary<string, IReadOnlyList<CrossImageCallSite>>();
         var anyNewEntries = false;
@@ -118,7 +188,6 @@ public sealed class NativeCallGraphCache
 
             var sessionKey = $"{calleeImage.Handle.Value}|{crossRefKey}";
 
-            // L1: in-process cache hit.
             if (_crossCache.TryGetValue(sessionKey, out var cached))
             {
                 results.AddRange(cached);
@@ -126,8 +195,6 @@ public sealed class NativeCallGraphCache
                 continue;
             }
 
-            // L2: disk cache hit — the cross-ref key already encodes the caller build-id,
-            // so any stored value (including an empty list) is valid for the current caller.
             if (persistedCrossRefs is not null &&
                 persistedCrossRefs.TryGetValue(crossRefKey, out var persisted))
             {
@@ -137,10 +204,17 @@ public sealed class NativeCallGraphCache
                 continue;
             }
 
-            // Not cached — scan the caller image.
             var callerGraph = GetOrBuild(callerImage);
+            var callerMachO = callerImage.Format == BinaryFormat.MachO ? GetOrBuildMachOMetadata(callerImage) : null;
+            IReadOnlyDictionary<string, ulong>? calleeExports = calleeMachO?.Exports;
+            IReadOnlyDictionary<ulong, string>? callerStubs = callerMachO?.StubTargets;
             var found = CrossImageCallGraphScanner.FindCallers(
-                callerImage, callerGraph, targetSymbolName, targetLibrary);
+                callerImage: callerImage,
+                callerGraph: callerGraph,
+                targetSymbolName: targetSymbolName,
+                targetLibrary: targetLibrary,
+                calleeMachOExports: calleeExports,
+                callerMachOStubs: callerStubs);
 
             _crossCache[sessionKey] = found;
             newCrossRefs[crossRefKey] = found;
@@ -149,13 +223,14 @@ public sealed class NativeCallGraphCache
             results.AddRange(found);
         }
 
-        // Persist new cross-ref entries lazily alongside the callee's same-image cache.
-        // Merge with any previously persisted cross-refs so entries for callers that are
-        // no longer loaded this session are not silently dropped.
         if (anyNewEntries && cachePath is not null && NativeCallGraphDiskCache.IsEnabled)
         {
-            var sameImage = _cache.TryGetValue(calleeImage.Handle.Value, out var si) ? si
-                : new Dictionary<ulong, IReadOnlyList<CallSite>>();
+            var sameImage = _cache.TryGetValue(calleeImage.Handle.Value, out var si) ? si : persistedSameImage;
+            if (sameImage is null)
+            {
+                sameImage = NativeCallGraphBuilder.Build(calleeImage);
+                _cache.TryAdd(calleeImage.Handle.Value, sameImage);
+            }
 
             var mergedCrossRefs = new Dictionary<string, IReadOnlyList<CrossImageCallSite>>();
             if (persistedCrossRefs is not null)
@@ -164,7 +239,7 @@ public sealed class NativeCallGraphCache
             foreach (var (k, v) in newCrossRefs)
                 mergedCrossRefs[k] = v;
 
-            NativeCallGraphDiskCache.Write(cachePath, sameImage, mergedCrossRefs);
+            NativeCallGraphDiskCache.Write(cachePath, sameImage, mergedCrossRefs, calleeMachO);
         }
 
         return results;

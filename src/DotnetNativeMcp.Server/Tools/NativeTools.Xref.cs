@@ -21,7 +21,7 @@ public sealed partial class NativeTools
         "NativeAOT binaries pay the scan cost only once across sessions. " +
         "Set DOTNET_NATIVE_MCP_XREF_CACHE=0 to disable the disk cache. " +
         "When crossImage is true, also scans every other loaded image for call sites that resolve " +
-        "via PLT (ELF) or import thunks (PE) to the callee's exported name. " +
+        "via PLT (ELF), import thunks (PE), or Mach-O stubs to the callee's exported name. " +
         "Set DOTNET_NATIVE_MCP_CROSS_XREF=0 to disable cross-image scanning globally. " +
         "Use 'disassemble' to inspect any returned call site. " +
         "When resolveSource is true (default) each call site is annotated with file:line from DWARF/PDB debug info. " +
@@ -34,7 +34,7 @@ public sealed partial class NativeTools
         [Description("When true (default), annotates each call site with file:line from DWARF/PDB debug info. Set false to skip debug-info I/O.")] bool resolveSource = true,
         [Description(
             "When true, also scans every other loaded image for call sites that target the callee's exported symbol " +
-            "via PLT (ELF) or import thunks (PE). Cross-image rows have isCrossImage=true and carry callerImageBuildId/callerImagePath. " +
+            "via PLT (ELF), import thunks (PE), or Mach-O stubs. Cross-image rows have isCrossImage=true and carry callerImageBuildId/callerImagePath. " +
             "Ignored when DOTNET_NATIVE_MCP_CROSS_XREF=0. Default: false.")] bool crossImage = false)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
@@ -63,7 +63,8 @@ public sealed partial class NativeTools
             targetVa = image.ImageBase + rva;
 
             // Try to attribute the address to a symbol (best-effort; null is fine).
-            targetSym = SymbolResolution.FindByRva(image.Symbols, rva);
+            targetSym = SymbolResolution.FindByRva(image.Symbols, rva) ??
+                TryResolveMachOExportByRva(image, rva);
 
             // Validate that the resolved RVA is inside a known section.
             if (image.FindSection(rva) is null)
@@ -74,7 +75,8 @@ public sealed partial class NativeTools
         else
         {
             // Try by symbol name (mangled or demangled).
-            targetSym = SymbolResolution.FindByName(image.Symbols, target);
+            targetSym = SymbolResolution.FindByName(image.Symbols, target) ??
+                TryResolveMachOExportByName(image, target);
             if (targetSym is null)
                 return NativeResult.Fail<FindCallersResult>(
                     ErrorKinds.SymbolNotFound,
@@ -160,6 +162,31 @@ public sealed partial class NativeTools
             $"Found {rows.Count} caller(s) of '{displayName}' in '{imageHandle}'.",
             new FindCallersResult(targetAddrHex, targetSym?.Name, targetSym?.DemangledName, rows.Count, rows),
             hints);
+    }
+
+    private NativeSymbol? TryResolveMachOExportByName(NativeImage image, string target)
+    {
+        if (image.Format != BinaryFormat.MachO)
+            return null;
+
+        var exports = callGraphCache.GetOrBuildMachOExports(image);
+        return exports.TryGetValue(target, out var exportRva)
+            ? new NativeSymbol(-1, target, target, exportRva, 0, null, true)
+            : null;
+    }
+
+    private NativeSymbol? TryResolveMachOExportByRva(NativeImage image, ulong rva)
+    {
+        if (image.Format != BinaryFormat.MachO)
+            return null;
+
+        foreach (var (name, exportRva) in callGraphCache.GetOrBuildMachOExports(image))
+        {
+            if (exportRva == rva)
+                return new NativeSymbol(-1, name, name, exportRva, 0, null, true);
+        }
+
+        return null;
     }
 }
 

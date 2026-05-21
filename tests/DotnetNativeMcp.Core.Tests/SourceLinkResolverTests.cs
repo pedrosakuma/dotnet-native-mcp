@@ -44,11 +44,14 @@ public sealed class SourceLinkResolverTests
         Assert.NotNull(resolver);
 
         // Resolving the fixture source file must yield a raw.githubusercontent.com URL.
-        var fixtureSource = Path.GetFullPath(
-            Path.Combine(
-                Path.GetDirectoryName(typeof(SourceLinkResolverTests).Assembly.Location)!,
-                "..", "..", "..", "..", "..",
-                "tests", "fixtures", "SampleAot", "Program.cs"));
+        var assemblyDir = Path.GetDirectoryName(typeof(SourceLinkResolverTests).Assembly.Location)!;
+        var fixtureSource = new[]
+        {
+            Path.GetFullPath(Path.Combine(assemblyDir, "..", "..", "..", "..", "..", "tests", "fixtures", "SampleAot", "Program.cs")),
+            Path.GetFullPath(Path.Combine(assemblyDir, "..", "..", "..", "..", "..", "..", "tests", "fixtures", "SampleAot", "Program.cs")),
+            Path.GetFullPath(Path.Combine(assemblyDir, "..", "..", "..", "..", "..", "..", "..", "tests", "fixtures", "SampleAot", "Program.cs")),
+        }.FirstOrDefault(File.Exists);
+        Assert.NotNull(fixtureSource);
 
         var url = resolver.ResolveUrl(fixtureSource);
         if (url is not null)

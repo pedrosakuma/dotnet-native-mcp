@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using DotnetNativeMcp.Core.Imaging;
 
 namespace DotnetNativeMcp.Core.Xref;
 
@@ -10,16 +11,17 @@ namespace DotnetNativeMcp.Core.Xref;
 /// <c>$XDG_CACHE_HOME/dotnet-native-mcp/</c> on Linux when the env var is set).
 ///
 /// <para>
-/// Each file is prefixed with a 4-byte ASCII magic (<c>NXR2</c>) followed by a
+/// Each file is prefixed with a 4-byte ASCII magic (<c>NXR3</c>) followed by a
 /// 4-byte little-endian version integer. On magic or version mismatch the file is
-/// treated as a cache miss and the index is rebuilt. The previous <c>NXR1</c> format
+/// treated as a cache miss and the index is rebuilt. The previous <c>NXR2</c> format
 /// is intentionally incompatible and will be discarded on first access.
 /// </para>
 ///
 /// <para>
-/// The JSON payload contains two sections: <c>sameImage</c> (same-image xref index
-/// keyed by target VA hex) and <c>crossRefs</c> (cross-image entries keyed by
-/// <c>callerBuildId:targetLib:targetSymbol</c>, written lazily on first cross-image query).
+/// The JSON payload contains three sections: <c>sameImage</c> (same-image xref index
+/// keyed by target VA hex), <c>crossRefs</c> (cross-image entries keyed by
+/// <c>callerBuildId:targetLib:targetSymbol</c>, written lazily on first cross-image query),
+/// and <c>machO</c> (lazy Mach-O stub/export metadata used for cross-image resolution).
 /// </para>
 ///
 /// <para>
@@ -30,9 +32,9 @@ namespace DotnetNativeMcp.Core.Xref;
 /// </summary>
 public static class NativeCallGraphDiskCache
 {
-    // NXR2: bumped from NXR1 to invalidate old caches that lack the crossRefs section.
-    private static readonly byte[] MagicBytes = [(byte)'N', (byte)'X', (byte)'R', (byte)'2'];
-    private const int FormatVersion = 2;
+    // NXR3: bumped from NXR2 to invalidate caches that do not carry Mach-O metadata.
+    private static readonly byte[] MagicBytes = [(byte)'N', (byte)'X', (byte)'R', (byte)'3'];
+    private const int FormatVersion = 3;
     private const int HeaderSize = 8; // 4 magic + 4 version
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -71,17 +73,19 @@ public static class NativeCallGraphDiskCache
 
     /// <summary>
     /// Attempts to read a previously cached xref index from <paramref name="cachePath"/>.
-    /// Also populates <paramref name="crossRefs"/> when cross-image entries are present.
+    /// Also populates <paramref name="crossRefs"/> and <paramref name="machO"/> when present.
     /// Returns <see langword="false"/> on any read error, missing file, magic mismatch,
     /// version mismatch, or JSON parse failure — all treated as a cache miss.
     /// </summary>
     public static bool TryRead(
         string cachePath,
         out IReadOnlyDictionary<ulong, IReadOnlyList<CallSite>>? index,
-        out Dictionary<string, IReadOnlyList<CrossImageCallSite>>? crossRefs)
+        out Dictionary<string, IReadOnlyList<CrossImageCallSite>>? crossRefs,
+        out MachOCrossImageMetadata? machO)
     {
         index = null;
         crossRefs = null;
+        machO = null;
         try
         {
             if (!File.Exists(cachePath))
@@ -91,18 +95,15 @@ public static class NativeCallGraphDiskCache
             if (bytes.Length < HeaderSize)
                 return false;
 
-            // Verify magic.
             if (bytes[0] != MagicBytes[0] || bytes[1] != MagicBytes[1] ||
                 bytes[2] != MagicBytes[2] || bytes[3] != MagicBytes[3])
                 return false;
 
-            // Verify version.
             var version = System.Buffers.Binary.BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(4));
             if (version != FormatVersion)
                 return false;
 
-            var json = bytes.AsSpan(HeaderSize);
-            var dto = JsonSerializer.Deserialize<CacheDto>(json, SerializerOptions);
+            var dto = JsonSerializer.Deserialize<CacheDto>(bytes.AsSpan(HeaderSize), SerializerOptions);
             if (dto is null)
                 return false;
 
@@ -125,15 +126,57 @@ public static class NativeCallGraphDiskCache
                     crossRefs[key] = Array.ConvertAll(sites, s => (CrossImageCallSite)s);
             }
 
+            if (dto.MachO is not null)
+            {
+                var stubTargets = new Dictionary<ulong, string>(dto.MachO.StubTargets?.Count ?? 0);
+                if (dto.MachO.StubTargets is not null)
+                {
+                    foreach (var (stubVaHex, symbolName) in dto.MachO.StubTargets)
+                    {
+                        if (!ulong.TryParse(stubVaHex, System.Globalization.NumberStyles.HexNumber,
+                                System.Globalization.CultureInfo.InvariantCulture, out var stubVa))
+                        {
+                            return false;
+                        }
+
+                        stubTargets[stubVa] = symbolName;
+                    }
+                }
+
+                var exports = new Dictionary<string, ulong>(dto.MachO.Exports?.Count ?? 0, StringComparer.Ordinal);
+                if (dto.MachO.Exports is not null)
+                {
+                    foreach (var (symbolName, exportHex) in dto.MachO.Exports)
+                    {
+                        if (!ulong.TryParse(exportHex, System.Globalization.NumberStyles.HexNumber,
+                                System.Globalization.CultureInfo.InvariantCulture, out var exportVa))
+                        {
+                            return false;
+                        }
+
+                        exports[symbolName] = exportVa;
+                    }
+                }
+
+                machO = new MachOCrossImageMetadata(stubTargets, exports);
+            }
+
             return true;
         }
         catch
         {
             index = null;
             crossRefs = null;
+            machO = null;
             return false;
         }
     }
+
+    public static bool TryRead(
+        string cachePath,
+        out IReadOnlyDictionary<ulong, IReadOnlyList<CallSite>>? index,
+        out Dictionary<string, IReadOnlyList<CrossImageCallSite>>? crossRefs)
+        => TryRead(cachePath, out index, out crossRefs, out _);
 
     /// <summary>
     /// Backward-compatible overload that ignores cross-refs (same-image only).
@@ -141,7 +184,7 @@ public static class NativeCallGraphDiskCache
     public static bool TryRead(
         string cachePath,
         out IReadOnlyDictionary<ulong, IReadOnlyList<CallSite>>? index)
-        => TryRead(cachePath, out index, out _);
+        => TryRead(cachePath, out index, out _, out _);
 
     /// <summary>
     /// Atomically writes the same-image xref index plus any cross-image refs to
@@ -151,13 +194,13 @@ public static class NativeCallGraphDiskCache
     public static void Write(
         string cachePath,
         IReadOnlyDictionary<ulong, IReadOnlyList<CallSite>> index,
-        IReadOnlyDictionary<string, IReadOnlyList<CrossImageCallSite>>? crossRefs = null)
+        IReadOnlyDictionary<string, IReadOnlyList<CrossImageCallSite>>? crossRefs = null,
+        MachOCrossImageMetadata? machO = null)
     {
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
 
-            // Convert ulong keys to lowercase hex strings for JSON portability.
             var sameImageDto = new Dictionary<string, CallSiteDto[]>(index.Count);
             foreach (var (key, sites) in index)
             {
@@ -173,7 +216,21 @@ public static class NativeCallGraphDiskCache
                     crossRefsDto[key] = Array.ConvertAll([.. sites], s => (CrossCallSiteDto)s);
             }
 
-            var dto = new CacheDto(sameImageDto, crossRefsDto);
+            MachOCacheDto? machODto = null;
+            if (machO is not null && (machO.StubTargets.Count > 0 || machO.Exports.Count > 0))
+            {
+                var stubTargetsDto = new Dictionary<string, string>(machO.StubTargets.Count);
+                foreach (var (stubVa, symbolName) in machO.StubTargets)
+                    stubTargetsDto[stubVa.ToString("x16", System.Globalization.CultureInfo.InvariantCulture)] = symbolName;
+
+                var exportsDto = new Dictionary<string, string>(machO.Exports.Count, StringComparer.Ordinal);
+                foreach (var (symbolName, exportVa) in machO.Exports)
+                    exportsDto[symbolName] = exportVa.ToString("x16", System.Globalization.CultureInfo.InvariantCulture);
+
+                machODto = new MachOCacheDto(stubTargetsDto, exportsDto);
+            }
+
+            var dto = new CacheDto(sameImageDto, crossRefsDto, machODto);
             var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(dto, SerializerOptions);
 
             var allBytes = new byte[HeaderSize + jsonBytes.Length];
@@ -181,7 +238,6 @@ public static class NativeCallGraphDiskCache
             System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(allBytes.AsSpan(4), FormatVersion);
             jsonBytes.CopyTo(allBytes, HeaderSize);
 
-            // Atomic write: tmp -> rename.
             var tmpPath = cachePath + "." + Environment.CurrentManagedThreadId.ToString(
                 System.Globalization.CultureInfo.InvariantCulture) + ".tmp";
             File.WriteAllBytes(tmpPath, allBytes);
@@ -202,13 +258,14 @@ public static class NativeCallGraphDiskCache
     public static string MakeCrossRefKey(string callerBuildId, string? targetLibrary, string targetSymbol)
         => $"{callerBuildId}:{targetLibrary ?? string.Empty}:{targetSymbol}";
 
-    // -------------------------------------------------------------------------
-    // DTOs
-    // -------------------------------------------------------------------------
-
     private sealed record CacheDto(
         [property: JsonPropertyName("sameImage")] Dictionary<string, CallSiteDto[]> SameImage,
-        [property: JsonPropertyName("crossRefs")] Dictionary<string, CrossCallSiteDto[]>? CrossRefs);
+        [property: JsonPropertyName("crossRefs")] Dictionary<string, CrossCallSiteDto[]>? CrossRefs,
+        [property: JsonPropertyName("machO")] MachOCacheDto? MachO);
+
+    private sealed record MachOCacheDto(
+        [property: JsonPropertyName("stubTargets")] Dictionary<string, string>? StubTargets,
+        [property: JsonPropertyName("exports")] Dictionary<string, string>? Exports);
 
     private sealed record CallSiteDto(
         string SourceAddressHex,
