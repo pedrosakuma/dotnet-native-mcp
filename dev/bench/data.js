@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779379948409,
+  "lastUpdate": 1779379950557,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -98,6 +98,44 @@ window.BENCHMARK_DATA = {
             "value": 102.73519719309277,
             "unit": "ns",
             "range": "± 2.2284241740842443"
+          }
+        ]
+      }
+    ],
+    "ExtractStrings Benchmark": [
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ef20124ae8299193a0a95950588e2f7b178cc5b7",
+          "message": "Fix benchmark branch bootstrap (#87)\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-05-21T13:01:05-03:00",
+          "tree_id": "2f4cdfe7c82d510e3066501d61b91484c8526e8b",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/ef20124ae8299193a0a95950588e2f7b178cc5b7"
+        },
+        "date": 1779379950535,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 969488.3234375,
+            "unit": "ns",
+            "range": "± 7066.077701004503"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 14432443.114583334,
+            "unit": "ns",
+            "range": "± 53633.12817884468"
           }
         ]
       }
