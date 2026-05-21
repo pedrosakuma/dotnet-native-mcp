@@ -133,6 +133,10 @@ file from `dotnet-diagnostics-mcp.capture_method_bytes` is tracked separately on
 **Format**
 
 - Plain text, UTF-8, no BOM.
+- Optional magic/version header on the first non-empty line: `# ilmap v1`
+  - `v1` is the only supported version today.
+  - Unknown versions fail fast with `invalid_argument`.
+  - Files without the header are treated as v1 for backwards compatibility.
 - One mapping per line: `<nativeOffsetHex>\t<ilOffsetHex>\n`
 - `nativeOffsetHex` is the byte offset from the start of the raw blob, lowercase hex, no `0x`.
 - `ilOffsetHex` is lowercase hex, no `0x`, or one of the sentinel values `prolog`, `epilog`, `noinfo`.
@@ -147,6 +151,7 @@ for ordinary IL offsets, or the literal sentinel string for `prolog`, `epilog`, 
 **Example**
 
 ```text
+# ilmap v1
 # JIT IL-to-native map for a captured raw blob
 0	prolog
 2	0

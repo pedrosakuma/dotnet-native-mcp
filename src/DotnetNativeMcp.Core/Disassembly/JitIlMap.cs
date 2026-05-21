@@ -44,12 +44,30 @@ public sealed class JitIlMap
     {
         var entries = new List<Entry>();
         var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+        var headerAllowed = true;
 
         for (var i = 0; i < lines.Length; i++)
         {
             var trimmedLine = lines[i].Trim();
-            if (trimmedLine.Length == 0 || trimmedLine.StartsWith('#'))
+            if (trimmedLine.Length == 0)
                 continue;
+
+            if (trimmedLine.StartsWith('#'))
+            {
+                if (headerAllowed && TryParseHeaderVersion(trimmedLine, out var version))
+                {
+                    if (version != 1)
+                        return NativeResult.Fail<JitIlMap>(
+                            ErrorKinds.InvalidArgument,
+                            $"Unsupported ilmap version {version} in '{sourceName}'. Supported: 1.");
+
+                    headerAllowed = false;
+                }
+
+                continue;
+            }
+
+            headerAllowed = false;
 
             var firstTab = trimmedLine.IndexOf('\t');
             if (firstTab <= 0 || firstTab != trimmedLine.LastIndexOf('\t') || firstTab == trimmedLine.Length - 1)
@@ -134,5 +152,25 @@ public sealed class JitIlMap
 
         normalized = string.Empty;
         return false;
+    }
+
+    private static bool TryParseHeaderVersion(string line, out int version)
+    {
+        const string prefix = "# ilmap v";
+
+        if (!line.StartsWith(prefix, StringComparison.Ordinal))
+        {
+            version = 0;
+            return false;
+        }
+
+        var versionToken = line[prefix.Length..].Trim();
+        if (!int.TryParse(versionToken, NumberStyles.None, CultureInfo.InvariantCulture, out version))
+        {
+            version = 0;
+            return false;
+        }
+
+        return true;
     }
 }

@@ -26,6 +26,35 @@ public class JitIlMapTests
     }
 
     [Fact]
+    public void Parse_HeaderVersion1_PreservesCurrentBehavior()
+    {
+        var result = JitIlMap.Parse("# ilmap v1\n5\t4\n0\tprolog\n2\t0\n", "test.ilmap");
+
+        result.IsError.Should().BeFalse();
+        result.Error.Should().BeNull();
+
+        var map = result.Data!;
+        map.Entries.Select(entry => entry.NativeOffset).Should().Equal(0UL, 2UL, 5UL);
+        map.FindIlOffset(4).Should().Be("0");
+        map.FindIlOffset(9).Should().Be("4");
+    }
+
+    [Fact]
+    public void Parse_HeaderMissing_RemainsBackCompatible()
+    {
+        var result = JitIlMap.Parse("0\tprolog\n3\tepilog\n7\tnoinfo\na\t0010\n", "test.ilmap");
+
+        result.IsError.Should().BeFalse();
+        result.Error.Should().BeNull();
+
+        var map = result.Data!;
+        map.FindIlOffset(0).Should().Be("prolog");
+        map.FindIlOffset(4).Should().Be("epilog");
+        map.FindIlOffset(8).Should().Be("noinfo");
+        map.FindIlOffset(10).Should().Be("10");
+    }
+
+    [Fact]
     public void Parse_CommentsBlankLinesAndSentinels_AreAccepted()
     {
         var result = JitIlMap.Parse("# comment\n\n0\tprolog\n3\tepilog\n7\tnoinfo\na\t0010\n", "test.ilmap");
@@ -38,6 +67,36 @@ public class JitIlMapTests
         map.FindIlOffset(4).Should().Be("epilog");
         map.FindIlOffset(8).Should().Be("noinfo");
         map.FindIlOffset(10).Should().Be("10");
+    }
+
+    [Fact]
+    public void Parse_HeaderVersion2_ReturnsInvalidArgument()
+    {
+        var result = JitIlMap.Parse("# ilmap v2\n0\t0\n", "broken.ilmap");
+
+        result.IsError.Should().BeTrue();
+        result.Error!.Kind.Should().Be(ErrorKinds.InvalidArgument);
+        result.Error.Message.Should().Be("Unsupported ilmap version 2 in 'broken.ilmap'. Supported: 1.");
+    }
+
+    [Fact]
+    public void Parse_MalformedHeader_IsIgnoredAsComment()
+    {
+        var result = JitIlMap.Parse("# ilmap vx\n0\t0\n", "test.ilmap");
+
+        result.IsError.Should().BeFalse();
+        result.Error.Should().BeNull();
+        result.Data!.FindIlOffset(0).Should().Be("0");
+    }
+
+    [Fact]
+    public void Parse_HeaderAfterBlankLines_IsAccepted()
+    {
+        var result = JitIlMap.Parse("\n\n# ilmap v1\n0\t0\n", "test.ilmap");
+
+        result.IsError.Should().BeFalse();
+        result.Error.Should().BeNull();
+        result.Data!.FindIlOffset(0).Should().Be("0");
     }
 
     [Fact]
