@@ -52,22 +52,23 @@ public sealed class JitIlMap
             if (trimmedLine.Length == 0)
                 continue;
 
-            if (trimmedLine.StartsWith('#'))
+            if (headerAllowed)
             {
-                if (headerAllowed && TryParseHeaderVersion(trimmedLine, out var version))
+                headerAllowed = false;
+
+                if (TryParseHeaderVersion(trimmedLine, out var version))
                 {
                     if (version != 1)
                         return NativeResult.Fail<JitIlMap>(
                             ErrorKinds.InvalidArgument,
                             $"Unsupported ilmap version {version} in '{sourceName}'. Supported: 1.");
 
-                    headerAllowed = false;
+                    continue;
                 }
-
-                continue;
             }
 
-            headerAllowed = false;
+            if (trimmedLine.StartsWith('#'))
+                continue;
 
             var firstTab = trimmedLine.IndexOf('\t');
             if (firstTab <= 0 || firstTab != trimmedLine.LastIndexOf('\t') || firstTab == trimmedLine.Length - 1)
