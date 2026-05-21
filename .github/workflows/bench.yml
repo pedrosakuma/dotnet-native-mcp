@@ -51,6 +51,8 @@ jobs:
         env:
           BENCHMARK_BRANCH: gh-pages
         run: |
+          original_ref="$(git rev-parse --verify HEAD)"
+
           if git show-ref --verify --quiet "refs/heads/$BENCHMARK_BRANCH"; then
             git branch -D "$BENCHMARK_BRANCH"
           fi
@@ -65,7 +67,7 @@ jobs:
           touch .nojekyll
           git add .nojekyll
           git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Initialize benchmark data branch"
-          git checkout -
+          git switch --detach "$original_ref"
       - name: Build tests (builds SampleAot fixture)
         run: dotnet build tests/DotnetNativeMcp.Core.Tests/DotnetNativeMcp.Core.Tests.csproj --configuration Release --no-restore
       - name: Build bench
