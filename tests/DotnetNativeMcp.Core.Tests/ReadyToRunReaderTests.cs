@@ -33,6 +33,29 @@ public class ReadyToRunReaderTests
         return null;
     }
 
+    private static string? FindInstalledSystemPrivateCoreLib()
+    {
+        const string ExactRuntimePath = "/home/pedrotravi/.dotnet/shared/Microsoft.NETCore.App/10.0.5/System.Private.CoreLib.dll";
+        if (File.Exists(ExactRuntimePath))
+            return ExactRuntimePath;
+
+        const string SharedRuntimeRoot = "/home/pedrotravi/.dotnet/shared/Microsoft.NETCore.App";
+        if (!Directory.Exists(SharedRuntimeRoot))
+            return null;
+
+        foreach (var runtimeDir in Directory.GetDirectories(SharedRuntimeRoot)
+                     .Select(path => new DirectoryInfo(path))
+                     .Where(dir => Version.TryParse(dir.Name, out var version) && version.Major >= 8)
+                     .OrderByDescending(dir => Version.Parse(dir.Name)))
+        {
+            var candidate = Path.Combine(runtimeDir.FullName, "System.Private.CoreLib.dll");
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        return null;
+    }
+
     // ---------------------------------------------------------------------------
     // Synthetic fixture factory — builds a minimal PE with an R2R header and
     // (optionally) a RuntimeFunctions section, without touching the file system.
@@ -89,7 +112,7 @@ public class ReadyToRunReaderTests
             Architecture.Arm64 => 0xAA64,
             _ => 0x8664,
         };
-        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(peOff + 4), machineCode); // Machine
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(peOff + 4), machineCode); // Machine (or OS-encoded managed-native machine)
         BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(peOff + 6), 1);           // NumberOfSections = 1
         BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(peOff + 20), 0xF0);       // SizeOfOptionalHeader
         BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(peOff + 22), 0x2022);     // Characteristics (DLL|Exe)
@@ -390,6 +413,29 @@ public class ReadyToRunReaderTests
         hdr.Sections[0].Type.Should().Be((uint)ReadyToRunSectionType.RuntimeFunctions);
         hdr.Sections[0].TypeName.Should().Be("RuntimeFunctions");
         hdr.FindSection(ReadyToRunSectionType.RuntimeFunctions).Should().NotBeNull();
+    }
+
+    [Fact]
+    public void TryReadTargetArchitecture_InstalledSystemPrivateCoreLib_ReturnsX64()
+    {
+        var dllPath = FindInstalledSystemPrivateCoreLib();
+        if (dllPath is null) return;
+
+        var bytes = File.ReadAllBytes(dllPath);
+        var image = PeNativeReader.Read(new ReadOnlyMemory<byte>(bytes), dllPath);
+        image.Should().NotBeNull();
+
+        var unknownArchImage = new NativeImage(
+            image!.Handle,
+            image.FilePath,
+            image.Format,
+            Architecture.Unknown,
+            image.Sections,
+            image.Symbols,
+            image.RawBytes,
+            image.ImageBase);
+
+        ReadyToRunReader.TryReadTargetArchitecture(unknownArchImage).Should().Be(Architecture.X64);
     }
 
     // -----------------------------------------------------------------------

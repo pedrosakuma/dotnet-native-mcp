@@ -71,7 +71,7 @@ public static class RawDisassembler
                 $"'{imagePath}' is not a recognised PE, ELF, or Mach-O binary. " +
                 "Supply 'architecture' explicitly to disassemble an unknown format.");
 
-        var parsedImage = arch is null ? TryApplyReadyToRunArchitectureFallback(parsed) : parsed;
+        var parsedImage = arch is null ? TryApplyReadyToRunArchitectureFallback(parsed, rva, size) : parsed;
         var resolvedArch = arch ?? parsedImage!.Architecture;
 
         // Resolve RVA → file offset using section table when available.
@@ -225,20 +225,24 @@ public static class RawDisassembler
         return null;
     }
 
-    private static NativeImage? TryApplyReadyToRunArchitectureFallback(NativeImage? image)
+    private static NativeImage? TryApplyReadyToRunArchitectureFallback(NativeImage? image, int requestedRva, int requestedSize)
     {
         if (image is null || image.Format != BinaryFormat.Pe || image.Architecture != Architecture.Unknown)
             return image;
 
-        var inferredArchitecture = TryInferReadyToRunArchitecture(image);
+        var inferredArchitecture = TryInferReadyToRunArchitecture(image, requestedRva, requestedSize);
         return inferredArchitecture is null ? image : WithArchitecture(image, inferredArchitecture.Value);
     }
 
-    private static Architecture? TryInferReadyToRunArchitecture(NativeImage image)
+    private static Architecture? TryInferReadyToRunArchitecture(NativeImage image, int requestedRva, int requestedSize)
     {
         var headerResult = ReadyToRunReader.ReadHeader(image);
         if (headerResult.IsError)
             return null;
+
+        var machineArchitecture = ReadyToRunReader.TryReadTargetArchitecture(image);
+        if (machineArchitecture is not null)
+            return machineArchitecture;
 
         var header = headerResult.Data!;
         var runtimeFunctions = header.FindSection(ReadyToRunSectionType.RuntimeFunctions);
@@ -249,6 +253,13 @@ public static class RawDisassembler
 
             if (LooksLikeArm64RuntimeFunctions(image, header, runtimeFunctions))
                 return Architecture.Arm64;
+        }
+
+        if (header.FindSection(ReadyToRunSectionType.MethodHeaderAndCodeInfo) is not null)
+        {
+            var probeArchitecture = TryInferArchitectureFromDecodeProbe(image, requestedRva, requestedSize);
+            if (probeArchitecture is not null)
+                return probeArchitecture;
         }
 
         try
@@ -352,6 +363,62 @@ public static class RawDisassembler
 
         return true;
     }
+
+    private static Architecture? TryInferArchitectureFromDecodeProbe(NativeImage image, int requestedRva, int requestedSize)
+    {
+        if (requestedSize <= 0)
+            return null;
+
+        var fileOffset = image.RvaToFileOffset((ulong)requestedRva);
+        if (fileOffset is null)
+            return null;
+
+        var sampleSize = Math.Min(Math.Min(requestedSize, 16), image.RawBytes.Length - fileOffset.Value);
+        if (sampleSize < 4)
+            return null;
+
+        var sample = image.RawBytes.Slice(fileOffset.Value, sampleSize);
+        var x64Score = ScoreDecodeProbe(BuildProbeImage(image, sample, requestedRva, Architecture.X64));
+        var arm64Score = ScoreDecodeProbe(BuildProbeImage(image, sample, requestedRva, Architecture.Arm64));
+
+        if (x64Score >= 3 && x64Score >= arm64Score + 2)
+            return Architecture.X64;
+
+        if (arm64Score >= 3 && arm64Score >= x64Score + 2)
+            return Architecture.Arm64;
+
+        return null;
+    }
+
+    private static int ScoreDecodeProbe(NativeImage image)
+    {
+        var result = IcedDisassembler.Disassemble(image, image.Sections[0].VirtualAddress, maxInstructions: 4);
+        if (result.IsError || result.Data is null || result.Data.Count == 0)
+            return 0;
+
+        var instructions = result.Data;
+        var score = instructions.Count;
+        score += instructions.Count(instruction => instruction.Mnemonic != "unknown");
+        score += instructions.Count(instruction => instruction.Bytes.Length >= 6);
+        score -= instructions.Count(instruction => instruction.Mnemonic == "unknown") * 2;
+
+        return score;
+    }
+
+    private static NativeImage BuildProbeImage(
+        NativeImage sourceImage,
+        ReadOnlyMemory<byte> sample,
+        int requestedRva,
+        Architecture architecture) =>
+        new(
+            sourceImage.Handle,
+            sourceImage.FilePath,
+            sourceImage.Format,
+            architecture,
+            [new NativeSection(".text", (ulong)requestedRva, (ulong)sample.Length, 0, (ulong)sample.Length)],
+            [],
+            sample,
+            sourceImage.ImageBase);
 
     private static NativeImage WithArchitecture(NativeImage image, Architecture architecture) =>
         new(

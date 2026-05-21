@@ -32,6 +32,19 @@ public static class ReadyToRunReader
     private const uint Arm64XdataFunctionLengthMask = 0x3FFFFu;
     private const int Arm64FunctionLengthScale = 4;
 
+    private const ushort ImageFileMachineI386 = 0x014C;
+    private const ushort ImageFileMachineAmd64 = 0x8664;
+    private const ushort ImageFileMachineArm64 = 0xAA64;
+
+    private static readonly ushort[] ReadyToRunMachineOsOverrides =
+    [
+        0x7B79, // Linux
+        0x4644, // Apple
+        0xADC4, // FreeBSD
+        0x1993, // NetBSD
+        0x1992, // SunOS
+    ];
+
     private enum RuntimeFunctionLayout
     {
         X64,
@@ -115,6 +128,47 @@ public static class ReadyToRunReader
         return NativeResult.Ok(
             $"R2R header parsed: version {major}.{minor}, {numSections} sections.",
             new ReadyToRunHeader(major, minor, flags, sections));
+    }
+
+    /// <summary>
+    /// Attempts to recover the native target architecture of a ReadyToRun PE from the
+    /// COFF <c>Machine</c> field, including the CoreCLR per-OS override encoding used
+    /// by managed-native images on non-Windows platforms.
+    /// </summary>
+    internal static Architecture? TryReadTargetArchitecture(NativeImage image)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+
+        if (image.Format != BinaryFormat.Pe)
+            return null;
+
+        var headerResult = ReadHeader(image);
+        if (headerResult.IsError)
+            return null;
+
+        try
+        {
+            using var stream = new MemoryStream(image.RawBytes.ToArray(), writable: false);
+            using var peReader = new PEReader(stream, PEStreamOptions.PrefetchEntireImage);
+
+            var rawMachine = (ushort)peReader.PEHeaders.CoffHeader.Machine;
+            var directArchitecture = MapImageFileMachine(rawMachine);
+            if (directArchitecture is not null)
+                return directArchitecture;
+
+            foreach (var osOverride in ReadyToRunMachineOsOverrides)
+            {
+                var decodedArchitecture = MapImageFileMachine((ushort)(rawMachine ^ osOverride));
+                if (decodedArchitecture is not null)
+                    return decodedArchitecture;
+            }
+        }
+        catch
+        {
+            return null;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -272,11 +326,11 @@ public static class ReadyToRunReader
             return RuntimeFunctionLayout.Arm64;
         }
 
-        var peMachine = TryGetPeMachine(image.RawBytes.Span);
-        return peMachine switch
+        var inferredArchitecture = TryReadTargetArchitecture(image);
+        return inferredArchitecture switch
         {
-            Machine.Amd64 => RuntimeFunctionLayout.X64,
-            Machine.Arm64 => RuntimeFunctionLayout.Arm64,
+            Architecture.X64 => RuntimeFunctionLayout.X64,
+            Architecture.Arm64 => RuntimeFunctionLayout.Arm64,
             _ => null,
         };
     }
@@ -363,25 +417,15 @@ public static class ReadyToRunReader
             endAddress);
     }
 
-    private static Machine? TryGetPeMachine(ReadOnlySpan<byte> bytes)
+    private static Architecture? MapImageFileMachine(ushort machine)
     {
-        if (bytes.Length < 0x40 || bytes[0] != 0x4D || bytes[1] != 0x5A)
+        return machine switch
         {
-            return null;
-        }
-
-        var e_lfanew = (int)BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x3C..]);
-        if (e_lfanew < 0 || e_lfanew + 6 > bytes.Length)
-        {
-            return null;
-        }
-
-        if (bytes[e_lfanew] != 'P' || bytes[e_lfanew + 1] != 'E' || bytes[e_lfanew + 2] != 0 || bytes[e_lfanew + 3] != 0)
-        {
-            return null;
-        }
-
-        return (Machine)BinaryPrimitives.ReadUInt16LittleEndian(bytes[(e_lfanew + 4)..]);
+            ImageFileMachineI386 => Architecture.X86,
+            ImageFileMachineAmd64 => Architecture.X64,
+            ImageFileMachineArm64 => Architecture.Arm64,
+            _ => null,
+        };
     }
 
     /// <summary>
