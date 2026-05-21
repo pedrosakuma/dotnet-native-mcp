@@ -70,7 +70,7 @@ public sealed partial class NativeTools
     [Description(
         "Returns paginated RUNTIME_FUNCTION entries from the R2R RuntimeFunctions section (type 5), " +
         "or — when rva is supplied — performs a binary-search lookup and returns the single covering entry. " +
-        "Only x64 images are supported; all other architectures return r2r_arch_unsupported. " +
+        "x64 and ARM64 images are supported; other architectures return r2r_arch_unsupported. " +
         "Returns r2r_section_not_present when the image uses a newer R2R format that replaced RuntimeFunctions " +
         "with MethodHeaderAndCodeInfo (type 105).")]
     public NativeResult<R2RRuntimeFunctionsResult> ListR2RRuntimeFunctions(
