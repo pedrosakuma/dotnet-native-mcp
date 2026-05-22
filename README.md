@@ -103,20 +103,30 @@ and signed by Sigstore via GitHub's OIDC issuer. The attestation proves the
 artifact was built by this repository on a specific commit by GitHub-hosted
 runners — no separate cert to install, no key to rotate.
 
-Verify with the GitHub CLI:
+Verify with the GitHub CLI. The `--signer-workflow` and `--source-ref` flags
+bind verification to the exact release workflow file and tag, so an
+attestation produced by a different workflow in the same repository (e.g. a
+hypothetical CI workflow added in a PR) cannot pass these checks:
 
 ```bash
 # NuGet package
-gh attestation verify dotnet-native-mcp.0.1.0.nupkg \
-  --repo pedrosakuma/dotnet-native-mcp
+gh attestation verify dotnet-native-mcp.0.5.4.nupkg \
+  --repo pedrosakuma/dotnet-native-mcp \
+  --signer-workflow pedrosakuma/dotnet-native-mcp/.github/workflows/release.yml \
+  --source-ref refs/tags/v0.5.4
 
 # Self-contained binary tarball / zip
-gh attestation verify dotnet-native-mcp-0.1.0-linux-x64.tar.gz \
-  --repo pedrosakuma/dotnet-native-mcp
+gh attestation verify dotnet-native-mcp-0.5.4-linux-x64.tar.gz \
+  --repo pedrosakuma/dotnet-native-mcp \
+  --signer-workflow pedrosakuma/dotnet-native-mcp/.github/workflows/release.yml \
+  --source-ref refs/tags/v0.5.4
 ```
 
-A passing verification confirms the build came from `pedrosakuma/dotnet-native-mcp`
-on the expected commit and tag.
+For maximum strictness, also pin to the exact release commit with
+`--source-digest <commit-sha>` (look it up on the release page).
+
+A passing verification confirms the build came from `pedrosakuma/dotnet-native-mcp`,
+on the expected tag, produced by `.github/workflows/release.yml`.
 
 ## Disk cache
 
