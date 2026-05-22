@@ -30,3 +30,4 @@ tests/fixtures/SampleAot/obj/
 
 ## BenchmarkDotNet run artifacts — generated at bench runtime
 BenchmarkDotNet.Artifacts/
+.worktrees/

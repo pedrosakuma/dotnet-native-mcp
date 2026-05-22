@@ -154,6 +154,26 @@ export NATIVE_MCP_BEARER_TOKEN="replace-me"
 dotnet-native-mcp
 ```
 
+### Loopback-or-token invariant
+
+The HTTP transport enforces a startup-time safety check: if any configured URL
+binds to a **non-loopback** address (anything other than `127.0.0.1`, `::1`, or
+`localhost`) **and** no bearer token is configured, the server **refuses to
+start**. This prevents accidentally exposing the MCP tool surface — which can
+open arbitrary files on the host — to anyone on the network.
+
+To bind to a non-loopback address you must either:
+
+1. Set a bearer token (`NATIVE_MCP_BEARER_TOKEN` / `NativeMcp:BearerToken` /
+   `MCP_BEARER_TOKEN`), **or**
+2. Explicitly opt out with `NativeMcp:AllowUnauthenticatedNonLoopback=true` —
+   only safe when a trusted reverse proxy in front of the server enforces
+   authentication.
+
+The check inspects `Urls`, `ASPNETCORE_URLS`, `HTTP_PORTS` / `HTTPS_PORTS`
+(and the `ASPNETCORE_*` aliases), and `Kestrel:Endpoints:*:Url` configuration
+sources.
+
 ## Building blocks
 
 - [`Iced`](https://github.com/icedland/iced) — MIT, .NET-native x86/x64 disassembler.
