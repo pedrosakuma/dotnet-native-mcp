@@ -16,6 +16,10 @@ on:
 
 permissions:
   contents: write   # required to create + attach artifacts to a Release
+  # Required by actions/attest-build-provenance to mint a Sigstore certificate
+  # via GitHub's OIDC issuer and publish the attestation back to the repo.
+  attestations: write
+  id-token: write
 
 jobs:
   # ----- 1) Build + pack the NuGet package (global tool) -----
@@ -61,6 +65,11 @@ jobs:
             -o artifacts/nupkg \
             -p:Version=${{ steps.derive-version.outputs.version }} \
             --no-restore
+
+      - name: Attest nupkg provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: 'artifacts/nupkg/*.nupkg'
 
       - name: Upload nupkg
         uses: actions/upload-artifact@v4
@@ -134,6 +143,15 @@ jobs:
           else
             tar -czf ../dotnet-native-mcp-${{ needs.pack.outputs.version }}-${{ matrix.rid }}.tar.gz dotnet-native-mcp appsettings*.json
           fi
+
+      - name: Attest binary archive provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          # Attests the archive itself; consumers verify the archive directly
+          # via `gh attestation verify`.
+          subject-path: |
+            artifacts/dotnet-native-mcp-*.tar.gz
+            artifacts/dotnet-native-mcp-*.zip
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
