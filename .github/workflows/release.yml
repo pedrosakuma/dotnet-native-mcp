@@ -29,15 +29,15 @@ jobs:
     outputs:
       version: ${{ steps.derive-version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
@@ -67,12 +67,12 @@ jobs:
             --no-restore
 
       - name: Attest nupkg provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: 'artifacts/nupkg/*.nupkg'
 
       - name: Upload nupkg
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: nupkg
           path: artifacts/nupkg/*.nupkg
@@ -93,15 +93,15 @@ jobs:
           - { os: windows-latest, rid: win-arm64 }
           - { os: macos-latest,   rid: osx-arm64 }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
 
       - name: Cache NuGet packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.nuget/packages
           key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
@@ -145,7 +145,7 @@ jobs:
           fi
 
       - name: Attest binary archive provenance
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           # Attests the archive itself; consumers verify the archive directly
           # via `gh attestation verify`.
@@ -154,7 +154,7 @@ jobs:
             artifacts/dotnet-native-mcp-*.zip
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: binary-${{ matrix.rid }}
           path: |
@@ -170,12 +170,12 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           path: artifacts
 
       - name: Create / update Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
           files: |
@@ -189,16 +189,16 @@ jobs:
     needs: [pack, publish-binaries]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Download nupkg
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: nupkg
           path: artifacts/nupkg
 
       - name: Setup .NET 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
 
