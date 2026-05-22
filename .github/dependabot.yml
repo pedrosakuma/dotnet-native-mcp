@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Keep GitHub Actions up to date — especially important because privileged
+  # actions in release.yml are SHA-pinned (softprops/action-gh-release and
+  # actions/attest-build-provenance). Without Dependabot, SHA pins drift and
+  # consumers miss security fixes upstream.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch
