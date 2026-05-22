@@ -49,7 +49,7 @@ public static class RawDisassembler
         if (!File.Exists(imagePath))
             return NativeResult.Fail<IReadOnlyList<InstructionView>>(
                 ErrorKinds.BinaryNotFound,
-                $"File not found: '{imagePath}'.");
+                $"File not found: '{Path.GetFileName(imagePath)}'.");
 
         var rawBytesResult = ResourceLimits.SafeReadAllBytes(imagePath, ResourceLimits.MaxImageBytes);
         if (rawBytesResult.IsError)
@@ -78,7 +78,7 @@ public static class RawDisassembler
         if (parsed is null && arch is null)
             return NativeResult.Fail<IReadOnlyList<InstructionView>>(
                 ErrorKinds.DisassemblyUnsupported,
-                $"'{imagePath}' is not a recognised PE, ELF, or Mach-O binary. " +
+                $"'{Path.GetFileName(imagePath)}' is not a recognised PE, ELF, or Mach-O binary. " +
                 "Supply 'architecture' explicitly to disassemble an unknown format.");
 
         var parsedImage = arch is null ? TryApplyReadyToRunArchitectureFallback(parsed, rva, size) : parsed;
@@ -92,7 +92,7 @@ public static class RawDisassembler
             if (fo is null)
                 return NativeResult.Fail<IReadOnlyList<InstructionView>>(
                     ErrorKinds.AddressOutOfRange,
-                    $"RVA 0x{rva:x} is not inside any known section in '{imagePath}'.");
+                    $"RVA 0x{rva:x} is not inside any known section in '{Path.GetFileName(imagePath)}'.");
             fileOffset = fo.Value;
         }
         else
@@ -156,7 +156,7 @@ public static class RawDisassembler
         if (!File.Exists(blobPath))
             return NativeResult.Fail<IReadOnlyList<InstructionView>>(
                 ErrorKinds.BinaryNotFound,
-                $"File not found: '{blobPath}'.");
+                $"File not found: '{Path.GetFileName(blobPath)}'.");
 
         var rawBytesResult = ResourceLimits.SafeReadAllBytes(blobPath, ResourceLimits.MaxImageBytes);
         if (rawBytesResult.IsError)

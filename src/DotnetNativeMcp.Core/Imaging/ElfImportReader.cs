@@ -68,7 +68,7 @@ public static partial class ElfReader
         }
         catch (Exception ex) when (ex is IOException or ArgumentOutOfRangeException)
         {
-            return NativeResult.Fail<ElfImports>(ErrorKinds.InternalError, "Failed to parse ELF imports.", ex.Message);
+            return NativeResult.Fail<ElfImports>(ErrorKinds.InternalError, "Failed to parse ELF imports.", SanitisedError.From(ex));
         }
     }
 

@@ -25,7 +25,7 @@ public static class NativeImageLoader
             return NativeResult.Fail<NativeImage>(ErrorKinds.InvalidArgument, "path must not be empty.");
 
         if (!File.Exists(path))
-            return NativeResult.Fail<NativeImage>(ErrorKinds.BinaryNotFound, $"Binary not found: '{path}'.");
+            return NativeResult.Fail<NativeImage>(ErrorKinds.BinaryNotFound, $"Binary not found: '{Path.GetFileName(path)}'.");
 
         var readResult = ResourceLimits.SafeReadAllBytes(path, ResourceLimits.MaxImageBytes);
         if (readResult.IsError)
@@ -76,7 +76,7 @@ public static class NativeImageLoader
 
         if (image is null)
             return NativeResult.Fail<NativeImage>(ErrorKinds.NotANativeDotnetImage,
-                $"'{path}' is not a supported ELF, PE, or Mach-O binary.");
+                $"'{Path.GetFileName(path)}' is not a supported ELF, PE, or Mach-O binary.");
 
         // Build-id verification
         if (expectedBuildId is not null)

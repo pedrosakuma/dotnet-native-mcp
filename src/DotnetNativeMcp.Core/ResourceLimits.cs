@@ -32,8 +32,10 @@ public static class ResourceLimits
         if (string.IsNullOrWhiteSpace(path))
             return NativeResult.Fail<byte[]>(ErrorKinds.InvalidArgument, "path must not be empty.");
 
+        var fileName = Path.GetFileName(path);
+
         if (!File.Exists(path))
-            return NativeResult.Fail<byte[]>(ErrorKinds.BinaryNotFound, $"File not found: '{path}'.");
+            return NativeResult.Fail<byte[]>(ErrorKinds.BinaryNotFound, $"File not found: '{fileName}'.");
 
         try
         {
@@ -41,19 +43,19 @@ public static class ResourceLimits
             if (info.Length > maxBytes)
                 return NativeResult.Fail<byte[]>(
                     ErrorKinds.FileTooLarge,
-                    $"'{path}' is {info.Length} bytes, which exceeds the limit of {maxBytes} bytes.");
+                    $"'{fileName}' is {info.Length} bytes, which exceeds the limit of {maxBytes} bytes.");
 
             using var stream = File.OpenRead(path);
             if (stream.CanSeek && stream.Length > maxBytes)
                 return NativeResult.Fail<byte[]>(
                     ErrorKinds.FileTooLarge,
-                    $"'{path}' is {stream.Length} bytes, which exceeds the limit of {maxBytes} bytes.");
+                    $"'{fileName}' is {stream.Length} bytes, which exceeds the limit of {maxBytes} bytes.");
 
             var length = stream.CanSeek ? stream.Length : info.Length;
             if (length > int.MaxValue)
                 return NativeResult.Fail<byte[]>(
                     ErrorKinds.FileTooLarge,
-                    $"'{path}' is {length} bytes, which exceeds the maximum readable size of {int.MaxValue} bytes.");
+                    $"'{fileName}' is {length} bytes, which exceeds the maximum readable size of {int.MaxValue} bytes.");
 
             var bytes = new byte[(int)length];
             var totalRead = 0;
@@ -64,7 +66,7 @@ public static class ResourceLimits
                 {
                     return NativeResult.Fail<byte[]>(
                         ErrorKinds.InternalError,
-                        $"Failed to read '{path}': unexpected end of file.");
+                        $"Failed to read '{fileName}': unexpected end of file.");
                 }
 
                 totalRead += read;
@@ -74,17 +76,17 @@ public static class ResourceLimits
             {
                 return NativeResult.Fail<byte[]>(
                     ErrorKinds.FileTooLarge,
-                    $"'{path}' grew while it was being read and now exceeds the limit of {maxBytes} bytes.");
+                    $"'{fileName}' grew while it was being read and now exceeds the limit of {maxBytes} bytes.");
             }
 
-            return NativeResult.Ok($"Read {bytes.Length} bytes from '{Path.GetFileName(path)}'.", bytes);
+            return NativeResult.Ok($"Read {bytes.Length} bytes from '{fileName}'.", bytes);
         }
         catch (Exception ex)
         {
             return NativeResult.Fail<byte[]>(
                 ErrorKinds.InternalError,
-                $"Failed to read '{path}': {ex.Message}",
-                ex.ToString());
+                $"Failed to read '{fileName}'.",
+                SanitisedError.From(ex, path));
         }
     }
 }

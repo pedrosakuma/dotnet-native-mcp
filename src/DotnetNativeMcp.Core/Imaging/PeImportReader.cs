@@ -155,7 +155,7 @@ public static partial class PeNativeReader
         }
         catch (Exception ex) when (ex is BadImageFormatException or IOException or ArgumentOutOfRangeException)
         {
-            return NativeResult.Fail<PeImports>(ErrorKinds.InternalError, "Failed to parse PE import table.", ex.Message);
+            return NativeResult.Fail<PeImports>(ErrorKinds.InternalError, "Failed to parse PE import table.", SanitisedError.From(ex));
         }
     }
 
