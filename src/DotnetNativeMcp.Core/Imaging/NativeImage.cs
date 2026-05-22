@@ -82,8 +82,16 @@ public sealed class NativeImage
     /// <summary>Gets a slice of the raw file bytes that corresponds to the given section.</summary>
     public ReadOnlyMemory<byte> GetSectionBytes(NativeSection section)
     {
+        // Defensive bounds checks: attacker-controlled section headers can carry
+        // file offsets / sizes that don't fit in `int` or that exceed the buffer.
+        // Return empty instead of throwing so the rest of the tool surface stays
+        // responsive.
+        if (section.FileOffset > (ulong)RawBytes.Length || section.FileOffset > int.MaxValue)
+            return ReadOnlyMemory<byte>.Empty;
+
         var start = (int)section.FileOffset;
-        var len = (int)Math.Min(section.FileSize, (ulong)(RawBytes.Length - start));
+        var available = (ulong)(RawBytes.Length - start);
+        var len = (int)Math.Min(section.FileSize, available);
         return RawBytes.Slice(start, len);
     }
 
@@ -92,6 +100,18 @@ public sealed class NativeImage
     {
         var section = FindSection(rva);
         if (section is null) return null;
-        return (int)(section.FileOffset + (rva - section.VirtualAddress));
+
+        // Reject the (rva - VA) + FileOffset computation pre-emptively if it
+        // would wrap in `ulong` — a crafted section with VirtualSize=ulong.MaxValue
+        // could otherwise let a far-out RVA land on a bogus low file offset.
+        var delta = rva - section.VirtualAddress;
+        if (delta > ulong.MaxValue - section.FileOffset)
+            return null;
+
+        var offset = section.FileOffset + delta;
+        if (offset > (ulong)RawBytes.Length || offset > int.MaxValue)
+            return null;
+
+        return (int)offset;
     }
 }

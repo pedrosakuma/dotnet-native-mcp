@@ -88,7 +88,12 @@ public static partial class ElfReader
         if (shStrNdx != 0 && shStrNdx < shNum)
         {
             var (nameTabOff, nameTabSize) = ReadSectionHeader(bytes, is64, shOff, shEntSize, shStrNdx);
-            if (nameTabOff > 0 && nameTabOff + nameTabSize <= (ulong)bytes.Length)
+            if (nameTabOff > 0
+                && nameTabOff <= (ulong)bytes.Length
+                && nameTabSize <= (ulong)bytes.Length - nameTabOff
+                && nameTabOff <= int.MaxValue
+                && nameTabSize <= int.MaxValue
+                && nameTabOff + nameTabSize <= int.MaxValue)
                 shStrtab = bytes[(int)nameTabOff..(int)(nameTabOff + nameTabSize)];
         }
 
@@ -104,7 +109,7 @@ public static partial class ElfReader
             var vaddr = ReadSectionVAddr(bytes, is64, shOff, shEntSize, (ushort)i);
             var name = shStrtab.IsEmpty ? string.Empty : ReadCString(shStrtab, (int)nameIdx);
 
-            if (size > 0 && off > 0)
+            if (size > 0 && off > 0 && off <= (ulong)bytes.Length && size <= (ulong)bytes.Length - off)
                 sections.Add(new NativeSection(name, vaddr, size, off, size));
 
             // SHT_SYMTAB = 2, SHT_DYNSYM = 11
@@ -180,13 +185,19 @@ public static partial class ElfReader
         if (symLink < shNum)
         {
             var (strOff, strSize) = ReadSectionHeader(bytes, is64, shOff, shEntSize, (ushort)symLink);
-            if (strOff + strSize <= (ulong)bytes.Length && strSize > 0)
+            // Subtraction-form bounds check: addition could wrap a crafted ulong.
+            if (strSize > 0
+                && strOff <= (ulong)bytes.Length
+                && strSize <= (ulong)bytes.Length - strOff
+                && strOff <= int.MaxValue
+                && strOff + strSize <= int.MaxValue)
                 strTab = bytes[(int)strOff..(int)(strOff + strSize)];
         }
 
         var entrySize = is64 ? 24 : 16;
         var count = (int)(symSize / (ulong)entrySize);
-        if (symOff + symSize > (ulong)bytes.Length) return;
+        if (symOff > (ulong)bytes.Length || symSize > (ulong)bytes.Length - symOff) return;
+        if (symOff > int.MaxValue || symOff + symSize > int.MaxValue) return;
         var symData = bytes[(int)symOff..(int)(symOff + symSize)];
 
         for (var i = 0; i < count; i++)
@@ -225,22 +236,20 @@ public static partial class ElfReader
     {
         // PT_LOAD = 1
         if (phOff == 0 || phEntSize == 0 || phNum == 0) return 0;
+        var headerSize = is64 ? 56 : 32;
         for (var i = 0; i < phNum; i++)
         {
-            var hdrStart = phOff + (ulong)(i * phEntSize);
+            if (!TryHeaderStart(phOff, phEntSize, i, bytes.Length, headerSize, out var hdrStart))
+                break;
+            var ph = bytes[hdrStart..];
+            var pType = BinaryPrimitives.ReadUInt32LittleEndian(ph[0..]);
             if (is64)
             {
-                if (hdrStart + 56 > (ulong)bytes.Length) break;
-                var ph = bytes[(int)hdrStart..];
-                var pType = BinaryPrimitives.ReadUInt32LittleEndian(ph[0..]);
                 if (pType == 1) // PT_LOAD
                     return BinaryPrimitives.ReadUInt64LittleEndian(ph[16..]); // p_vaddr
             }
             else
             {
-                if (hdrStart + 32 > (ulong)bytes.Length) break;
-                var ph = bytes[(int)hdrStart..];
-                var pType = BinaryPrimitives.ReadUInt32LittleEndian(ph[0..]);
                 if (pType == 1)
                     return BinaryPrimitives.ReadUInt32LittleEndian(ph[8..]); // p_vaddr
             }
@@ -248,72 +257,64 @@ public static partial class ElfReader
         return 0;
     }
 
+    private static bool TryHeaderStart(ulong tableOff, ushort entSize, int index, int bytesLength, int headerSize, out int start)
+    {
+        start = 0;
+        if (tableOff > (ulong)bytesLength) return false;
+        var delta = (ulong)index * entSize;
+        if (delta > (ulong)bytesLength - tableOff) return false;
+        var absolute = tableOff + delta;
+        if (absolute > (ulong)bytesLength - (ulong)headerSize) return false;
+        if (absolute > int.MaxValue) return false;
+        start = (int)absolute;
+        return true;
+    }
+
     private static (ulong offset, ulong size) ReadSectionHeader(
         ReadOnlySpan<byte> bytes, bool is64, ulong shOff, ushort shEntSize, ushort index)
     {
-        var start = shOff + (ulong)(index * shEntSize);
+        var headerSize = is64 ? 64 : 40;
+        if (!TryHeaderStart(shOff, shEntSize, index, bytes.Length, headerSize, out var start)) return (0, 0);
+        var sh = bytes[start..];
         if (is64)
-        {
-            if (start + 64 > (ulong)bytes.Length) return (0, 0);
-            var sh = bytes[(int)start..];
             return (BinaryPrimitives.ReadUInt64LittleEndian(sh[24..]),
                     BinaryPrimitives.ReadUInt64LittleEndian(sh[32..]));
-        }
-        else
-        {
-            if (start + 40 > (ulong)bytes.Length) return (0, 0);
-            var sh = bytes[(int)start..];
-            return (BinaryPrimitives.ReadUInt32LittleEndian(sh[16..]),
-                    BinaryPrimitives.ReadUInt32LittleEndian(sh[20..]));
-        }
+        return (BinaryPrimitives.ReadUInt32LittleEndian(sh[16..]),
+                BinaryPrimitives.ReadUInt32LittleEndian(sh[20..]));
     }
 
     private static uint ReadSectionNameIndex(
         ReadOnlySpan<byte> bytes, bool is64, ulong shOff, ushort shEntSize, ushort index)
     {
-        var start = shOff + (ulong)(index * shEntSize);
-        if (start + 4 > (ulong)bytes.Length) return 0;
-        return BinaryPrimitives.ReadUInt32LittleEndian(bytes[(int)start..]);
+        if (!TryHeaderStart(shOff, shEntSize, index, bytes.Length, 4, out var start)) return 0;
+        return BinaryPrimitives.ReadUInt32LittleEndian(bytes[start..]);
     }
 
     private static uint ReadSectionType(
         ReadOnlySpan<byte> bytes, bool is64, ulong shOff, ushort shEntSize, ushort index)
     {
-        var start = shOff + (ulong)(index * shEntSize);
-        if (start + 8 > (ulong)bytes.Length) return 0;
-        return BinaryPrimitives.ReadUInt32LittleEndian(bytes[((int)start + 4)..]);
+        if (!TryHeaderStart(shOff, shEntSize, index, bytes.Length, 8, out var start)) return 0;
+        return BinaryPrimitives.ReadUInt32LittleEndian(bytes[(start + 4)..]);
     }
 
     private static ulong ReadSectionVAddr(
         ReadOnlySpan<byte> bytes, bool is64, ulong shOff, ushort shEntSize, ushort index)
     {
-        var start = shOff + (ulong)(index * shEntSize);
+        var headerSize = is64 ? 24 : 16;
+        if (!TryHeaderStart(shOff, shEntSize, index, bytes.Length, headerSize, out var start)) return 0;
         if (is64)
-        {
-            if (start + 24 > (ulong)bytes.Length) return 0;
-            return BinaryPrimitives.ReadUInt64LittleEndian(bytes[((int)start + 16)..]);
-        }
-        else
-        {
-            if (start + 16 > (ulong)bytes.Length) return 0;
-            return BinaryPrimitives.ReadUInt32LittleEndian(bytes[((int)start + 12)..]);
-        }
+            return BinaryPrimitives.ReadUInt64LittleEndian(bytes[(start + 16)..]);
+        return BinaryPrimitives.ReadUInt32LittleEndian(bytes[(start + 12)..]);
     }
 
     private static uint ReadSectionLink(
         ReadOnlySpan<byte> bytes, bool is64, ulong shOff, ushort shEntSize, ushort index)
     {
-        var start = shOff + (ulong)(index * shEntSize);
+        var headerSize = is64 ? 44 : 28;
+        if (!TryHeaderStart(shOff, shEntSize, index, bytes.Length, headerSize, out var start)) return 0;
         if (is64)
-        {
-            if (start + 44 > (ulong)bytes.Length) return 0;
-            return BinaryPrimitives.ReadUInt32LittleEndian(bytes[((int)start + 40)..]);
-        }
-        else
-        {
-            if (start + 28 > (ulong)bytes.Length) return 0;
-            return BinaryPrimitives.ReadUInt32LittleEndian(bytes[((int)start + 24)..]);
-        }
+            return BinaryPrimitives.ReadUInt32LittleEndian(bytes[(start + 40)..]);
+        return BinaryPrimitives.ReadUInt32LittleEndian(bytes[(start + 24)..]);
     }
 
     private static string ReadCString(ReadOnlySpan<byte> data, int offset)
