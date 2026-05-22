@@ -56,7 +56,21 @@ public static class MstatReader
 
         try
         {
+            var info = new FileInfo(fullPath);
+            if (info.Length > ResourceLimits.MaxMstatBytes)
+            {
+                return NativeResult.Fail<MstatDocument>(
+                    ErrorKinds.FileTooLarge,
+                    $"Mstat sidecar '{fullPath}' is {info.Length} bytes, which exceeds the limit of {ResourceLimits.MaxMstatBytes} bytes.");
+            }
+
             using var stream = File.OpenRead(fullPath);
+            if (stream.CanSeek && stream.Length > ResourceLimits.MaxMstatBytes)
+            {
+                return NativeResult.Fail<MstatDocument>(
+                    ErrorKinds.FileTooLarge,
+                    $"Mstat sidecar '{fullPath}' is {stream.Length} bytes, which exceeds the limit of {ResourceLimits.MaxMstatBytes} bytes.");
+            }
             using var peReader = new PEReader(stream);
             if (!peReader.HasMetadata)
             {
@@ -77,8 +91,26 @@ public static class MstatReader
 
             var resolver = new MetadataNameResolver(metadataReader);
             var attributions = new List<MstatAttribution>();
-            attributions.AddRange(ReadMethodAttributions(peReader, metadataReader, resolver, methodsMethod));
-            attributions.AddRange(ReadTypeAttributions(peReader, metadataReader, resolver, typesMethod));
+            foreach (var attribution in ReadMethodAttributions(peReader, metadataReader, resolver, methodsMethod))
+            {
+                if (attributions.Count >= ResourceLimits.MaxMstatAttributions)
+                {
+                    return NativeResult.Fail<MstatDocument>(
+                        ErrorKinds.FileTooLarge,
+                        $"Mstat sidecar '{Path.GetFileName(fullPath)}' exceeds the maximum of {ResourceLimits.MaxMstatAttributions} attributions.");
+                }
+                attributions.Add(attribution);
+            }
+            foreach (var attribution in ReadTypeAttributions(peReader, metadataReader, resolver, typesMethod))
+            {
+                if (attributions.Count >= ResourceLimits.MaxMstatAttributions)
+                {
+                    return NativeResult.Fail<MstatDocument>(
+                        ErrorKinds.FileTooLarge,
+                        $"Mstat sidecar '{Path.GetFileName(fullPath)}' exceeds the maximum of {ResourceLimits.MaxMstatAttributions} attributions.");
+                }
+                attributions.Add(attribution);
+            }
 
             long totalSize = 0;
             foreach (var attribution in attributions)
@@ -164,7 +196,7 @@ public static class MstatReader
         _ => throw new ArgumentOutOfRangeException(nameof(groupBy), groupBy, null),
     };
 
-    private static List<MstatAttribution> ReadMethodAttributions(
+    private static IEnumerable<MstatAttribution> ReadMethodAttributions(
         PEReader peReader,
         MetadataReader metadataReader,
         MetadataNameResolver resolver,
@@ -172,7 +204,6 @@ public static class MstatReader
     {
         var body = GetMethodBody(peReader, metadataReader, methodHandle, "Methods");
         var reader = body.GetILReader();
-        var rows = new List<MstatAttribution>();
 
         while (reader.RemainingBytes > 0)
         {
@@ -186,19 +217,17 @@ public static class MstatReader
             _ = ReadLdcI4(ref reader);
 
             var resolvedMethod = resolver.ResolveMethod(tokenHandle);
-            rows.Add(new MstatAttribution(
+            yield return new MstatAttribution(
                 resolvedMethod.AssemblyName,
                 resolvedMethod.NamespaceName,
                 resolvedMethod.TypeName,
                 resolvedMethod.MethodName,
                 checked(codeSize + gcInfoSize + ehInfoSize),
-                "method"));
+                "method");
         }
-
-        return rows;
     }
 
-    private static List<MstatAttribution> ReadTypeAttributions(
+    private static IEnumerable<MstatAttribution> ReadTypeAttributions(
         PEReader peReader,
         MetadataReader metadataReader,
         MetadataNameResolver resolver,
@@ -206,7 +235,6 @@ public static class MstatReader
     {
         var body = GetMethodBody(peReader, metadataReader, methodHandle, "Types");
         var reader = body.GetILReader();
-        var rows = new List<MstatAttribution>();
 
         while (reader.RemainingBytes > 0)
         {
@@ -218,16 +246,14 @@ public static class MstatReader
             _ = ReadLdcI4(ref reader);
 
             var resolvedType = resolver.ResolveType(tokenHandle);
-            rows.Add(new MstatAttribution(
+            yield return new MstatAttribution(
                 resolvedType.AssemblyName,
                 resolvedType.NamespaceName,
                 resolvedType.TypeName,
                 null,
                 size,
-                "type"));
+                "type");
         }
-
-        return rows;
     }
 
     private static MethodBodyBlock GetMethodBody(

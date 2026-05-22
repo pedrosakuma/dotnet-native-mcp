@@ -37,7 +37,7 @@ public sealed partial class NativeTools
     [McpServerTool(Name = "import_native_manifest")]
     [Description(
         "Bulk handshake from a producer (typically dotnet-diagnostics-mcp): registers a list of " +
-        "native binaries in one call. " +
+        "native binaries in one call. Accepts at most 1024 entries per invocation. " +
         "mode='lazy' (default) records path hints without opening each file; " +
         "mode='eager' opens every entry immediately and verifies build-ids. " +
         "Per-entry failures are reported inline — one bad entry does not fail the whole batch.")]
@@ -45,6 +45,13 @@ public sealed partial class NativeTools
         [Description("Manifest entries. Each entry has a 'path' and optional 'name' and 'buildId'.")] IReadOnlyList<BatchManifestEntry> entries,
         [Description("'lazy' (default) records path hints without opening binaries; 'eager' opens and verifies each entry immediately.")] string mode = "lazy")
     {
+        if (entries.Count > ResourceLimits.MaxManifestEntries)
+        {
+            return NativeResult.Fail<ImportManifestData>(
+                ErrorKinds.InvalidArgument,
+                $"entries must contain at most {ResourceLimits.MaxManifestEntries} item(s). Got {entries.Count}.");
+        }
+
         var normalizedMode = mode.Trim().ToLowerInvariant();
         if (normalizedMode is not ("lazy" or "eager"))
             return NativeResult.Fail<ImportManifestData>(ErrorKinds.InvalidArgument,

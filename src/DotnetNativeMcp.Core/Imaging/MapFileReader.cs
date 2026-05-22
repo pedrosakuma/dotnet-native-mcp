@@ -71,10 +71,23 @@ public static class MapFileReader
 
     private static List<NativeSymbol> Parse(string mapPath)
     {
+        var info = new FileInfo(mapPath);
+        if (info.Length > ResourceLimits.MaxMapFileBytes)
+            return [];
+
         var result = new List<NativeSymbol>();
         var index = 0;
-        foreach (var line in File.ReadLines(mapPath))
+        using var stream = File.OpenRead(mapPath);
+        if (stream.CanSeek && stream.Length > ResourceLimits.MaxMapFileBytes)
+            return [];
+        using var reader = new StreamReader(stream);
+        string? line;
+        while ((line = reader.ReadLine()) is not null)
         {
+            if (stream.CanSeek && stream.Position > ResourceLimits.MaxMapFileBytes)
+                return result;
+            if (result.Count >= ResourceLimits.MaxMapFileEntries)
+                return result;
             if (string.IsNullOrWhiteSpace(line)) continue;
             var trimmed = line.TrimStart();
             var spaceIdx = trimmed.IndexOfAny([' ', '\t']);

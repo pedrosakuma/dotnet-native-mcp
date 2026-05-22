@@ -141,18 +141,22 @@ public sealed class NativeCallGraphCache
     /// <param name="targetSymbolName">The exported symbol name to search for in other images.</param>
     /// <param name="targetLibrary">Optional library qualifier (SONAME/DLL name). Pass <c>null</c> to match all.</param>
     /// <param name="registry">Registry of all loaded images.</param>
+    /// <param name="maxResults">Hard cap on the aggregate cross-image result list; further callers are skipped once reached.</param>
     /// <returns>All cross-image call sites found, possibly empty.</returns>
     public IReadOnlyList<CrossImageCallSite> FindCrossImageCallers(
         NativeImage calleeImage,
         string targetSymbolName,
         string? targetLibrary,
-        INativeBinaryRegistry registry)
+        INativeBinaryRegistry registry,
+        int maxResults = int.MaxValue)
     {
         ArgumentNullException.ThrowIfNull(calleeImage);
         ArgumentNullException.ThrowIfNull(targetSymbolName);
         ArgumentNullException.ThrowIfNull(registry);
 
         if (!IsCrossXrefEnabled)
+            return [];
+        if (maxResults <= 0)
             return [];
 
         var results = new List<CrossImageCallSite>();
@@ -180,6 +184,8 @@ public sealed class NativeCallGraphCache
 
         foreach (var callerImage in registry.List())
         {
+            if (results.Count >= maxResults)
+                break;
             if (string.Equals(callerImage.Handle.Value, calleeImage.Handle.Value, StringComparison.OrdinalIgnoreCase))
                 continue;
 
@@ -190,7 +196,7 @@ public sealed class NativeCallGraphCache
 
             if (_crossCache.TryGetValue(sessionKey, out var cached))
             {
-                results.AddRange(cached);
+                AddCappedRange(results, cached, maxResults);
                 newCrossRefs[crossRefKey] = cached;
                 continue;
             }
@@ -199,7 +205,7 @@ public sealed class NativeCallGraphCache
                 persistedCrossRefs.TryGetValue(crossRefKey, out var persisted))
             {
                 _crossCache[sessionKey] = persisted;
-                results.AddRange(persisted);
+                AddCappedRange(results, persisted, maxResults);
                 newCrossRefs[crossRefKey] = persisted;
                 continue;
             }
@@ -208,19 +214,27 @@ public sealed class NativeCallGraphCache
             var callerMachO = callerImage.Format == BinaryFormat.MachO ? GetOrBuildMachOMetadata(callerImage) : null;
             IReadOnlyDictionary<string, ulong>? calleeExports = calleeMachO?.Exports;
             IReadOnlyDictionary<ulong, string>? callerStubs = callerMachO?.StubTargets;
+            var remaining = Math.Max(0, maxResults - results.Count);
             var found = CrossImageCallGraphScanner.FindCallers(
                 callerImage: callerImage,
                 callerGraph: callerGraph,
                 targetSymbolName: targetSymbolName,
                 targetLibrary: targetLibrary,
                 calleeMachOExports: calleeExports,
-                callerMachOStubs: callerStubs);
+                callerMachOStubs: callerStubs,
+                maxResults: remaining);
 
-            _crossCache[sessionKey] = found;
-            newCrossRefs[crossRefKey] = found;
-            anyNewEntries = true;
+            // Only cache/persist results that ran to completion. When the scanner returned exactly the
+            // remaining budget we may have truncated mid-stream, so don't poison the cache with a partial set.
+            var possiblyTruncated = remaining != int.MaxValue && found.Count >= remaining;
+            if (!possiblyTruncated)
+            {
+                _crossCache[sessionKey] = found;
+                newCrossRefs[crossRefKey] = found;
+                anyNewEntries = true;
+            }
 
-            results.AddRange(found);
+            AddCappedRange(results, found, maxResults);
         }
 
         if (anyNewEntries && cachePath is not null && NativeCallGraphDiskCache.IsEnabled)
@@ -243,5 +257,21 @@ public sealed class NativeCallGraphCache
         }
 
         return results;
+    }
+
+    private static void AddCappedRange(
+        List<CrossImageCallSite> destination,
+        IReadOnlyList<CrossImageCallSite> source,
+        int maxResults)
+    {
+        var capacity = maxResults - destination.Count;
+        if (capacity <= 0) return;
+        if (source.Count <= capacity)
+        {
+            destination.AddRange(source);
+            return;
+        }
+        for (var i = 0; i < capacity; i++)
+            destination.Add(source[i]);
     }
 }

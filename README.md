@@ -174,6 +174,23 @@ The check inspects `Urls`, `ASPNETCORE_URLS`, `HTTP_PORTS` / `HTTPS_PORTS`
 (and the `ASPNETCORE_*` aliases), and `Kestrel:Endpoints:*:Url` configuration
 sources.
 
+## Resource limits
+
+To bound memory use and adversarial inputs, the server applies the following caps:
+
+| Limit | Value | Applies to |
+|-------|-------|------------|
+| `MaxImageBytes` | 512 MiB | Whole-image reads (`load_native_binary`, raw disassembly paths) |
+| `MaxDgmlBytes` | 64 MiB | DGML sidecar file size |
+| `MaxIlMapBytes` | 16 MiB | `.ilmap` file size |
+| `MaxManifestEntries` | 1024 | `import_native_manifest` entries per call |
+| `MaxStringMatches` | 500,000 | Total matches collected by `extract_strings` |
+| `MaxExtractedStringChars` | 16,384 | Characters materialized for any single extracted string value |
+| `MaxCallerSites` | 100,000 | `find_native_callers` rows returned |
+| `MaxDgmlNodes` | 1,000,000 | DGML nodes parsed from a sidecar |
+| `MaxDgmlEdges` | 2,000,000 | DGML edges parsed from a sidecar |
+| `MaxIlMapEntries` | 1,048,576 | `.ilmap` entries parsed from a sidecar |
+
 ## Building blocks
 
 - [`Iced`](https://github.com/icedland/iced) — MIT, .NET-native x86/x64 disassembler.

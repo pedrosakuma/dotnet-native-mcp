@@ -51,17 +51,14 @@ public static class RawDisassembler
                 ErrorKinds.BinaryNotFound,
                 $"File not found: '{imagePath}'.");
 
-        byte[] rawBytes;
-        try
-        {
-            rawBytes = File.ReadAllBytes(imagePath);
-        }
-        catch (Exception ex)
-        {
+        var rawBytesResult = ResourceLimits.SafeReadAllBytes(imagePath, ResourceLimits.MaxImageBytes);
+        if (rawBytesResult.IsError)
             return NativeResult.Fail<IReadOnlyList<InstructionView>>(
-                ErrorKinds.BinaryNotFound,
-                $"Failed to read '{imagePath}': {ex.Message}");
-        }
+                rawBytesResult.Error!.Kind,
+                rawBytesResult.Error.Message,
+                rawBytesResult.Error.Detail);
+
+        var rawBytes = rawBytesResult.Data!;
 
         // Reject negative or zero sizes and negative RVAs up-front: in unknown-format
         // raw-bytes mode we treat `rva` as a direct file offset, and `int` underflow
@@ -161,17 +158,14 @@ public static class RawDisassembler
                 ErrorKinds.BinaryNotFound,
                 $"File not found: '{blobPath}'.");
 
-        byte[] rawBytes;
-        try
-        {
-            rawBytes = File.ReadAllBytes(blobPath);
-        }
-        catch (Exception ex)
-        {
+        var rawBytesResult = ResourceLimits.SafeReadAllBytes(blobPath, ResourceLimits.MaxImageBytes);
+        if (rawBytesResult.IsError)
             return NativeResult.Fail<IReadOnlyList<InstructionView>>(
-                ErrorKinds.BinaryNotFound,
-                $"Failed to read '{blobPath}': {ex.Message}");
-        }
+                rawBytesResult.Error!.Kind,
+                rawBytesResult.Error.Message,
+                rawBytesResult.Error.Detail);
+
+        var rawBytes = rawBytesResult.Data!;
 
         if (offset < 0 || size <= 0 || offset > rawBytes.Length || size > rawBytes.Length - offset)
             return NativeResult.Fail<IReadOnlyList<InstructionView>>(
