@@ -190,6 +190,22 @@ To bound memory use and adversarial inputs, the server applies the following cap
 | `MaxDgmlNodes` | 1,000,000 | DGML nodes parsed from a sidecar |
 | `MaxDgmlEdges` | 2,000,000 | DGML edges parsed from a sidecar |
 | `MaxIlMapEntries` | 1,048,576 | `.ilmap` entries parsed from a sidecar |
+| `MaxPdbBytes` | 64 MiB | PDB files read for SourceLink resolution |
+| `MaxMapFileBytes` | 256 MiB | `.map` sidecar file size |
+| `MaxMapFileEntries` | 5,000,000 | `.map` sidecar entries parsed |
+| `MaxMstatBytes` | 256 MiB | `.mstat` sidecar file size |
+| `MaxMstatAttributions` | 5,000,000 | `.mstat` attributions parsed |
+| `MaxXrefCacheBytes` | 256 MiB | xref disk cache size accepted on read |
+| `MaxEmbeddedPdbCacheBytes` | 32 MiB | extracted-PDB disk cache size accepted on read |
+
+## Error responses
+
+Errors returned to MCP clients are sanitised: `NativeError.Detail` never carries
+`Exception.ToString()` stack traces, and absolute filesystem paths supplied by
+the caller are reduced to their file name. Full exception detail (including the
+original path and stack trace) is logged server-side via the
+`SanitisedError.Sink` hook (defaulting to `System.Diagnostics.Trace`) so
+operators can still investigate parse failures.
 
 ## Building blocks
 

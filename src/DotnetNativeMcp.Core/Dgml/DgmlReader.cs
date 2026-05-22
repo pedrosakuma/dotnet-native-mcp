@@ -27,7 +27,7 @@ public static class DgmlReader
 
         var fullPath = Path.GetFullPath(path);
         if (!File.Exists(fullPath))
-            return NativeResult.Fail<DgmlGraph>(ErrorKinds.DgmlNotFound, $"DGML sidecar not found: '{fullPath}'.");
+            return NativeResult.Fail<DgmlGraph>(ErrorKinds.DgmlNotFound, $"DGML sidecar not found: '{Path.GetFileName(fullPath)}'.");
 
         try
         {
@@ -36,7 +36,7 @@ public static class DgmlReader
             {
                 return NativeResult.Fail<DgmlGraph>(
                     ErrorKinds.FileTooLarge,
-                    $"DGML sidecar '{fullPath}' is {info.Length} bytes, which exceeds the limit of {maxBytes} bytes.");
+                    $"DGML sidecar '{Path.GetFileName(fullPath)}' is {info.Length} bytes, which exceeds the limit of {maxBytes} bytes.");
             }
 
             var settings = new XmlReaderSettings
@@ -54,7 +54,7 @@ public static class DgmlReader
             {
                 return NativeResult.Fail<DgmlGraph>(
                     ErrorKinds.FileTooLarge,
-                    $"DGML sidecar '{fullPath}' is {stream.Length} bytes, which exceeds the limit of {maxBytes} bytes.");
+                    $"DGML sidecar '{Path.GetFileName(fullPath)}' is {stream.Length} bytes, which exceeds the limit of {maxBytes} bytes.");
             }
             using var reader = XmlReader.Create(stream, settings);
 
@@ -144,22 +144,22 @@ public static class DgmlReader
         {
             return NativeResult.Fail<DgmlGraph>(
                 ErrorKinds.InternalError,
-                $"Malformed DGML in '{Path.GetFileName(fullPath)}': {ex.Message}",
-                ex.ToString());
+                $"Malformed DGML in '{Path.GetFileName(fullPath)}'.",
+                SanitisedError.From(ex, fullPath));
         }
         catch (XmlException ex)
         {
             return NativeResult.Fail<DgmlGraph>(
                 ErrorKinds.InternalError,
-                $"Malformed DGML in '{Path.GetFileName(fullPath)}': {ex.Message}",
-                ex.ToString());
+                $"Malformed DGML in '{Path.GetFileName(fullPath)}'.",
+                SanitisedError.From(ex, fullPath));
         }
         catch (Exception ex)
         {
             return NativeResult.Fail<DgmlGraph>(
                 ErrorKinds.InternalError,
-                $"Failed to read '{fullPath}': {ex.Message}",
-                ex.ToString());
+                $"Failed to read '{Path.GetFileName(fullPath)}'.",
+                SanitisedError.From(ex, fullPath));
         }
     }
 

@@ -52,7 +52,7 @@ public static class MstatReader
 
         var fullPath = Path.GetFullPath(path);
         if (!File.Exists(fullPath))
-            return NativeResult.Fail<MstatDocument>(ErrorKinds.MstatNotFound, $"Mstat sidecar not found: '{fullPath}'.");
+            return NativeResult.Fail<MstatDocument>(ErrorKinds.MstatNotFound, $"Mstat sidecar not found: '{Path.GetFileName(fullPath)}'.");
 
         try
         {
@@ -61,7 +61,7 @@ public static class MstatReader
             {
                 return NativeResult.Fail<MstatDocument>(
                     ErrorKinds.FileTooLarge,
-                    $"Mstat sidecar '{fullPath}' is {info.Length} bytes, which exceeds the limit of {ResourceLimits.MaxMstatBytes} bytes.");
+                    $"Mstat sidecar '{Path.GetFileName(fullPath)}' is {info.Length} bytes, which exceeds the limit of {ResourceLimits.MaxMstatBytes} bytes.");
             }
 
             using var stream = File.OpenRead(fullPath);
@@ -69,7 +69,7 @@ public static class MstatReader
             {
                 return NativeResult.Fail<MstatDocument>(
                     ErrorKinds.FileTooLarge,
-                    $"Mstat sidecar '{fullPath}' is {stream.Length} bytes, which exceeds the limit of {ResourceLimits.MaxMstatBytes} bytes.");
+                    $"Mstat sidecar '{Path.GetFileName(fullPath)}' is {stream.Length} bytes, which exceeds the limit of {ResourceLimits.MaxMstatBytes} bytes.");
             }
             using var peReader = new PEReader(stream);
             if (!peReader.HasMetadata)
@@ -130,21 +130,21 @@ public static class MstatReader
             return NativeResult.Fail<MstatDocument>(
                 ErrorKinds.MstatInvalid,
                 $"'{Path.GetFileName(fullPath)}' is not a readable NativeAOT mstat image.",
-                ex.ToString());
+                SanitisedError.From(ex, fullPath));
         }
         catch (InvalidDataException ex)
         {
             return NativeResult.Fail<MstatDocument>(
                 ErrorKinds.MstatInvalid,
                 $"'{Path.GetFileName(fullPath)}' contains malformed NativeAOT mstat table data.",
-                ex.ToString());
+                SanitisedError.From(ex, fullPath));
         }
         catch (Exception ex)
         {
             return NativeResult.Fail<MstatDocument>(
                 ErrorKinds.InternalError,
-                $"Failed to read '{fullPath}': {ex.Message}",
-                ex.ToString());
+                $"Failed to read '{Path.GetFileName(fullPath)}'.",
+                SanitisedError.From(ex, fullPath));
         }
     }
 

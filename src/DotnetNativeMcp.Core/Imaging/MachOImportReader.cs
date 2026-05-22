@@ -77,7 +77,7 @@ public static partial class MachOReader
         catch (Exception ex)
         {
             return NativeResult.Fail<MachOImports>(ErrorKinds.InternalError,
-                "Failed to parse Mach-O imports.", ex.ToString());
+                "Failed to parse Mach-O imports.", SanitisedError.From(ex));
         }
     }
 

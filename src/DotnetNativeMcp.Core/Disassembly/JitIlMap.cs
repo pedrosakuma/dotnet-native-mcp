@@ -23,10 +23,12 @@ public sealed class JitIlMap
 
     internal static NativeResult<JitIlMap> Load(string path, long maxBytes, int maxEntries)
     {
+        var displayName = Path.GetFileName(path);
+
         if (!File.Exists(path))
             return NativeResult.Fail<JitIlMap>(
                 ErrorKinds.BinaryNotFound,
-                $"File not found: '{path}'.");
+                $"File not found: '{displayName}'.");
 
         try
         {
@@ -35,7 +37,7 @@ public sealed class JitIlMap
             {
                 return NativeResult.Fail<JitIlMap>(
                     ErrorKinds.FileTooLarge,
-                    $"IL map '{path}' is {info.Length} bytes, which exceeds the limit of {maxBytes} bytes.");
+                    $"IL map '{displayName}' is {info.Length} bytes, which exceeds the limit of {maxBytes} bytes.");
             }
 
             using var stream = File.OpenRead(path);
@@ -43,16 +45,17 @@ public sealed class JitIlMap
             {
                 return NativeResult.Fail<JitIlMap>(
                     ErrorKinds.FileTooLarge,
-                    $"IL map '{path}' is {stream.Length} bytes, which exceeds the limit of {maxBytes} bytes.");
+                    $"IL map '{displayName}' is {stream.Length} bytes, which exceeds the limit of {maxBytes} bytes.");
             }
 
-            return ParseLines(EnumerateLinesBounded(stream, maxBytes, path), path, maxEntries);
+            return ParseLines(EnumerateLinesBounded(stream, maxBytes, displayName), displayName, maxEntries);
         }
         catch (Exception ex)
         {
             return NativeResult.Fail<JitIlMap>(
                 ErrorKinds.InvalidArgument,
-                $"Failed to read IL map '{path}': {ex.Message}");
+                $"Failed to read IL map '{displayName}'.",
+                SanitisedError.From(ex, path));
         }
     }
 
@@ -79,6 +82,10 @@ public sealed class JitIlMap
 
     private static NativeResult<JitIlMap> ParseLines(IEnumerable<string> lines, string sourceName, int maxEntries)
     {
+        var displayName = Path.GetFileName(sourceName);
+        if (string.IsNullOrEmpty(displayName))
+            displayName = sourceName;
+
         var entries = new List<Entry>();
         var headerAllowed = true;
         var lineNumber = 0;
@@ -99,7 +106,7 @@ public sealed class JitIlMap
                     if (version != 1)
                         return NativeResult.Fail<JitIlMap>(
                             ErrorKinds.InvalidArgument,
-                            $"Unsupported ilmap version {version} in '{sourceName}'. Supported: 1.");
+                            $"Unsupported ilmap version {version} in '{displayName}'. Supported: 1.");
 
                     continue;
                 }
@@ -112,7 +119,7 @@ public sealed class JitIlMap
             if (firstTab <= 0 || firstTab != trimmedLine.LastIndexOf('\t') || firstTab == trimmedLine.Length - 1)
                 return NativeResult.Fail<JitIlMap>(
                     ErrorKinds.InvalidArgument,
-                    $"Malformed IL map line {lineNumber} in '{sourceName}'. Expected '<nativeOffsetHex>\\t<ilOffsetHex|prolog|epilog|noinfo>'.");
+                    $"Malformed IL map line {lineNumber} in '{displayName}'. Expected '<nativeOffsetHex>\\t<ilOffsetHex|prolog|epilog|noinfo>'.");
 
             var nativeOffsetToken = trimmedLine[..firstTab].Trim();
             var ilOffsetToken = trimmedLine[(firstTab + 1)..].Trim();
@@ -120,18 +127,18 @@ public sealed class JitIlMap
             if (!ulong.TryParse(nativeOffsetToken, NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture, out var nativeOffset))
                 return NativeResult.Fail<JitIlMap>(
                     ErrorKinds.InvalidArgument,
-                    $"Malformed native offset '{nativeOffsetToken}' on IL map line {lineNumber} in '{sourceName}'. Expected lowercase hex without 0x.");
+                    $"Malformed native offset '{nativeOffsetToken}' on IL map line {lineNumber} in '{displayName}'. Expected lowercase hex without 0x.");
 
             if (!TryNormalizeIlOffset(ilOffsetToken, out var normalizedIlOffset))
                 return NativeResult.Fail<JitIlMap>(
                     ErrorKinds.InvalidArgument,
-                    $"Malformed IL offset '{ilOffsetToken}' on IL map line {lineNumber} in '{sourceName}'. Expected lowercase hex without 0x, or one of: prolog, epilog, noinfo.");
+                    $"Malformed IL offset '{ilOffsetToken}' on IL map line {lineNumber} in '{displayName}'. Expected lowercase hex without 0x, or one of: prolog, epilog, noinfo.");
 
             if (entries.Count >= maxEntries)
             {
                 return NativeResult.Fail<JitIlMap>(
                     ErrorKinds.FileTooLarge,
-                    $"IL map '{sourceName}' exceeds the maximum of {maxEntries} entries.");
+                    $"IL map '{displayName}' exceeds the maximum of {maxEntries} entries.");
             }
 
             entries.Add(new Entry(nativeOffset, normalizedIlOffset));
@@ -144,11 +151,11 @@ public sealed class JitIlMap
             if (entries[i - 1].NativeOffset == entries[i].NativeOffset)
                 return NativeResult.Fail<JitIlMap>(
                     ErrorKinds.InvalidArgument,
-                    $"Duplicate native offset 0x{entries[i].NativeOffset:x} in '{sourceName}'. Each IL map entry must start a unique range.");
+                    $"Duplicate native offset 0x{entries[i].NativeOffset:x} in '{displayName}'. Each IL map entry must start a unique range.");
         }
 
         return NativeResult.Ok(
-            $"Loaded {entries.Count} IL map entr{(entries.Count == 1 ? "y" : "ies")} from '{Path.GetFileName(sourceName)}'.",
+            $"Loaded {entries.Count} IL map entr{(entries.Count == 1 ? "y" : "ies")} from '{displayName}'.",
             new JitIlMap(entries));
     }
 
