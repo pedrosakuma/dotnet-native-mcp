@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779474009331,
+  "lastUpdate": 1779474010536,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -254,6 +254,42 @@ window.BENCHMARK_DATA = {
             "value": 87.67594785349709,
             "unit": "ns",
             "range": "± 1.450744479487887"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "9c30cf9d9b2e256846cb8a871eeed46b23bd86d0",
+          "message": "Replace dynamic permissions expression in bench.yml with static value (#107)\n\nPR #92 set the bench job's permissions to\n`contents: ${{ github.event_name == 'push' && 'write' || 'read' }}`.\nGitHub Actions does not support expressions in the `permissions:` map\n(values must be literal read/write/none), so the workflow file failed\nparse and every bench run since the #92 merge completed in 0 seconds\nwith 'This run likely failed because of a workflow file issue'. No\nBenchmarkDotNet history has been published to gh-pages since v0.5.4.\n\nThis hotfix reverts to a static `contents: write` on the bench job.\nThe workflow-level `contents: read` default added by #92 stays in\nplace, so the regression vs. the pre-#92 state is strictly tighter at\nworkflow scope. PR exposure is documented honestly in the comment and\nthe proper fix (split push vs. PR into two jobs with static\npermissions) is tracked in #106.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-05-22T15:09:18-03:00",
+          "tree_id": "16887e2c426a2056972ec16157125175d0a35b85",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/9c30cf9d9b2e256846cb8a871eeed46b23bd86d0"
+        },
+        "date": 1779474010510,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 7045576.471153846,
+            "unit": "ns",
+            "range": "± 68309.10863946997"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 95.5113714507648,
+            "unit": "ns",
+            "range": "± 1.4436335324465048"
           }
         ]
       }
