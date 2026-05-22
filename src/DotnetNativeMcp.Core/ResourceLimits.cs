@@ -20,6 +20,8 @@ public static class ResourceLimits
     public const int MaxMapFileEntries = 5_000_000;
     public const long MaxMstatBytes = 256L * 1024 * 1024;
     public const int MaxMstatAttributions = 5_000_000;
+    public const long MaxXrefCacheBytes = 256L * 1024 * 1024;
+    public const long MaxEmbeddedPdbCacheBytes = 32L * 1024 * 1024;
 
     /// <summary>
     /// Reads an entire file only when it fits under <paramref name="maxBytes"/>.

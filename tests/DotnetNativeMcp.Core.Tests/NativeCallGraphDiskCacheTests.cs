@@ -359,4 +359,26 @@ public sealed class NativeCallGraphDiskCacheTests : IDisposable
         readMachO.Exports.Should().ContainKey("foo");
         readMachO.Exports["foo"].Should().Be(0x40UL);
     }
+
+    [Fact]
+    public void TryRead_OversizedFile_TreatedAsCacheMissAndDeleted()
+    {
+        var path = NativeCallGraphDiskCache.GetCachePath("oversize-cache");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        using (var fs = File.Create(path))
+        {
+            fs.WriteByte((byte)'N');
+            fs.WriteByte((byte)'X');
+            fs.WriteByte((byte)'R');
+            fs.WriteByte((byte)'3');
+            fs.SetLength(ResourceLimits.MaxXrefCacheBytes + 1);
+        }
+
+        var found = NativeCallGraphDiskCache.TryRead(path, out var read);
+
+        found.Should().BeFalse();
+        read.Should().BeNull();
+        File.Exists(path).Should().BeFalse();
+    }
 }
