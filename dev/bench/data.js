@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779475854354,
+  "lastUpdate": 1779475855716,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -496,6 +496,42 @@ window.BENCHMARK_DATA = {
             "value": 14952010.360677084,
             "unit": "ns",
             "range": "± 24625.662780137263"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8764ef474031923558cf29b051bdf601160ece56",
+          "message": "Split bench into push vs. PR jobs with static least-privilege permissions (#108)\n\nCloses #106.\n\nThe hotfix in #107 restored bench.yml to a single job with a static\n`contents: write` permission so the YAML would parse, at the cost of\ngranting maintainer-labeled `perf` PRs a writable GITHUB_TOKEN. The\nbenchmark-action's `auto-push` step is gated on push events, but\nPR-controlled `dotnet run` code in the bench fixtures could in\nprinciple use the token before that gate. #106 tracked the structural\nfix.\n\nThis change introduces a composite action under\n`.github/actions/run-bench/` that owns the setup, build, run and\nstorage steps. The workflow now defines two jobs with complementary\nevent filters and statically declared permissions:\n\n- bench-push: `if: github.event_name != 'pull_request'` (covers push +\n  workflow_dispatch), `permissions: contents: write`, calls the\n  composite with `auto-push: 'true'` / `fail-on-alert: 'false'`.\n- bench-pr: `if: github.event_name == 'pull_request' &&\n  contains(labels, 'perf')`, `permissions: contents: read`, calls the\n  composite with `auto-push: 'false'` / `fail-on-alert: 'true'`.\n\nPR-controlled bench code therefore runs under a strictly read-only\nGITHUB_TOKEN and the benchmark history can only be advanced by the\npush baseline path. GitHub Actions still does not allow expressions in\nthe `permissions:` map, so the split is enforced at the job level via\nevent filtering instead.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-05-22T15:40:41-03:00",
+          "tree_id": "9c36fdab158009ac152e50c99d84947723a2d5b4",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/8764ef474031923558cf29b051bdf601160ece56"
+        },
+        "date": 1779475855701,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 1068995.9981863839,
+            "unit": "ns",
+            "range": "± 3344.1498162704984"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 16118583.764583332,
+            "unit": "ns",
+            "range": "± 25243.33627779526"
           }
         ]
       }
