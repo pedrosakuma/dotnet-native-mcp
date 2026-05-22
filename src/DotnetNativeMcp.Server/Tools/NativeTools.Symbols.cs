@@ -200,7 +200,7 @@ public sealed partial class NativeTools
     [Description(
         "Scans read-only data sections of a loaded native image for printable ASCII and UTF-16LE strings. " +
         "Defaults to .rodata/.rdata/.data.rel.ro/__const and falls back to .data only when read-only sections are absent. " +
-        "Returns paginated results with section, offset, RVA, encoding, length, and value.")]
+        "Returns paginated results with section, offset, RVA, encoding, length, and value. Total matches are capped at 500000 per scan.")]
     public NativeResult<ExtractStringsResult> ExtractStrings(
         [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
         [Description("Minimum string length in characters. Default 6, allowed range 1..4096.")] int minLength = 6,
@@ -234,15 +234,27 @@ public sealed partial class NativeTools
             cursor = 0;
 
         List<ExtractedStringRow> allRows = [];
+        var truncated = false;
         foreach (var selectedSection in sections)
         {
-            foreach (var extracted in StringExtractor.Extract(
+            var remaining = ResourceLimits.MaxStringMatches - allRows.Count;
+            if (remaining <= 0)
+            {
+                truncated = true;
+                break;
+            }
+
+            var extractedStrings = StringExtractor.Extract(
                 image.GetSectionBytes(selectedSection).Span,
                 selectedSection.VirtualAddress,
                 selectedSection.Name,
                 minLength,
                 scanAscii,
-                scanUtf16))
+                scanUtf16,
+                out var sectionTruncated,
+                remaining);
+
+            foreach (var extracted in extractedStrings)
             {
                 var rva = ParseHex(extracted.RvaHex);
                 var offset = rva - selectedSection.VirtualAddress;
@@ -253,6 +265,12 @@ public sealed partial class NativeTools
                     extracted.Encoding,
                     extracted.Length,
                     extracted.Value));
+            }
+
+            if (sectionTruncated)
+            {
+                truncated = true;
+                break;
             }
         }
 
@@ -286,9 +304,9 @@ public sealed partial class NativeTools
 
         var summary = page.Count == 0
             ? $"No extracted strings found in '{imageHandle}'."
-            : $"Page {cursor}..{cursor + page.Count - 1} of {ordered.Count} extracted string(s) in '{imageHandle}'.";
+            : $"Page {cursor}..{cursor + page.Count - 1} of {ordered.Count} extracted string(s) in '{imageHandle}'{(truncated ? " (truncated)." : ".")}";
 
-        return NativeResult.Ok(summary, new ExtractStringsResult(page, ordered.Count, nextCursor), hints);
+        return NativeResult.Ok(summary, new ExtractStringsResult(page, ordered.Count, nextCursor, truncated), hints);
     }
 
     private static bool TryNormalizeImportKind(string kind, out string normalizedKind, out string? error)
@@ -534,4 +552,5 @@ public sealed record ExtractedStringRow(
 public sealed record ExtractStringsResult(
     IReadOnlyList<ExtractedStringRow> Strings,
     int TotalCount,
-    int? NextCursor);
+    int? NextCursor,
+    bool Truncated);

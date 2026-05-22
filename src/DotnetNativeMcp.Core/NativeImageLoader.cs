@@ -27,16 +27,11 @@ public static class NativeImageLoader
         if (!File.Exists(path))
             return NativeResult.Fail<NativeImage>(ErrorKinds.BinaryNotFound, $"Binary not found: '{path}'.");
 
-        byte[] bytes;
-        try
-        {
-            bytes = File.ReadAllBytes(path);
-        }
-        catch (Exception ex)
-        {
-            return NativeResult.Fail<NativeImage>(ErrorKinds.InternalError,
-                $"Failed to read '{path}': {ex.Message}", ex.ToString());
-        }
+        var readResult = ResourceLimits.SafeReadAllBytes(path, ResourceLimits.MaxImageBytes);
+        if (readResult.IsError)
+            return NativeResult.Fail<NativeImage>(readResult.Error!.Kind, readResult.Error.Message, readResult.Error.Detail);
+
+        var bytes = readResult.Data!;
 
         var memory = new ReadOnlyMemory<byte>(bytes);
 

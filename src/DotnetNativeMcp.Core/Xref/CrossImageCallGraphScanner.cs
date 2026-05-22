@@ -19,6 +19,7 @@ public static class CrossImageCallGraphScanner
     /// <param name="targetLibrary">Optional library qualifier (SONAME / DLL name). When <c>null</c>, all libraries are matched.</param>
     /// <param name="calleeMachOExports">Optional Mach-O export map for the target image.</param>
     /// <param name="callerMachOStubs">Optional Mach-O stub map for the caller image.</param>
+    /// <param name="maxResults">Hard cap on the returned list; scanning stops as soon as the cap is reached.</param>
     /// <returns>A list of <see cref="CrossImageCallSite"/> instances, empty when no callers are found.</returns>
     public static IReadOnlyList<CrossImageCallSite> FindCallers(
         NativeImage callerImage,
@@ -26,13 +27,15 @@ public static class CrossImageCallGraphScanner
         string targetSymbolName,
         string? targetLibrary,
         IReadOnlyDictionary<string, ulong>? calleeMachOExports = null,
-        IReadOnlyDictionary<ulong, string>? callerMachOStubs = null)
+        IReadOnlyDictionary<ulong, string>? callerMachOStubs = null,
+        int maxResults = int.MaxValue)
     {
+        if (maxResults <= 0) return [];
         return callerImage.Format switch
         {
-            BinaryFormat.Elf => FindElfCallers(callerImage, callerGraph, targetSymbolName, targetLibrary),
-            BinaryFormat.Pe => FindPeCallers(callerImage, callerGraph, targetSymbolName, targetLibrary),
-            BinaryFormat.MachO => FindMachOCallers(callerImage, callerGraph, targetSymbolName, calleeMachOExports, callerMachOStubs),
+            BinaryFormat.Elf => FindElfCallers(callerImage, callerGraph, targetSymbolName, targetLibrary, maxResults),
+            BinaryFormat.Pe => FindPeCallers(callerImage, callerGraph, targetSymbolName, targetLibrary, maxResults),
+            BinaryFormat.MachO => FindMachOCallers(callerImage, callerGraph, targetSymbolName, calleeMachOExports, callerMachOStubs, maxResults),
             _ => [],
         };
     }
@@ -45,7 +48,8 @@ public static class CrossImageCallGraphScanner
         NativeImage callerImage,
         IReadOnlyDictionary<ulong, IReadOnlyList<CallSite>> callerGraph,
         string targetSymbolName,
-        string? targetLibrary)
+        string? targetLibrary,
+        int maxResults)
     {
         // When a library qualifier is requested, check that this image actually
         // imports from that library before doing expensive PLT resolution.
@@ -83,6 +87,7 @@ public static class CrossImageCallGraphScanner
 
             foreach (var site in sites)
             {
+                if (result.Count >= maxResults) return result;
                 result.Add(new CrossImageCallSite(
                     site.SourceAddressHex,
                     site.CallerSymbol,
@@ -110,7 +115,8 @@ public static class CrossImageCallGraphScanner
         NativeImage callerImage,
         IReadOnlyDictionary<ulong, IReadOnlyList<CallSite>> callerGraph,
         string targetSymbolName,
-        string? targetLibrary)
+        string? targetLibrary,
+        int maxResults)
     {
         // PE imports are typically indirect; we use a best-effort symbol-name match
         // against any exported thunk symbols in the caller's own symbol table.
@@ -129,6 +135,7 @@ public static class CrossImageCallGraphScanner
 
             foreach (var site in sites)
             {
+                if (result.Count >= maxResults) return result;
                 result.Add(new CrossImageCallSite(
                     site.SourceAddressHex,
                     site.CallerSymbol,
@@ -149,7 +156,8 @@ public static class CrossImageCallGraphScanner
         IReadOnlyDictionary<ulong, IReadOnlyList<CallSite>> callerGraph,
         string targetSymbolName,
         IReadOnlyDictionary<string, ulong>? calleeExports,
-        IReadOnlyDictionary<ulong, string>? stubTargets)
+        IReadOnlyDictionary<ulong, string>? stubTargets,
+        int maxResults)
     {
         if (calleeExports is null || stubTargets is null || !calleeExports.ContainsKey(targetSymbolName))
             return [];
@@ -165,6 +173,7 @@ public static class CrossImageCallGraphScanner
 
             foreach (var site in sites)
             {
+                if (result.Count >= maxResults) return result;
                 result.Add(new CrossImageCallSite(
                     site.SourceAddressHex,
                     site.CallerSymbol,

@@ -27,6 +27,9 @@ public static class ErrorKinds
     /// <summary>No paired .dgml sidecar could be found.</summary>
     public const string DgmlNotFound = "dgml_not_found";
 
+    /// <summary>A supplied file or parsed result exceeded the size or entry limits accepted by this operation.</summary>
+    public const string FileTooLarge = "file_too_large";
+
     /// <summary>Architecture not supported in this version (e.g. ARM64 pre-V1).</summary>
     public const string DisassemblyUnsupported = "disassembly_unsupported";
 

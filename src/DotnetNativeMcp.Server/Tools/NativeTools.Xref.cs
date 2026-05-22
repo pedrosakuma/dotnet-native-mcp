@@ -14,7 +14,7 @@ public sealed partial class NativeTools
     [McpServerTool(Name = "find_native_callers")]
     [Description(
         "Scans all executable sections of a loaded native image using static disassembly (Iced for x86/x64, AsmArm64 for ARM64) " +
-        "and returns every CALL/JMP/BL instruction whose target resolves to the requested symbol or address. " +
+        "and returns every CALL/JMP/BL instruction whose target resolves to the requested symbol or address. Results are capped at 100000 call sites per response. " +
         "The full xref index is built lazily on the first call and cached per image handle; " +
         "subsequent calls for the same image are O(callers). " +
         "The index is persisted to disk under ~/.cache/dotnet-native-mcp/<build-id>.xref so large " +
@@ -86,63 +86,68 @@ public sealed partial class NativeTools
         }
 
         var callers = callGraphCache.FindCallers(image, targetVa);
+        var sameImageCount = callers.Count;
+        var crossBudget = Math.Max(0, ResourceLimits.MaxCallerSites - sameImageCount + 1); // +1 to detect overflow
+        var crossCallers = crossImage && targetSym is not null && NativeCallGraphCache.IsCrossXrefEnabled
+            ? callGraphCache.FindCrossImageCallers(image, targetSym.Name, null, registry, crossBudget)
+            : [];
 
         var targetAddrHex = targetVa.ToString("x16", CultureInfo.InvariantCulture);
         var displayName = targetSym?.Name ?? target;
+        var totalCallers = callers.Count + crossCallers.Count;
+        var truncated = totalCallers > ResourceLimits.MaxCallerSites;
+        var rows = new List<CallSiteRow>(Math.Min(totalCallers, ResourceLimits.MaxCallerSites));
 
-        var rows = callers
-            .Select(site =>
-            {
-                SourceLocation? src = null;
-                if (resolveSource && ulong.TryParse(site.SourceAddressHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var siteVa))
-                    src = sourceResolver.TrySourceFor(image, siteVa);
-
-                return new CallSiteRow(
-                    site.SourceAddressHex,
-                    site.CallerSymbol,
-                    site.CallerDemangled,
-                    site.Mnemonic,
-                    site.Operands,
-                    site.RawBytes,
-                    src,
-                    image.Handle.BuildIdHex,
-                    image.FilePath,
-                    false);
-            })
-            .ToList();
-
-        // Cross-image scanning (opt-in).
-        if (crossImage && targetSym is not null && NativeCallGraphCache.IsCrossXrefEnabled)
+        foreach (var site in callers)
         {
-            var crossCallers = callGraphCache.FindCrossImageCallers(
-                image, targetSym.Name, null, registry);
+            if (rows.Count >= ResourceLimits.MaxCallerSites)
+                break;
 
-            foreach (var xsite in crossCallers)
+            SourceLocation? src = null;
+            if (resolveSource && ulong.TryParse(site.SourceAddressHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var siteVa))
+                src = sourceResolver.TrySourceFor(image, siteVa);
+
+            rows.Add(new CallSiteRow(
+                site.SourceAddressHex,
+                site.CallerSymbol,
+                site.CallerDemangled,
+                site.Mnemonic,
+                site.Operands,
+                site.RawBytes,
+                src,
+                image.Handle.BuildIdHex,
+                image.FilePath,
+                false));
+        }
+
+        foreach (var xsite in crossCallers)
+        {
+            if (rows.Count >= ResourceLimits.MaxCallerSites)
+                break;
+
+            SourceLocation? crossSrc = null;
+            if (resolveSource)
             {
-                SourceLocation? crossSrc = null;
-                if (resolveSource)
+                var callerImg = registry.List()
+                    .FirstOrDefault(img => string.Equals(img.FilePath, xsite.CallerImagePath, StringComparison.OrdinalIgnoreCase));
+                if (callerImg is not null &&
+                    ulong.TryParse(xsite.SourceAddressHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var xsiteVa))
                 {
-                    var callerImg = registry.List()
-                        .FirstOrDefault(img => string.Equals(img.FilePath, xsite.CallerImagePath, StringComparison.OrdinalIgnoreCase));
-                    if (callerImg is not null &&
-                        ulong.TryParse(xsite.SourceAddressHex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var xsiteVa))
-                    {
-                        crossSrc = sourceResolver.TrySourceFor(callerImg, xsiteVa);
-                    }
+                    crossSrc = sourceResolver.TrySourceFor(callerImg, xsiteVa);
                 }
-
-                rows.Add(new CallSiteRow(
-                    xsite.SourceAddressHex,
-                    xsite.CallerSymbol,
-                    xsite.CallerDemangled,
-                    xsite.Mnemonic,
-                    xsite.Operands,
-                    xsite.RawBytes,
-                    crossSrc,
-                    xsite.CallerImageBuildId,
-                    xsite.CallerImagePath,
-                    true));
             }
+
+            rows.Add(new CallSiteRow(
+                xsite.SourceAddressHex,
+                xsite.CallerSymbol,
+                xsite.CallerDemangled,
+                xsite.Mnemonic,
+                xsite.Operands,
+                xsite.RawBytes,
+                crossSrc,
+                xsite.CallerImageBuildId,
+                xsite.CallerImagePath,
+                true));
         }
 
         var hints = new List<NextActionHint>();
@@ -158,9 +163,13 @@ public sealed partial class NativeTools
                 }));
         }
 
+        var summary = truncated
+            ? $"Found {totalCallers} caller(s) of '{displayName}' in '{imageHandle}' (truncated to {rows.Count})."
+            : $"Found {rows.Count} caller(s) of '{displayName}' in '{imageHandle}'.";
+
         return NativeResult.Ok(
-            $"Found {rows.Count} caller(s) of '{displayName}' in '{imageHandle}'.",
-            new FindCallersResult(targetAddrHex, targetSym?.Name, targetSym?.DemangledName, rows.Count, rows),
+            summary,
+            new FindCallersResult(targetAddrHex, targetSym?.Name, targetSym?.DemangledName, totalCallers, rows, truncated),
             hints);
     }
 
@@ -218,10 +227,12 @@ public sealed record CallSiteRow(
 /// <param name="TargetSymbol">Raw mangled name of the target symbol, or <c>null</c> when only an address was supplied.</param>
 /// <param name="TargetDemangled">Best-effort demangled name of the target symbol, or <c>null</c>.</param>
 /// <param name="TotalCallers">Total number of call-sites found.</param>
-/// <param name="Callers">The list of call-sites that target this address.</param>
+/// <param name="Callers">The capped list of call-sites returned for this address.</param>
+/// <param name="Truncated"><c>true</c> when additional call-sites were omitted after reaching the response cap.</param>
 public sealed record FindCallersResult(
     string TargetAddressHex,
     string? TargetSymbol,
     string? TargetDemangled,
     int TotalCallers,
-    IReadOnlyList<CallSiteRow> Callers);
+    IReadOnlyList<CallSiteRow> Callers,
+    bool Truncated);

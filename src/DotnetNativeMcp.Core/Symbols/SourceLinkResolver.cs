@@ -1,6 +1,7 @@
 using System.Reflection.Metadata;
 using System.Text;
 using System.Text.Json;
+using DotnetNativeMcp.Core;
 
 namespace DotnetNativeMcp.Core.Symbols;
 
@@ -19,7 +20,9 @@ public sealed class SourceLinkResolver
         if (string.IsNullOrEmpty(pdbPath) || !File.Exists(pdbPath)) return null;
         try
         {
-            var bytes = File.ReadAllBytes(pdbPath);
+            var readResult = ResourceLimits.SafeReadAllBytes(pdbPath, ResourceLimits.MaxPdbBytes);
+            if (readResult.IsError) return null;
+            var bytes = readResult.Data!;
             if (bytes.Length < 4 || BitConverter.ToUInt32(bytes, 0) != 0x424A5342) return null;
             using var provider = MetadataReaderProvider.FromPortablePdbStream(new MemoryStream(bytes, writable: false), MetadataStreamOptions.PrefetchMetadata);
             return TryLoad(provider.GetMetadataReader());

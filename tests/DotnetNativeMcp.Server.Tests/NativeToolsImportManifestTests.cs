@@ -37,6 +37,21 @@ public class NativeToolsImportManifestTests
         result.Summary.Should().Contain("0 of 0");
     }
 
+    [Fact]
+    public void ImportNativeManifest_TooManyEntries_ReturnsInvalidArgument()
+    {
+        var tools = MakeTools();
+        var entries = Enumerable.Range(0, ResourceLimits.MaxManifestEntries + 1)
+            .Select(index => new BatchManifestEntry($"/a/binary-{index}.so"))
+            .ToArray();
+
+        var result = tools.ImportNativeManifest(entries);
+
+        result.IsError.Should().BeTrue();
+        result.Error!.Kind.Should().Be(ErrorKinds.InvalidArgument);
+        result.Error.Message.Should().Contain(ResourceLimits.MaxManifestEntries.ToString());
+    }
+
     // ---------------------------------------------------------------------------
     // Lazy mode (default) — all entries registered, no handle returned
     // ---------------------------------------------------------------------------
