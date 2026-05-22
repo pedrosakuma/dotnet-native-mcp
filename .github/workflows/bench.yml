@@ -26,10 +26,18 @@ on:
       - tests/bench/**
       - tests/DotnetNativeMcp.Core.Tests/**
 
-# Default to read-only at workflow scope; the bench job opts in to write only
-# on push events (the only path that auto-pushes results to the gh-pages
-# branch). PR runs execute PR-controlled code under `dotnet run` and must not
-# receive a writable GITHUB_TOKEN.
+# Workflow scope is read-only; the bench job opts in to contents:write because
+# pushes to main auto-publish BenchmarkDotNet history to the gh-pages branch.
+# GitHub Actions does not support expressions in the `permissions:` map
+# (values must be literal read/write/none), so the write scope is statically
+# declared on the job. PR runs that are explicitly labeled `perf` therefore
+# still receive a writable `GITHUB_TOKEN` for the duration of the workflow —
+# benchmark-action's auto-push step is gated on push, but PR-controlled
+# `dotnet run` code in the bench fixtures could in principle use the token
+# before that gate is reached. The `if:` requires a maintainer to apply the
+# `perf` label first, so only trusted PRs reach this code path. Issue #106
+# tracks the proper fix: split push vs. PR into two jobs with static
+# permissions and zero write tokens on PR runs.
 permissions:
   contents: read
 
@@ -41,7 +49,7 @@ jobs:
       contains(github.event.pull_request.labels.*.name, 'perf')
     runs-on: ubuntu-22.04
     permissions:
-      contents: ${{ github.event_name == 'push' && 'write' || 'read' }}
+      contents: write
     steps:
       - uses: actions/checkout@v5
         with:
