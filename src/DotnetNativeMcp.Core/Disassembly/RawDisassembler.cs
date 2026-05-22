@@ -63,6 +63,19 @@ public static class RawDisassembler
                 $"Failed to read '{imagePath}': {ex.Message}");
         }
 
+        // Reject negative or zero sizes and negative RVAs up-front: in unknown-format
+        // raw-bytes mode we treat `rva` as a direct file offset, and `int` underflow
+        // would let an attacker bypass the `fileOffset + size > rawBytes.Length`
+        // check below.
+        if (size <= 0)
+            return NativeResult.Fail<IReadOnlyList<InstructionView>>(
+                ErrorKinds.AddressOutOfRange,
+                $"size must be positive (got {size}).");
+        if (rva < 0)
+            return NativeResult.Fail<IReadOnlyList<InstructionView>>(
+                ErrorKinds.AddressOutOfRange,
+                $"RVA must be non-negative (got {rva}).");
+
         // Parse just enough to get sections and architecture — no managed-native check.
         var parsed = TryParseHeaders(rawBytes, imagePath);
         if (parsed is null && arch is null)
@@ -91,10 +104,11 @@ public static class RawDisassembler
             fileOffset = rva;
         }
 
-        if (fileOffset + size > rawBytes.Length)
+        // Use long arithmetic so a crafted (rva, size) pair can't wrap past int.MaxValue.
+        if ((long)fileOffset + size > rawBytes.Length)
             return NativeResult.Fail<IReadOnlyList<InstructionView>>(
                 ErrorKinds.AddressOutOfRange,
-                $"RVA 0x{rva:x} + size {size} (file offset 0x{fileOffset:x}..0x{fileOffset + size:x}) " +
+                $"RVA 0x{rva:x} + size {size} (file offset 0x{fileOffset:x}..0x{(long)fileOffset + size:x}) " +
                 $"exceeds the file length of {rawBytes.Length} bytes.");
 
         // Build a minimal synthetic NativeImage containing only the requested code slice.

@@ -349,15 +349,20 @@ public static partial class MachOReader
         var strsize = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(cmdOffset + 20)..]);
 
         var entrySize = is64 ? 16u : 12u;
-        if (symoff + nsyms * entrySize > (uint)bytes.Length) return;
-        if (stroff + strsize > (uint)bytes.Length) return;
+        // Compute in ulong so we don't wrap a 32-bit multiplication into a value
+        // that incorrectly passes the bounds check on a crafted Mach-O.
+        if ((ulong)symoff + (ulong)nsyms * entrySize > (ulong)bytes.Length) return;
+        if ((ulong)stroff + strsize > (ulong)bytes.Length) return;
+        if (stroff > int.MaxValue || (ulong)stroff + strsize > int.MaxValue) return;
 
         var strtab = bytes[(int)stroff..(int)(stroff + strsize)];
 
         for (var i = 0u; i < nsyms; i++)
         {
-            var symBase = (int)symoff + (int)(i * entrySize);
-            if (symBase + (int)entrySize > bytes.Length) break;
+            var symBaseUlong = (ulong)symoff + (ulong)i * entrySize;
+            if (symBaseUlong > int.MaxValue || symBaseUlong + entrySize > (ulong)bytes.Length)
+                break;
+            var symBase = (int)symBaseUlong;
 
             var nStrx = BinaryPrimitives.ReadUInt32LittleEndian(bytes[symBase..]);
             var nType = bytes[symBase + 4];
