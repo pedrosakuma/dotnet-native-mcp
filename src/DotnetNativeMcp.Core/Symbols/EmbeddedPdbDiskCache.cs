@@ -19,7 +19,7 @@ namespace DotnetNativeMcp.Core.Symbols;
 public static class EmbeddedPdbDiskCache
 {
     // Maximum PDB size accepted from cache (32 MiB — matches extractor decompression cap).
-    private const long MaxPdbBytes = 32L * 1024 * 1024;
+    private const long MaxPdbBytes = ResourceLimits.MaxEmbeddedPdbCacheBytes;
     /// <summary>
     /// Returns <see langword="true"/> when disk caching is enabled.
     /// Controlled by <c>DOTNET_NATIVE_MCP_PDB_EXTRACT_CACHE</c>: any value other than
@@ -55,13 +55,11 @@ public static class EmbeddedPdbDiskCache
     {
         try
         {
-            if (!File.Exists(cachePath)) return null;
-            // Guard against unexpectedly large cache files before allocating.
-            var info = new FileInfo(cachePath);
-            if (info.Length > MaxPdbBytes || info.Length < 4) return null;
-            var bytes = File.ReadAllBytes(cachePath);
+            var bytes = SecureCacheFile.TryReadCapped(cachePath, MaxPdbBytes);
+            if (bytes is null || bytes.Length < 4)
+                return null;
             // Validate it looks like a portable PDB (BSJB magic).
-            if (bytes.Length < 4 || BitConverter.ToUInt32(bytes, 0) != 0x424A5342u)
+            if (BitConverter.ToUInt32(bytes, 0) != 0x424A5342u)
                 return null;
             return bytes;
         }
@@ -77,18 +75,9 @@ public static class EmbeddedPdbDiskCache
     /// </summary>
     public static void Write(string cachePath, byte[] pdbBytes)
     {
-        try
-        {
-            var dir = Path.GetDirectoryName(cachePath)!;
-            Directory.CreateDirectory(dir);
+        if (pdbBytes.LongLength > MaxPdbBytes)
+            return;
 
-            var tmp = cachePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            File.WriteAllBytes(tmp, pdbBytes);
-            File.Move(tmp, cachePath, overwrite: true);
-        }
-        catch
-        {
-            // Best-effort; cache unavailability must never surface as an error.
-        }
+        SecureCacheFile.WriteAtomic(cachePath, pdbBytes);
     }
 }

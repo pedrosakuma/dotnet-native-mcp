@@ -91,7 +91,9 @@ public static class NativeCallGraphDiskCache
             if (!File.Exists(cachePath))
                 return false;
 
-            var bytes = File.ReadAllBytes(cachePath);
+            var bytes = SecureCacheFile.TryReadCapped(cachePath, ResourceLimits.MaxXrefCacheBytes);
+            if (bytes is null)
+                return false;
             if (bytes.Length < HeaderSize)
                 return false;
 
@@ -199,8 +201,6 @@ public static class NativeCallGraphDiskCache
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(cachePath)!);
-
             var sameImageDto = new Dictionary<string, CallSiteDto[]>(index.Count);
             foreach (var (key, sites) in index)
             {
@@ -238,10 +238,10 @@ public static class NativeCallGraphDiskCache
             System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(allBytes.AsSpan(4), FormatVersion);
             jsonBytes.CopyTo(allBytes, HeaderSize);
 
-            var tmpPath = cachePath + "." + Environment.CurrentManagedThreadId.ToString(
-                System.Globalization.CultureInfo.InvariantCulture) + ".tmp";
-            File.WriteAllBytes(tmpPath, allBytes);
-            File.Move(tmpPath, cachePath, overwrite: true);
+            if (allBytes.LongLength > ResourceLimits.MaxXrefCacheBytes)
+                return;
+
+            SecureCacheFile.WriteAtomic(cachePath, allBytes);
         }
         catch
         {
