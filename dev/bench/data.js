@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779460120150,
+  "lastUpdate": 1779460121293,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -232,6 +232,42 @@ window.BENCHMARK_DATA = {
             "value": 14432443.114583334,
             "unit": "ns",
             "range": "± 53633.12817884468"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "7299bed916595372a444b83cfbb2d42332510ecb",
+          "message": "Bump GitHub Actions to Node 24-based majors (#90) (#91)\n\nEliminates the Node 20 deprecation warnings emitted on every workflow\nrun since the runner started warning. Node 20 will be removed from\nGitHub-hosted runners on 2026-09-16; default flips to Node 24 on\n2026-06-02.\n\nUpgrade map (chosen to be minimal Node-24 bumps, skipping majors that\nintroduce ESM or other API breaks we don't need):\n- actions/checkout v4 → v5\n- actions/setup-dotnet v4 → v5\n- actions/cache v4 → v5\n- actions/upload-artifact v4 → v6\n- actions/download-artifact v4 → v7\n- actions/attest-build-provenance v2 → v4\n- softprops/action-gh-release v2 → v3\n\nCross-repo mirror to be opened in dotnet-assembly-mcp and\ndotnet-diagnostics-mcp after this PR validates the pattern.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-05-22T11:17:11-03:00",
+          "tree_id": "cd525c4877e6b09cc6cf0f13d29477b74bffefcd",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/7299bed916595372a444b83cfbb2d42332510ecb"
+        },
+        "date": 1779460121272,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 1069350.2454927885,
+            "unit": "ns",
+            "range": "± 3865.7260540624625"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 16407762.460416667,
+            "unit": "ns",
+            "range": "± 174133.6266564153"
           }
         ]
       }
