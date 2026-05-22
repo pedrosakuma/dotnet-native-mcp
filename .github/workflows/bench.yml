@@ -6,6 +6,7 @@ on:
     branches: [main]
     paths:
       - .github/workflows/bench.yml
+      - .github/actions/run-bench/**
       - Directory.Build.props
       - Directory.Packages.props
       - DotnetNativeMcp.slnx
@@ -18,6 +19,7 @@ on:
     types: [opened, reopened, synchronize, labeled]
     paths:
       - .github/workflows/bench.yml
+      - .github/actions/run-bench/**
       - Directory.Build.props
       - Directory.Packages.props
       - DotnetNativeMcp.slnx
@@ -26,27 +28,21 @@ on:
       - tests/bench/**
       - tests/DotnetNativeMcp.Core.Tests/**
 
-# Workflow scope is read-only; the bench job opts in to contents:write because
-# pushes to main auto-publish BenchmarkDotNet history to the gh-pages branch.
-# GitHub Actions does not support expressions in the `permissions:` map
-# (values must be literal read/write/none), so the write scope is statically
-# declared on the job. PR runs that are explicitly labeled `perf` therefore
-# still receive a writable `GITHUB_TOKEN` for the duration of the workflow —
-# benchmark-action's auto-push step is gated on push, but PR-controlled
-# `dotnet run` code in the bench fixtures could in principle use the token
-# before that gate is reached. The `if:` requires a maintainer to apply the
-# `perf` label first, so only trusted PRs reach this code path. Issue #106
-# tracks the proper fix: split push vs. PR into two jobs with static
-# permissions and zero write tokens on PR runs.
+# Workflow scope is read-only. The two split jobs below opt in to the
+# minimum permission each path needs — see issue #106 for the design.
+# GitHub Actions does not allow expressions in the `permissions:` map
+# (values must be literal read/write/none), so the split is enforced
+# at the job level instead of via a dynamic permission on a single job.
 permissions:
   contents: read
 
 jobs:
-  bench:
-    name: BenchmarkDotNet
-    if: >-
-      github.event_name != 'pull_request' ||
-      contains(github.event.pull_request.labels.*.name, 'perf')
+  # Push / workflow_dispatch path: publishes new BenchmarkDotNet baselines
+  # to the gh-pages branch and therefore needs contents:write. PR-controlled
+  # code never reaches this job because of the event filter on `if:`.
+  bench-push:
+    name: BenchmarkDotNet (push baseline)
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -54,87 +50,28 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: actions/setup-dotnet@v5
+      - uses: ./.github/actions/run-bench
         with:
-          global-json-file: global.json
-      - name: Install NativeAOT toolchain
-        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
-      - name: Restore
-        run: dotnet restore
-      - name: Prepare benchmark storage branch
-        env:
-          BENCHMARK_BRANCH: gh-pages
-        run: |
-          original_ref="$(git rev-parse --verify HEAD)"
+          auto-push: 'true'
+          fail-on-alert: 'false'
 
-          if git show-ref --verify --quiet "refs/heads/$BENCHMARK_BRANCH"; then
-            git branch -D "$BENCHMARK_BRANCH"
-          fi
-
-          if git ls-remote --exit-code --heads origin "$BENCHMARK_BRANCH" >/dev/null 2>&1; then
-            git fetch origin "$BENCHMARK_BRANCH:$BENCHMARK_BRANCH"
-            exit 0
-          fi
-
-          git switch --orphan "$BENCHMARK_BRANCH"
-          git reset --hard
-          touch .nojekyll
-          git add .nojekyll
-          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Initialize benchmark data branch"
-          git switch --detach "$original_ref"
-      - name: Build tests (builds SampleAot fixture)
-        run: dotnet build tests/DotnetNativeMcp.Core.Tests/DotnetNativeMcp.Core.Tests.csproj --configuration Release --no-restore
-      - name: Build bench
-        run: dotnet build tests/bench/DotnetNativeMcp.Bench/DotnetNativeMcp.Bench.csproj --configuration Release --no-restore
-      - name: Run benchmarks
-        run: >
-          dotnet run
-          --project tests/bench/DotnetNativeMcp.Bench/DotnetNativeMcp.Bench.csproj
-          --configuration Release
-          --no-build
-          -- --filter '*' --exporters json
-      - name: Store FindNativeCallers benchmark result
-        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+  # PR path: only runs when a maintainer applies the `perf` label, and
+  # then executes attacker-controllable bench fixtures under a strictly
+  # read-only GITHUB_TOKEN. The benchmark action still alerts on
+  # regressions (fail-on-alert: 'true') and never pushes a baseline.
+  bench-pr:
+    name: BenchmarkDotNet (PR alert-only)
+    if: >-
+      github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'perf')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
         with:
-          name: FindNativeCallers Benchmark
-          tool: benchmarkdotnet
-          output-file-path: BenchmarkDotNet.Artifacts/results/DotnetNativeMcp.Bench.FindNativeCallersBench-report-full-compressed.json
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          auto-push: ${{ github.event_name == 'push' }}
-          skip-fetch-gh-pages: true
-          summary-always: true
-          alert-threshold: '110%'
-          fail-on-alert: ${{ github.event_name == 'pull_request' }}
-      - name: Store Disassemble benchmark result
-        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
+          fetch-depth: 0
+      - uses: ./.github/actions/run-bench
         with:
-          name: Disassemble Benchmark
-          tool: benchmarkdotnet
-          output-file-path: BenchmarkDotNet.Artifacts/results/DotnetNativeMcp.Bench.DisassembleBench-report-full-compressed.json
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          auto-push: ${{ github.event_name == 'push' }}
-          skip-fetch-gh-pages: true
-          summary-always: true
-          alert-threshold: '110%'
-          fail-on-alert: ${{ github.event_name == 'pull_request' }}
-      - name: Store ExtractStrings benchmark result
-        uses: benchmark-action/github-action-benchmark@52576c92bccf6ac60c8223ec7eb2565637cae9ba # v1.22.1
-        with:
-          name: ExtractStrings Benchmark
-          tool: benchmarkdotnet
-          output-file-path: BenchmarkDotNet.Artifacts/results/DotnetNativeMcp.Bench.ExtractStringsBench-report-full-compressed.json
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          auto-push: ${{ github.event_name == 'push' }}
-          skip-fetch-gh-pages: true
-          summary-always: true
-          alert-threshold: '110%'
-          fail-on-alert: ${{ github.event_name == 'pull_request' }}
-      - name: Upload BenchmarkDotNet artifacts
-        uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: benchmark-results
-          path: BenchmarkDotNet.Artifacts/results/
+          auto-push: 'false'
+          fail-on-alert: 'true'
