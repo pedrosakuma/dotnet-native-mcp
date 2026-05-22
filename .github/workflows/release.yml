@@ -79,7 +79,7 @@ jobs:
           subject-path: 'artifacts/nupkg/*.nupkg'
 
       - name: Upload nupkg
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: nupkg
           path: artifacts/nupkg/*.nupkg
@@ -167,7 +167,7 @@ jobs:
             artifacts/dotnet-native-mcp-*.zip
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.rid }}
           path: |
