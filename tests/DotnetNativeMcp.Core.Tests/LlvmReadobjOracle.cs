@@ -80,6 +80,75 @@ internal static partial class LlvmReadobjOracle
         return sections.ToDictionary(kvp => kvp.Key, kvp => (IReadOnlyList<PeSection>)kvp.Value, StringComparer.Ordinal);
     }
 
+    /// <summary>One Mach-O section (<c>llvm-readobj --sections</c>).</summary>
+    public readonly record struct MachOSection(string Name, ulong VirtualAddress, ulong VirtualSize, ulong FileOffset);
+
+    [GeneratedRegex(@"^\s*Segment:\s+(?<seg>\S+)")]
+    private static partial Regex SegmentRegex();
+
+    [GeneratedRegex(@"^\s*Address:\s+(?<v>\S+)")]
+    private static partial Regex AddressRegex();
+
+    [GeneratedRegex(@"^\s*Size:\s+(?<v>\S+)")]
+    private static partial Regex SizeRegex();
+
+    [GeneratedRegex(@"^\s*Offset:\s+(?<v>\S+)")]
+    private static partial Regex OffsetRegex();
+
+    /// <summary>
+    /// Returns the Mach-O section headers grouped by the <c>Segment,Name</c> composite key that
+    /// <see cref="DotnetNativeMcp.Core.Imaging.MachOReader"/> uses as its section display name. Each
+    /// composite name maps to the list of rows that carry it (Mach-O section names are not unique).
+    /// </summary>
+    public static IReadOnlyDictionary<string, IReadOnlyList<MachOSection>>? TryReadMachOSections(string path)
+    {
+        var output = OracleProcess.Run("llvm-readobj", "--sections", path);
+        if (output is null) return null;
+
+        var sections = new Dictionary<string, List<MachOSection>>(StringComparer.Ordinal);
+
+        string? name = null, segment = null;
+        ulong? addr = null, size = null, offset = null;
+
+        void Flush()
+        {
+            if (name is null || segment is null || addr is null || size is null || offset is null)
+                return;
+
+            // MachOReader composes the display name as "{segName},{sectName}" (empty segment falls back to name).
+            var displayName = segment.Length == 0 ? name : $"{segment},{name}";
+            var section = new MachOSection(displayName, addr.Value, size.Value, offset.Value);
+            if (!sections.TryGetValue(displayName, out var list))
+                sections[displayName] = list = [];
+            list.Add(section);
+        }
+
+        foreach (var rawLine in output.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+
+            // llvm-readobj prints "Name: __text (5F 5F ...)"; strip the trailing hex-byte gloss.
+            var nameMatch = NameRegex().Match(line);
+            if (nameMatch.Success)
+            {
+                Flush(); // emit the previous block before starting a new one
+                name = nameMatch.Groups["name"].Value;
+                segment = null;
+                addr = size = offset = null;
+                continue;
+            }
+
+            if (SegmentRegex().Match(line) is { Success: true } sg) segment = sg.Groups["seg"].Value;
+            else if (AddressRegex().Match(line) is { Success: true } ad) addr = ParseNum(ad.Groups["v"].Value);
+            else if (SizeRegex().Match(line) is { Success: true } sz) size = ParseNum(sz.Groups["v"].Value);
+            else if (OffsetRegex().Match(line) is { Success: true } of) offset = ParseNum(of.Groups["v"].Value);
+        }
+
+        Flush(); // last block
+
+        return sections.ToDictionary(kvp => kvp.Key, kvp => (IReadOnlyList<MachOSection>)kvp.Value, StringComparer.Ordinal);
+    }
+
     // llvm-readobj prints addresses/offsets in hex (0x-prefixed) but sizes in decimal.
     private static ulong ParseNum(string value) =>
         value.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
