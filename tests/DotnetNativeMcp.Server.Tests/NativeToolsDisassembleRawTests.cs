@@ -306,7 +306,7 @@ public class NativeToolsDisassembleRawTests
         public NativeResult<NativeImage> Load(string path, string? expectedBuildId = null) =>
             throw new NotSupportedException();
 
-        public void RegisterHint(string path, string? buildId = null) { }
+        public DotnetNativeMcp.Core.NativeResult<string> RegisterHint(string path, string? buildId = null) => DotnetNativeMcp.Core.NativeResult.Ok("registered", path);
 
         public bool TryGet(string imageHandle, out NativeImage? image)
         {

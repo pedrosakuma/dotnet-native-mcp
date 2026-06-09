@@ -229,10 +229,11 @@ public class NativeToolsImportManifestTests
             return NativeResult.Fail<NativeImage>(ErrorKinds.BinaryNotFound, $"No staged result for '{path}'.");
         }
 
-        public void RegisterHint(string path, string? buildId = null)
+        public NativeResult<string> RegisterHint(string path, string? buildId = null)
         {
             var absPath = Path.GetFullPath(path);
             Hints[absPath] = buildId;
+            return NativeResult.Ok("registered", absPath);
         }
 
         public bool TryGet(string imageHandle, out NativeImage? image) =>

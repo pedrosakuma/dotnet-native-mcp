@@ -154,7 +154,7 @@ public class ExplainRetentionToolTests
         public bool TryGet(string imageHandle, out NativeImage? image) =>
             _images.TryGetValue(imageHandle, out image);
 
-        public void RegisterHint(string path, string? buildId = null) { }
+        public DotnetNativeMcp.Core.NativeResult<string> RegisterHint(string path, string? buildId = null) => DotnetNativeMcp.Core.NativeResult.Ok("registered", path);
 
         public IReadOnlyList<NativeImage> List() => [.. _images.Values];
 

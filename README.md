@@ -174,6 +174,31 @@ The check inspects `Urls`, `ASPNETCORE_URLS`, `HTTP_PORTS` / `HTTPS_PORTS`
 (and the `ASPNETCORE_*` aliases), and `Kestrel:Endpoints:*:Url` configuration
 sources.
 
+### Trusted-path allowlist (untrusted path hints)
+
+Filesystem paths arrive off the wire from an LLM and are treated as untrusted
+display hints, per the [handoff contract](docs/handoff-contract.md#path-hints-are-untrusted).
+Every path passed to `load_native_binary`, `import_native_manifest`,
+`disassemble` (`imagePath` / `ilMapPath`) and the sidecar overrides
+(`mstatPath` / `dgmlPath`) is canonicalised — `..` flattened and symlinks /
+junctions resolved to their true target — before any file is opened.
+
+Enforcement is **opt-in**. Configure at least one trusted root to restrict opens
+to that subtree (anything outside is refused with `path_not_allowed`):
+
+```bash
+# any of these turns enforcement on
+export NATIVE_MCP_ALLOWED_ROOTS="/binaries:/app/assemblies"   # PATH-separator list
+export BINARIES_DIR=/binaries                                  # single root (Compose tier)
+# or NativeMcp:AllowedBinaryRoots in appsettings.json / config
+```
+
+When enforcing, the NuGet global packages cache, the .NET shared framework, and
+the system temp directory are always allowed in addition to your roots so
+handed-off binaries and staged sidecars keep resolving. Until a root is
+configured the server stays permissive (paths are still canonicalised) and logs
+a one-time startup warning.
+
 ## Resource limits
 
 To bound memory use and adversarial inputs, the server applies the following caps:

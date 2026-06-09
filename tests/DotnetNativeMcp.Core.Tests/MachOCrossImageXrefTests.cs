@@ -182,9 +182,8 @@ public sealed class MachOCrossImageXrefTests
         public NativeResult<NativeImage> Load(string path, string? expectedBuildId = null)
             => throw new NotSupportedException();
 
-        public void RegisterHint(string path, string? buildId = null)
-        {
-        }
+        public NativeResult<string> RegisterHint(string path, string? buildId = null)
+            => NativeResult.Ok("registered", path);
 
         public bool TryGet(string imageHandle, out NativeImage? image)
         {

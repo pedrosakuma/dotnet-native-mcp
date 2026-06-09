@@ -95,9 +95,17 @@ public sealed partial class NativeTools
             }
             else
             {
-                registry.RegisterHint(entry.Path, entry.BuildId);
-                loadedCount++;
-                results.Add(new BatchLoadEntry(entry.Path, entry.Name, null, "registered", null));
+                var hintResult = registry.RegisterHint(entry.Path, entry.BuildId);
+                if (hintResult.IsError)
+                {
+                    results.Add(new BatchLoadEntry(entry.Path, entry.Name, null, "failed",
+                        new NativeError(hintResult.Error!.Kind, hintResult.Error.Message, hintResult.Error.Detail)));
+                }
+                else
+                {
+                    loadedCount++;
+                    results.Add(new BatchLoadEntry(entry.Path, entry.Name, null, "registered", null));
+                }
             }
         }
 
