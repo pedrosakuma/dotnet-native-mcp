@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781042582145,
+  "lastUpdate": 1781042583560,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1156,6 +1156,42 @@ window.BENCHMARK_DATA = {
             "value": 12617690.354166666,
             "unit": "ns",
             "range": "± 94473.50273740863"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8227247d82a1d82a6f52d3a97b0b9179b19ee791",
+          "message": "test: add ARM64 disassembly differential harness vs llvm-objdump (#114)\n\nCompletes disassembler oracle coverage: Arm64Disassembler is now compared\nagainst llvm-objdump the same way x86/x64 is compared against GNU objdump.\n\nBuilding the harness surfaced a real production bug, fixed here:\nInstructionView.Mnemonic was sourced from instr.Mnemonic.ToText(false),\nwhich collapses every B.cond (b.eq, b.ne, ...) to a bare 'b', dropping the\ncondition suffix. Mnemonic and operands are now both derived from a single\ninstr.TryFormat pass via FormatMnemonicAndOperands, preserving the suffix.\nApplied at both call sites (Disassemble and ScanSection).\n\n- Rich ARM64 fixture (arm64rich.s/.o, 42 diverse instructions) via llvm-mc\n- LlvmObjdumpArm64Oracle: parses addr/word/mnemonic, reverses big-endian\n  word to little-endian file-order hex for raw-byte comparison\n- Arm64DisassemblyDifferentialTests: address-set, raw-word and exact\n  mnemonic equality against the fixture\n- Arm64DisassemblerTests: b.cond regression test (no LLVM dependency)\n- docs/differential-testing.md and fixtures README updated\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-09T18:53:20-03:00",
+          "tree_id": "daa91ac1fd19777530b282e7eb813c1e41311fbb",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/8227247d82a1d82a6f52d3a97b0b9179b19ee791"
+        },
+        "date": 1781042583532,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 944094.2811748798,
+            "unit": "ns",
+            "range": "± 2039.4784113074006"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 14169750.71986607,
+            "unit": "ns",
+            "range": "± 50197.07335407172"
           }
         ]
       }
