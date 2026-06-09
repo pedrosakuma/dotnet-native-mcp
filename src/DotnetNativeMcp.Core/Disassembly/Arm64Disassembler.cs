@@ -65,8 +65,7 @@ public static class Arm64Disassembler
                 continue;
             }
 
-            var mnemonic = instr.Mnemonic.ToText(false).ToLowerInvariant();
-            var operands = FormatOperands(instr, instrIp);
+            var (mnemonic, operands) = FormatMnemonicAndOperands(instr);
 
             CrossRefHint? crossRef = null;
             if (IsBranchOrCall(instr))
@@ -124,8 +123,7 @@ public static class Arm64Disassembler
                     var sourceAddressHex = instrIp.ToString("x16", CultureInfo.InvariantCulture);
                     var sourceRva = instrIp >= image.ImageBase ? instrIp - image.ImageBase : instrIp;
                     var callerSym = SymbolResolution.FindByRva(image.Symbols, sourceRva);
-                    var mnemonic = instr.Mnemonic.ToText(false).ToLowerInvariant();
-                    var operands = FormatOperands(instr, instrIp);
+                    var (mnemonic, operands) = FormatMnemonicAndOperands(instr);
 
                     var site = new CallSite(
                         sourceAddressHex,
@@ -187,18 +185,26 @@ public static class Arm64Disassembler
         return null;
     }
 
-    private static string FormatOperands(Arm64Instruction instr, ulong instrIp)
+    // Renders the mnemonic and operands from a single AsmArm64 format pass so the two stay
+    // mutually consistent. Crucially this preserves the condition suffix on conditional branches
+    // (e.g. "b.eq"): Arm64Mnemonic.ToText(false) collapses every B.cond to a bare "b", and the
+    // old split-on-first-space operand path then discarded the ".eq" along with the mnemonic
+    // token — dropping the condition entirely. Sourcing both from instr.TryFormat keeps it.
+    private static (string Mnemonic, string Operands) FormatMnemonicAndOperands(Arm64Instruction instr)
     {
         Span<char> buf = stackalloc char[256];
         if (instr.TryFormat(buf, out var written, default, null))
         {
             var text = buf[..written];
             var spaceIdx = text.IndexOf(' ');
-            if (spaceIdx >= 0)
-                return text[(spaceIdx + 1)..].ToString();
+            if (spaceIdx < 0)
+                return (text.ToString().ToLowerInvariant(), string.Empty);
+
+            return (text[..spaceIdx].ToString().ToLowerInvariant(), text[(spaceIdx + 1)..].ToString());
         }
 
-        return string.Empty;
+        // TryFormat failed: fall back to the enum text with no operands.
+        return (instr.Mnemonic.ToText(false).ToLowerInvariant(), string.Empty);
     }
 
     private static CrossRefHint BuildCrossRef(NativeImage image, ulong targetIp)
