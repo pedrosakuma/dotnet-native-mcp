@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781035470174,
+  "lastUpdate": 1781042580762,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -480,6 +480,66 @@ window.BENCHMARK_DATA = {
             "value": 17.53348892075675,
             "unit": "ns",
             "range": "± 0.05950391261101391"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8227247d82a1d82a6f52d3a97b0b9179b19ee791",
+          "message": "test: add ARM64 disassembly differential harness vs llvm-objdump (#114)\n\nCompletes disassembler oracle coverage: Arm64Disassembler is now compared\nagainst llvm-objdump the same way x86/x64 is compared against GNU objdump.\n\nBuilding the harness surfaced a real production bug, fixed here:\nInstructionView.Mnemonic was sourced from instr.Mnemonic.ToText(false),\nwhich collapses every B.cond (b.eq, b.ne, ...) to a bare 'b', dropping the\ncondition suffix. Mnemonic and operands are now both derived from a single\ninstr.TryFormat pass via FormatMnemonicAndOperands, preserving the suffix.\nApplied at both call sites (Disassemble and ScanSection).\n\n- Rich ARM64 fixture (arm64rich.s/.o, 42 diverse instructions) via llvm-mc\n- LlvmObjdumpArm64Oracle: parses addr/word/mnemonic, reverses big-endian\n  word to little-endian file-order hex for raw-byte comparison\n- Arm64DisassemblyDifferentialTests: address-set, raw-word and exact\n  mnemonic equality against the fixture\n- Arm64DisassemblerTests: b.cond regression test (no LLVM dependency)\n- docs/differential-testing.md and fixtures README updated\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-09T18:53:20-03:00",
+          "tree_id": "daa91ac1fd19777530b282e7eb813c1e41311fbb",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/8227247d82a1d82a6f52d3a97b0b9179b19ee791"
+        },
+        "date": 1781042580739,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 12220688724.166666,
+            "unit": "ns",
+            "range": "± 17501393.643658318"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 29015821.29963235,
+            "unit": "ns",
+            "range": "± 578777.2714335114"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 32.350051283836365,
+            "unit": "ns",
+            "range": "± 0.06397622514810963"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 502778.61169433594,
+            "unit": "ns",
+            "range": "± 15404.362420827314"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 20597.827033409707,
+            "unit": "ns",
+            "range": "± 122.26815626725624"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 22.603405650456747,
+            "unit": "ns",
+            "range": "± 0.15471504795122742"
           }
         ]
       }
