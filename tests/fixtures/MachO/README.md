@@ -16,6 +16,7 @@ multi-section, multi-architecture Mach-O binary.
 |------------------|---------|-------------------------------------------|
 | `macho-x64.o`    | x86_64  | `__TEXT,__text` `__DATA,__data` `__TEXT,__cstring` |
 | `macho-arm64.o`  | arm64   | `__TEXT,__text` `__DATA,__data` `__TEXT,__cstring` |
+| `arm64rich.o`    | arm64   | `__TEXT,__text` with a diverse instruction mix — the ARM64 disassembly oracle fixture (`Arm64DisassemblyDifferentialTests`) |
 
 ## Regenerating
 
@@ -25,4 +26,5 @@ LLVM integrated assembler (no macOS SDK required):
 ```bash
 llvm-mc -triple=x86_64-apple-darwin -filetype=obj macho-x64.s   -o macho-x64.o
 llvm-mc -triple=arm64-apple-darwin  -filetype=obj macho-arm64.s -o macho-arm64.o
+llvm-mc -triple=arm64-apple-darwin  -filetype=obj arm64rich.s   -o arm64rich.o
 ```

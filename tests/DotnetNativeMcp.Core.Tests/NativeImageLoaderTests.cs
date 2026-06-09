@@ -176,6 +176,12 @@ internal static class FixturePaths
     /// </summary>
     public static string? MachOArm64Object => MachOFixture("macho-arm64.o");
 
+    /// <summary>
+    /// Path to the committed arm64 Mach-O object carrying a diverse instruction mix, used by the
+    /// ARM64 disassembly differential harness, or <c>null</c> if not present.
+    /// </summary>
+    public static string? MachOArm64RichObject => MachOFixture("arm64rich.o");
+
     private static string? MachOFixture(string fileName)
     {
         if (RepoRoot is null)

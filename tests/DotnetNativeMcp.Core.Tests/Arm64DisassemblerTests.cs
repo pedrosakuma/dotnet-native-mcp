@@ -109,6 +109,26 @@ public sealed class Arm64DisassemblerTests
     }
 
     [Fact]
+    public void Disassemble_BCond_PreservesConditionSuffix()
+    {
+        // Regression: Mnemonic.ToText(false) collapses every B.cond to a bare "b" and the old
+        // operand split then dropped the condition token, so "b.eq" surfaced as "b". The mnemonic
+        // and operands must now come from a single AsmArm64 format pass that keeps the suffix.
+        byte[] code =
+        [
+            0x20, 0x00, 0x00, 0x54, // B.EQ +4  (0x54000020)
+            0xC0, 0x03, 0x5F, 0xD6, // RET
+        ];
+        var image = MakeArm64Image(code);
+
+        var result = DotnetNativeMcp.Core.Disassembly.Arm64Disassembler.Disassemble(image, SectionRva, 10);
+
+        (!result.IsError).Should().BeTrue();
+        result.Data![0].Mnemonic.Should().Be("b.eq");
+        result.Data![0].CrossRef.Should().NotBeNull();
+    }
+
+    [Fact]
     public void Disassemble_CBZ_IncludesCrossRef()
     {
         byte[] code =

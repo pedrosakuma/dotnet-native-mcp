@@ -43,6 +43,7 @@ disassembly oracle (`ObjdumpOracle`) shells out to `objdump`, and the PE and Mac
 | Decoder | Reference oracle | Compared properties | Source |
 |---|---|---|---|
 | `IcedDisassembler` (x86/x64, via `RawDisassembler`) | GNU `objdump -d -M intel` | per-address instruction boundary + raw bytes (hard); mnemonic (soft) | `tests/DotnetNativeMcp.Core.Tests/ElfDisassemblyDifferentialTests.cs` |
+| `Arm64Disassembler` (AsmArm64, via `RawDisassembler`) | LLVM `llvm-objdump -d --triple=arm64-apple-darwin` | per-address raw 32-bit word + mnemonic, incl. `b.<cond>` suffix (hard) | `tests/DotnetNativeMcp.Core.Tests/Arm64DisassemblyDifferentialTests.cs` |
 
 The hard oracle is **instruction-boundary + raw-byte** agreement: two independent decoders
 walking the same bytes must segment them identically, so a mismatch means one of them
@@ -50,6 +51,14 @@ mis-sized an instruction — the most dangerous class of decoder bug, invisible 
 "never throws" fuzz harness. The harness disassembles each function symbol in `.text`
 (bounded by size) both ways and asserts every Iced instruction has an `objdump` instruction
 at the same address with identical bytes.
+
+For the fixed-width ARM64 decoder the boundary signal is trivial (every instruction is 4 bytes),
+so the harness instead pins **decode correctness**: AsmArm64 and `llvm-objdump` must name the same
+mnemonic for each 32-bit word. This caught a real bug — `Arm64Mnemonic.ToText(false)` collapses
+every `B.cond` to a bare `b`, and the old operand split then dropped the condition token, so `b.eq`
+surfaced as `b` with the condition lost entirely. The fix sources mnemonic **and** operands from a
+single `instr.TryFormat` pass; `Arm64DisassemblerTests.Disassemble_BCond_PreservesConditionSuffix`
+pins it independently of this LLVM-dependent harness.
 
 #### Comparison strategy per surface
 
@@ -68,6 +77,11 @@ at the same address with identical bytes.
   after normalizing `objdump`'s display: leading segment/`rep`/`lock`/`REX` prefix tokens are
   stripped, `movabs` is mapped to Iced's `mov`, and the `nop`/`xchg ax,ax` NOP family is
   treated as equivalent. Operand text is **not** compared (formatting differs by design).
+- **ARM64 disassembly** — per-address raw 32-bit word equality + mnemonic equality (both hard).
+  `llvm-objdump` prints the instruction as a big-endian word (e.g. `8b020020`) which the oracle
+  reverses to the reader's little-endian file-byte order before comparing. Mnemonics are compared
+  exactly (AsmArm64 already emits LLVM's alias forms — `mov`, `cmp`, `lsl`, `cset`, `b.eq`, …).
+  Operand text is **not** compared (PC-relative offset vs resolved target differ by design).
 - **PE sections** — exact per-name geometry match (virtual address, virtual size, file offset,
   file size) for every section, plus a same-section-name-set check. `PeNativeReader` emits the
   full COFF section table with no filtering, so unlike the ELF section comparison this asserts
@@ -89,6 +103,7 @@ at the same address with identical bytes.
 | `DotnetNativeMcp.Core.dll` | The Core assembly itself — a managed PE always present beside the test binary, so the PE section comparison runs everywhere instead of skipping on a missing fixture. |
 | `System.Private.CoreLib.dll` (ReadyToRun PE) | Published alongside `SampleAot`; a real R2R PE — the actual asm-mcp → native-mcp handoff target — exercising the PE section reader on a non-trivial binary. |
 | `macho-x64.o` / `macho-arm64.o` (Mach-O objects) | Tiny committed relocatable objects under `tests/fixtures/MachO/` — real, multi-section Mach-O binaries that round-trip through `MachOReader` (no chained fixups) and cover both the x86_64 and arm64 code paths. |
+| `arm64rich.o` (Mach-O arm64 object) | Committed relocatable object with a diverse instruction mix (arithmetic, logical, moves, shifts, compares, loads/stores, bitfield, branches) — the decode-correctness fixture for the ARM64 disassembly oracle. |
 
 ### Normalization notes
 
@@ -114,7 +129,7 @@ dotnet test tests/DotnetNativeMcp.Core.Tests/ \
   --filter "FullyQualifiedName~Differential"
 ```
 
-Requires GNU binutils (`readelf`, `objdump`) and LLVM (`llvm-readobj`) on `PATH`:
+Requires GNU binutils (`readelf`, `objdump`) and LLVM (`llvm-readobj`, `llvm-objdump`) on `PATH`:
 
 ```bash
 sudo apt-get update && sudo apt-get install -y binutils llvm
@@ -151,8 +166,10 @@ readelf -sW <binary> | awk '/Symbol table/{t=$3} $1=="42:"{print t, $0}'
 
 The differential tests run inside the standard `dotnet test` step of `.github/workflows/ci.yml`.
 `ubuntu-latest` ships `readelf` and `objdump` preinstalled, and the workflow's toolchain step
-installs `llvm` (for `llvm-readobj`) and builds the NativeAOT fixture, so the comparisons execute
-for real on every push and pull request — they are not silently skipped. The existing "Verify
-NativeAOT fixture outputs" guard fails the build if the fixture did not compile, which would
+installs `llvm` (for `llvm-readobj` and `llvm-objdump`) and builds the NativeAOT fixture, so the
+comparisons execute for real on every push and pull request — they are not silently skipped. The
+ARM64 disassembly and Mach-O comparisons run against committed fixtures under
+`tests/fixtures/MachO/`, so they likewise execute on every run wherever LLVM is present. The existing
+"Verify NativeAOT fixture outputs" guard fails the build if the fixture did not compile, which would
 otherwise let the `SampleAot` comparison skip unnoticed. The PE section comparison additionally
 runs against the always-present Core assembly, so it cannot skip even if a fixture is missing.
