@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781017836651,
+  "lastUpdate": 1781030615199,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -300,6 +300,66 @@ window.BENCHMARK_DATA = {
             "value": 21.82876957456271,
             "unit": "ns",
             "range": "± 0.08995490490796983"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f26222daedc074587159bc8e849e72b615bd904d",
+          "message": "test: add differential (oracle) harness for the x86/x64 disassembler vs objdump (#111)\n\nCross-checks IcedDisassembler (via RawDisassembler) against GNU\nobjdump -d -M intel, extending the differential-testing approach from the\nELF reader to the decoder.\n\nThe hard oracle is instruction-boundary + raw-byte agreement: two\nindependent decoders walking the same bytes must segment them identically.\nFor each .text function symbol in the SampleAot fixture the harness\ndisassembles the body both ways and asserts the in-range instruction\naddress SETS are equal (catching early-stop bugs in either decoder), then\nasserts identical raw bytes per address. Mnemonics are compared as a\nsofter signal after normalizing objdump's display (segment/rep/lock/REX\nprefix tokens stripped, movabs->mov, nop/xchg NOP family treated as one).\n\n- New OracleProcess shared process runner (concurrent stdout/stderr drain,\n  timeout, missing-tool skip); ReadelfOracle now delegates to it.\n- objdump is invoked with --insn-width=15 so long instructions never wrap\n  their byte column onto a continuation line.\n- Tests no-op when objdump or the fixture are unavailable; CI has both.\n\nSee docs/differential-testing.md.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-09T15:32:23-03:00",
+          "tree_id": "eff6c022b7334406dd3f5f29069b7f0758ed7a30",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/f26222daedc074587159bc8e849e72b615bd904d"
+        },
+        "date": 1781030615177,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 12188765404,
+            "unit": "ns",
+            "range": "± 35841514.07591211"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 28553798.16875,
+            "unit": "ns",
+            "range": "± 281182.15379183454"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 30.698818219559534,
+            "unit": "ns",
+            "range": "± 0.17093170598254148"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 493605.65502232144,
+            "unit": "ns",
+            "range": "± 15982.75173520142"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 20438.40424194336,
+            "unit": "ns",
+            "range": "± 71.16055185223881"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 22.506488335132598,
+            "unit": "ns",
+            "range": "± 0.2922598948951802"
           }
         ]
       }
