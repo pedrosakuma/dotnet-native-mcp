@@ -167,6 +167,25 @@ internal static class FixturePaths
     }
 
     /// <summary>
+    /// Path to the committed x86_64 Mach-O object fixture, or <c>null</c> if not present.
+    /// </summary>
+    public static string? MachOX64Object => MachOFixture("macho-x64.o");
+
+    /// <summary>
+    /// Path to the committed arm64 Mach-O object fixture, or <c>null</c> if not present.
+    /// </summary>
+    public static string? MachOArm64Object => MachOFixture("macho-arm64.o");
+
+    private static string? MachOFixture(string fileName)
+    {
+        if (RepoRoot is null)
+            return null;
+
+        var candidate = Path.Combine(RepoRoot, "tests", "fixtures", "MachO", fileName);
+        return File.Exists(candidate) ? candidate : null;
+    }
+
+    /// <summary>
     /// Path to the <c>EmbeddedPdb.dll</c> fixture built with <c>&lt;DebugType&gt;embedded&lt;/DebugType&gt;</c>,
     /// or <c>null</c> if not present. This fixture is used to test embedded-PDB extraction (#58).
     /// </summary>

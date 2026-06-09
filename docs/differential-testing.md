@@ -21,18 +21,22 @@ the real comparison runs (see [CI](#ci)).
 | `ElfReader.ReadImportedLibraries` | GNU `readelf -dW` | the set of `DT_NEEDED` shared libraries | `tests/DotnetNativeMcp.Core.Tests/ElfImportDifferentialTests.cs` |
 | `ElfReader.ReadImportedFunctions` | GNU `readelf -sW` | the multiset of undefined (`UND`) `.dynsym` symbol names | `tests/DotnetNativeMcp.Core.Tests/ElfImportDifferentialTests.cs` |
 | `PeNativeReader` sections | LLVM `llvm-readobj --sections` | per-name virtual address, virtual size, file offset, and file size | `tests/DotnetNativeMcp.Core.Tests/PeSectionDifferentialTests.cs` |
+| `MachOReader` sections (x86_64 + arm64) | LLVM `llvm-readobj --sections` | per-`Segment,Name` virtual address, virtual size (`section_64.size`), and file offset | `tests/DotnetNativeMcp.Core.Tests/MachOSectionDifferentialTests.cs` |
 
 The reference oracle is the shared `ReadelfOracle` helper
 (`tests/DotnetNativeMcp.Core.Tests/ReadelfOracle.cs`), which shells out to `readelf` and
 parses its wide (`-W`) output. The symbol oracle mirrors `ElfReader`'s table preference —
 `.symtab` when present, otherwise `.dynsym` — so the two read the same symbol table. The
-disassembly oracle (`ObjdumpOracle`) shells out to `objdump`, and the PE oracle
-(`LlvmReadobjOracle`) shells out to `llvm-readobj`. All share the safe process runner in
+disassembly oracle (`ObjdumpOracle`) shells out to `objdump`, and the PE and Mach-O oracles
+(`LlvmReadobjOracle`) shell out to `llvm-readobj`. All share the safe process runner in
 `OracleProcess` (concurrent stdout/stderr drain + timeout + missing-tool skip).
 
-> Mach-O is not yet covered: the `MachOReader` tests synthesize bytes in-process and the repo
-> has no real Mach-O fixture on disk to point an oracle at. The `LlvmReadobjOracle` helper
-> generalizes to Mach-O once such a fixture exists.
+> The Mach-O harness points at tiny, committed relocatable objects under
+> `tests/fixtures/MachO/` (one x86_64, one arm64). Relocatable objects are used deliberately:
+> `MachOReader` rejects `LC_DYLD_CHAINED_FIXUPS`, which the linker injects into modern linked
+> dylibs/executables, so a `.o` is the smallest real Mach-O that round-trips through the reader.
+> `MachOReader` composes each section's display name as `{Segment},{Name}` (e.g. `__TEXT,__text`);
+> the oracle recombines `llvm-readobj`'s separate `Segment:` and `Name:` fields to match.
 
 #### Disassembly
 
@@ -71,9 +75,10 @@ at the same address with identical bytes.
 
 > Radix gotcha: `readelf -sW` prints symbol **Size in decimal**, while `readelf -SW` prints
 > section **Address/Off/Size in hex**. `ReadelfOracle` parses each accordingly. `objdump`
-> prints instruction addresses and bytes in hex. `llvm-readobj` prints section addresses and
-> offsets in hex (`0x`-prefixed) but sizes in decimal; `LlvmReadobjOracle` keys off the `0x`
-> prefix per field.
+> prints instruction addresses and bytes in hex. `llvm-readobj` mixes radixes by field **and by
+> format** — for PE it prints addresses/offsets in hex (`0x`-prefixed) and sizes in decimal, while
+> for Mach-O it prints `Address:`/`Size:` in hex and `Offset:` in decimal. `LlvmReadobjOracle`
+> sidesteps the discrepancy by keying off the `0x` prefix per field rather than per format.
 
 ### Fixtures exercised
 
@@ -83,6 +88,7 @@ at the same address with identical bytes.
 | `/usr/bin/cat` | Stock, usually-stripped system binary — exercises the `.dynsym` fallback and the `@GLIBC_x.y` version-suffix normalization. |
 | `DotnetNativeMcp.Core.dll` | The Core assembly itself — a managed PE always present beside the test binary, so the PE section comparison runs everywhere instead of skipping on a missing fixture. |
 | `System.Private.CoreLib.dll` (ReadyToRun PE) | Published alongside `SampleAot`; a real R2R PE — the actual asm-mcp → native-mcp handoff target — exercising the PE section reader on a non-trivial binary. |
+| `macho-x64.o` / `macho-arm64.o` (Mach-O objects) | Tiny committed relocatable objects under `tests/fixtures/MachO/` — real, multi-section Mach-O binaries that round-trip through `MachOReader` (no chained fixups) and cover both the x86_64 and arm64 code paths. |
 
 ### Normalization notes
 
