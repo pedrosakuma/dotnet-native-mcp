@@ -20,13 +20,19 @@ the real comparison runs (see [CI](#ci)).
 | `ElfReader` sections | GNU `readelf -SW` | per-name virtual address, file offset, and size (for every emitted section) | `tests/DotnetNativeMcp.Core.Tests/ElfSectionDifferentialTests.cs` |
 | `ElfReader.ReadImportedLibraries` | GNU `readelf -dW` | the set of `DT_NEEDED` shared libraries | `tests/DotnetNativeMcp.Core.Tests/ElfImportDifferentialTests.cs` |
 | `ElfReader.ReadImportedFunctions` | GNU `readelf -sW` | the multiset of undefined (`UND`) `.dynsym` symbol names | `tests/DotnetNativeMcp.Core.Tests/ElfImportDifferentialTests.cs` |
+| `PeNativeReader` sections | LLVM `llvm-readobj --sections` | per-name virtual address, virtual size, file offset, and file size | `tests/DotnetNativeMcp.Core.Tests/PeSectionDifferentialTests.cs` |
 
 The reference oracle is the shared `ReadelfOracle` helper
 (`tests/DotnetNativeMcp.Core.Tests/ReadelfOracle.cs`), which shells out to `readelf` and
 parses its wide (`-W`) output. The symbol oracle mirrors `ElfReader`'s table preference —
 `.symtab` when present, otherwise `.dynsym` — so the two read the same symbol table. The
-disassembly oracle (`ObjdumpOracle`) shells out to `objdump`. Both share the safe process
-runner in `OracleProcess` (concurrent stdout/stderr drain + timeout + missing-tool skip).
+disassembly oracle (`ObjdumpOracle`) shells out to `objdump`, and the PE oracle
+(`LlvmReadobjOracle`) shells out to `llvm-readobj`. All share the safe process runner in
+`OracleProcess` (concurrent stdout/stderr drain + timeout + missing-tool skip).
+
+> Mach-O is not yet covered: the `MachOReader` tests synthesize bytes in-process and the repo
+> has no real Mach-O fixture on disk to point an oracle at. The `LlvmReadobjOracle` helper
+> generalizes to Mach-O once such a fixture exists.
 
 #### Disassembly
 
@@ -58,10 +64,16 @@ at the same address with identical bytes.
   after normalizing `objdump`'s display: leading segment/`rep`/`lock`/`REX` prefix tokens are
   stripped, `movabs` is mapped to Iced's `mov`, and the `nop`/`xchg ax,ax` NOP family is
   treated as equivalent. Operand text is **not** compared (formatting differs by design).
+- **PE sections** — exact per-name geometry match (virtual address, virtual size, file offset,
+  file size) for every section, plus a same-section-name-set check. `PeNativeReader` emits the
+  full COFF section table with no filtering, so unlike the ELF section comparison this asserts
+  the complete set. Duplicate section names fall back to a geometry-existence match.
 
 > Radix gotcha: `readelf -sW` prints symbol **Size in decimal**, while `readelf -SW` prints
 > section **Address/Off/Size in hex**. `ReadelfOracle` parses each accordingly. `objdump`
-> prints instruction addresses and bytes in hex.
+> prints instruction addresses and bytes in hex. `llvm-readobj` prints section addresses and
+> offsets in hex (`0x`-prefixed) but sizes in decimal; `LlvmReadobjOracle` keys off the `0x`
+> prefix per field.
 
 ### Fixtures exercised
 
@@ -69,6 +81,8 @@ at the same address with identical bytes.
 |---|---|
 | `SampleAot` (NativeAOT ELF) | Clean `.symtab` with no SECTION/FILE symbols — enables an exact 1:1 comparison. It is also the disassembly fixture: its `.text` function symbols give well-bounded code ranges to decode both ways. |
 | `/usr/bin/cat` | Stock, usually-stripped system binary — exercises the `.dynsym` fallback and the `@GLIBC_x.y` version-suffix normalization. |
+| `DotnetNativeMcp.Core.dll` | The Core assembly itself — a managed PE always present beside the test binary, so the PE section comparison runs everywhere instead of skipping on a missing fixture. |
+| `System.Private.CoreLib.dll` (ReadyToRun PE) | Published alongside `SampleAot`; a real R2R PE — the actual asm-mcp → native-mcp handoff target — exercising the PE section reader on a non-trivial binary. |
 
 ### Normalization notes
 
@@ -94,10 +108,10 @@ dotnet test tests/DotnetNativeMcp.Core.Tests/ \
   --filter "FullyQualifiedName~Differential"
 ```
 
-Requires GNU binutils (`readelf`, `objdump`) on `PATH`:
+Requires GNU binutils (`readelf`, `objdump`) and LLVM (`llvm-readobj`) on `PATH`:
 
 ```bash
-sudo apt-get update && sudo apt-get install -y binutils
+sudo apt-get update && sudo apt-get install -y binutils llvm
 ```
 
 ## Reproducing a failure
@@ -130,7 +144,9 @@ readelf -sW <binary> | awk '/Symbol table/{t=$3} $1=="42:"{print t, $0}'
 ## CI
 
 The differential tests run inside the standard `dotnet test` step of `.github/workflows/ci.yml`.
-`ubuntu-latest` ships `readelf` and `objdump` preinstalled and the workflow builds the NativeAOT
-fixture, so the comparison executes for real on every push and pull request — it is not silently
-skipped. The existing "Verify NativeAOT fixture outputs" guard fails the build if the
-fixture did not compile, which would otherwise let the `SampleAot` comparison skip unnoticed.
+`ubuntu-latest` ships `readelf` and `objdump` preinstalled, and the workflow's toolchain step
+installs `llvm` (for `llvm-readobj`) and builds the NativeAOT fixture, so the comparisons execute
+for real on every push and pull request — they are not silently skipped. The existing "Verify
+NativeAOT fixture outputs" guard fails the build if the fixture did not compile, which would
+otherwise let the `SampleAot` comparison skip unnoticed. The PE section comparison additionally
+runs against the always-present Core assembly, so it cannot skip even if a fixture is missing.
