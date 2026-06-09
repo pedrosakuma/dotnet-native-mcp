@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781030617908,
+  "lastUpdate": 1781032118960,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -360,6 +360,66 @@ window.BENCHMARK_DATA = {
             "value": 22.506488335132598,
             "unit": "ns",
             "range": "± 0.2922598948951802"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e05f1f566372189956bd51c694de515e7c0a6291",
+          "message": "test: add differential (oracle) harness for the PE reader vs llvm-readobj (#112)\n\nCross-checks PeNativeReader's section table against LLVM\nllvm-readobj --sections, extending the differential-testing approach to\nthe PE reader (after the ELF reader and the x86/x64 disassembler).\n\nFor every section the harness asserts the name set is equal and the\ngeometry matches exactly: virtual address, virtual size, file offset, and\nfile size. PeNativeReader emits the full COFF section table with no\nfiltering, so unlike the ELF section comparison this asserts the complete\nset; duplicate section names fall back to a geometry-existence match.\n\n- New LlvmReadobjOracle: stateful parser over `Section { ... }` blocks;\n  hex for 0x-prefixed addresses/offsets, decimal for sizes.\n- Primary target is the always-present managed DotnetNativeMcp.Core.dll, so\n  the comparison runs everywhere instead of skipping on a missing fixture; a\n  second test additionally exercises the published ReadyToRun\n  System.Private.CoreLib.dll (the real asm-mcp -> native-mcp handoff target).\n- CI installs `llvm` so llvm-readobj is present and the comparison runs for\n  real rather than skipping.\n\nMach-O is intentionally not covered yet: the repo has no real Mach-O fixture\non disk to point an oracle at. See docs/differential-testing.md.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-09T15:57:48-03:00",
+          "tree_id": "bd5f772bbcdc59b3a22cf3f3fbdb7a9288a726fd",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/e05f1f566372189956bd51c694de515e7c0a6291"
+        },
+        "date": 1781032118935,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 12723436605.6,
+            "unit": "ns",
+            "range": "± 31711623.894866217"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 26986661.347916666,
+            "unit": "ns",
+            "range": "± 303597.44810332113"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 32.40142783522606,
+            "unit": "ns",
+            "range": "± 0.01329067029587062"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 369622.5987548828,
+            "unit": "ns",
+            "range": "± 5614.6884376020525"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 21932.518851143974,
+            "unit": "ns",
+            "range": "± 55.03133651977547"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 22.4103132555118,
+            "unit": "ns",
+            "range": "± 0.02803789166783313"
           }
         ]
       }
