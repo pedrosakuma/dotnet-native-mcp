@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781047213459,
+  "lastUpdate": 1781047214551,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -926,6 +926,42 @@ window.BENCHMARK_DATA = {
             "value": 97.13880992787224,
             "unit": "ns",
             "range": "± 1.5805919158676793"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "33fecbd8e883ea5d90b0c8efcc4f59175c0c1d98",
+          "message": "sec: enforce trusted-path allowlist for untrusted path hints (#109) (#115)\n\nHonor the cross-MCP handoff contract's \"Path hints are untrusted\" rule:\nevery filesystem path arriving off the wire is now canonicalised (symlinks\nand junctions resolved, `..` flattened) and, when enforcement is enabled,\nchecked against an allowlist of trusted roots before any file is opened.\n\n- Add PathCanonicalizer (ResolveRealPath + boundary-aware IsUnderAllowedRoot),\n  PathAccessPolicy (Validate choke point, Permissive default) and\n  PathPolicyBuilder (operator roots ∪ well-known roots).\n- New `path_not_allowed` error kind (no published kind repurposed).\n- Wire validation into NativeBinaryRegistry.Load/RegisterHint and every tool\n  entry point (load, import manifest, disassemble imagePath/ilMapPath, and the\n  get_size_breakdown/explain_retention sidecar overrides AND their defaults).\n- Guard the implicit `.map` sidecar merge against a symlink escaping the\n  already-trusted binary directory.\n- Containment is case-insensitive only on Windows; case-sensitive elsewhere\n  (including case-sensitive macOS volumes) to avoid a containment bypass.\n- Enforcement is opt-in: permissive by default (still canonicalises) with a\n  one-time startup warning; enforces once an operator configures a root via\n  NativeMcp:AllowedBinaryRoots / NATIVE_MCP_ALLOWED_ROOTS / BINARIES_DIR.\n- Document the model in docs/handoff-contract.md and README.md.\n\nCloses #109\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-09T20:09:31-03:00",
+          "tree_id": "9a120da82bc07d7b68df9d12d58190a0aadc546d",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/33fecbd8e883ea5d90b0c8efcc4f59175c0c1d98"
+        },
+        "date": 1781047214529,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 6928264.141666667,
+            "unit": "ns",
+            "range": "± 50333.74155241396"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 94.18860940535863,
+            "unit": "ns",
+            "range": "± 0.8359528204734444"
           }
         ]
       }
