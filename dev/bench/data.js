@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781035467700,
+  "lastUpdate": 1781035469103,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -734,6 +734,42 @@ window.BENCHMARK_DATA = {
             "value": 93.33426185577146,
             "unit": "ns",
             "range": "± 2.6947321391778862"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b1e569eff2db61ac03701358946b70485ca20a02",
+          "message": "test: add Mach-O section differential harness vs llvm-readobj (#113)\n\nCompletes the ELF/PE/Mach-O differential (oracle) triad. Parses tiny\ncommitted Mach-O relocatable objects (x86_64 + arm64) both with MachOReader\nand with llvm-readobj --sections, then asserts per-section geometry agrees\n(virtual address, virtual size, file offset, file size).\n\nRelocatable .o objects are used as fixtures because MachOReader rejects\nLC_DYLD_CHAINED_FIXUPS (present in linked dylibs/executables); a .o never\ncarries chained fixups so it round-trips through the reader. Fixtures are\ncommitted (not built at test time) so only the oracle (llvm-readobj) is\nneeded and the test skips cleanly when LLVM is absent.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-09T16:53:45-03:00",
+          "tree_id": "eb0dcf4ef00cf1278cd8f152c020f603e0c67548",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/b1e569eff2db61ac03701358946b70485ca20a02"
+        },
+        "date": 1781035468935,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 6007056.465104166,
+            "unit": "ns",
+            "range": "± 93314.01056588371"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 79.18147502626691,
+            "unit": "ns",
+            "range": "± 1.0274964940637403"
           }
         ]
       }
