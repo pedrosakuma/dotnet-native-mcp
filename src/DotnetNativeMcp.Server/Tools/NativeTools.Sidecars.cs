@@ -31,9 +31,13 @@ public sealed partial class NativeTools
                 ErrorKinds.InvalidArgument,
                 $"groupBy must be one of: assembly, namespace, type, method. Actual: '{groupBy}'.");
 
-        var resolvedMstatPath = string.IsNullOrWhiteSpace(mstatPath)
-            ? MstatReader.GetDefaultMstatPath(image.FilePath)
-            : Path.GetFullPath(mstatPath);
+        var mstatCandidate = !string.IsNullOrWhiteSpace(mstatPath)
+            ? mstatPath
+            : MstatReader.GetDefaultMstatPath(image.FilePath);
+        var mstatValidation = _pathPolicy.Validate(mstatCandidate);
+        if (mstatValidation.IsError)
+            return NativeResult.Fail<GetSizeBreakdownResult>(mstatValidation.Error!.Kind, mstatValidation.Error.Message, mstatValidation.Error.Detail);
+        var resolvedMstatPath = mstatValidation.Data!;
 
         var mstat = MstatReader.Read(resolvedMstatPath);
         if (mstat.IsError)
@@ -101,9 +105,13 @@ public sealed partial class NativeTools
                 $"maxDepth must be between 1 and {RetentionPathFinder.MaxDepthLimit}. Actual: {maxDepth.ToString(CultureInfo.InvariantCulture)}.");
         }
 
-        var resolvedDgmlPath = string.IsNullOrWhiteSpace(dgmlPath)
-            ? DgmlReader.GetDefaultDgmlPath(image.FilePath)
-            : Path.GetFullPath(dgmlPath);
+        var dgmlCandidate = !string.IsNullOrWhiteSpace(dgmlPath)
+            ? dgmlPath
+            : DgmlReader.GetDefaultDgmlPath(image.FilePath);
+        var dgmlValidation = _pathPolicy.Validate(dgmlCandidate);
+        if (dgmlValidation.IsError)
+            return NativeResult.Fail<ExplainRetentionResult>(dgmlValidation.Error!.Kind, dgmlValidation.Error.Message, dgmlValidation.Error.Detail);
+        var resolvedDgmlPath = dgmlValidation.Data!;
 
         var dgml = DgmlReader.Read(resolvedDgmlPath);
         if (dgml.IsError)

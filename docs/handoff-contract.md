@@ -67,6 +67,48 @@ use `import_native_manifest` (not `load_native_binary`) to register them in bulk
 (default) records path hints without opening files — actual loading is deferred until a tool
 call requires the handle. Eager mode opens and verifies every entry immediately.
 
+## Path hints are untrusted
+
+Every path-shaped field that arrives off the wire — the binary `path` on
+`load_native_binary` / `import_native_manifest`, `imagePath` and `ilMapPath` on
+`disassemble`, and the `mstatPath` / `dgmlPath` sidecar overrides on
+`get_size_breakdown` / `explain_retention` — is a **best-effort display hint**,
+not an authenticated assertion that the file at that path is safe to open. The
+LLM sits in the middle of every handoff and a compromised or mistaken model can
+swap a path for anything reachable on the consumer host (`/etc/shadow`, an
+attacker-staged binary under `/tmp`, a `..`-traversal, a symlink pointing
+outside a mounted volume).
+
+This server therefore treats path hints as untrusted (per the upstream contract
+amendment, `dotnet-diagnostics-mcp#168`):
+
+1. **Canonicalise** — every path is resolved with `Path.GetFullPath` **and** has
+   its reparse points (POSIX symlinks, NTFS junctions) followed to the true
+   on-disk target before any policy check (`PathCanonicalizer.ResolveRealPath`).
+2. **Allowlist** — when enforcement is enabled the canonical path must sit under
+   one of the configured trusted roots, using a boundary-aware containment check
+   (so `/binaries-secret` is **not** under `/binaries`). Anything outside is
+   refused with `path_not_allowed` and the rejected canonical path is surfaced.
+3. **Verify build-id** — `load_native_binary` / `import_native_manifest` (eager)
+   still verify the on-disk build-id against the producer-supplied `buildId`
+   before caching, refusing mismatches with `binary_mismatch` / `build_id_mismatch`.
+
+### Enforcement is opt-in
+
+The allowlist activates once an **operator** configures at least one trusted
+root. Until then the server is permissive (it still canonicalises, so downstream
+always sees the resolved path) and logs a one-time startup warning. Configure
+roots via any of:
+
+- `NativeMcp:AllowedBinaryRoots` — JSON/array of root directories.
+- `NATIVE_MCP_ALLOWED_ROOTS` — `PATH`-separator-delimited list (`:` POSIX, `;` Windows).
+- `BINARIES_DIR` — single root (the same variable the Docker Compose tier uses).
+
+When enforcing, a set of well-known roots is always allowed in addition to the
+operator roots so handed-off binaries keep resolving: the NuGet global packages
+cache, the .NET shared-framework / runtime install, and the system temp
+directory (where sidecar producers stage `ilmap` / captured-byte artifacts).
+
 ## R2R handoff from `dotnet-assembly-mcp`
 
 ReadyToRun (R2R) method bodies live inside ordinary managed PEs — the same `.dll` files that
@@ -225,6 +267,7 @@ different path.
 | `dgml_not_found`              | No paired `.dgml` sidecar could be located.                         |
 | `disassembly_unsupported`     | Architecture not supported in this version (e.g. ARM64 pre-V1).     |
 | `invalid_argument`            | A supplied argument value was invalid (bad format, out of range).   |
+| `path_not_allowed`            | Canonicalised path resolved outside the configured trusted-root allowlist (see "Path hints are untrusted"). |
 | `internal_error`              | An unexpected internal failure occurred.                            |
 
 Once a kind is published it is **never** repurposed. Add new kinds instead.

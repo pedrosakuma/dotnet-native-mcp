@@ -4,6 +4,7 @@ using DotnetNativeMcp.Core.Imaging;
 using DotnetNativeMcp.Core.Identity;
 using DotnetNativeMcp.Core.Mstat;
 using DotnetNativeMcp.Core.R2R;
+using DotnetNativeMcp.Core.Security;
 
 namespace DotnetNativeMcp.Core;
 
@@ -100,9 +101,11 @@ public static class NativeImageLoader
                 $"'{Path.GetFileName(path)}' does not appear to be a NativeAOT or ReadyToRun binary. " +
                 "No NativeAOT marker symbols, R2R header, or managed section were found.");
 
-        // Attempt to merge .map sidecar if present
+        // Attempt to merge .map sidecar if present. The binary's own path is already
+        // canonicalised + allowlist-checked by the caller; guard the discovered sidecar
+        // against a symlink/junction that escapes the binary's (trusted) directory.
         var mapPath = MapFileReader.FindSidecar(path);
-        if (mapPath is not null)
+        if (mapPath is not null && IsSidecarWithinBinaryDirectory(path, mapPath))
         {
             var merged = MapFileReader.TryMerge(mapPath, image.Symbols);
             if (merged is not null)
@@ -118,6 +121,29 @@ public static class NativeImageLoader
             $"with {image.Symbols.Count} symbols. Handle: {image.Handle.Value}.",
             image,
             BuildLoadHints(image));
+    }
+
+    /// <summary>
+    /// Confirms a discovered sidecar resolves (through symlinks/junctions) to a real path
+    /// still inside the binary's own directory, so a planted reparse point cannot redirect
+    /// the read outside the already-trusted location. Fails closed on canonicalisation errors.
+    /// </summary>
+    private static bool IsSidecarWithinBinaryDirectory(string binaryPath, string sidecarPath)
+    {
+        var binaryDirectory = Path.GetDirectoryName(Path.GetFullPath(binaryPath));
+        if (string.IsNullOrEmpty(binaryDirectory))
+            return false;
+
+        try
+        {
+            var realDirectory = PathCanonicalizer.ResolveRealPath(binaryDirectory);
+            var realSidecar = PathCanonicalizer.ResolveRealPath(sidecarPath);
+            return PathCanonicalizer.IsUnderAllowedRoot(realSidecar, [realDirectory]);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            return false;
+        }
     }
 
     /// <summary>Builds follow-up hints for a loaded image.</summary>

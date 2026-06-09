@@ -57,6 +57,17 @@ public sealed partial class NativeTools
                 ErrorKinds.InvalidArgument,
                 "'ilMapPath' is only supported when rawBlob=true.");
 
+        // Path hints off the wire are untrusted: canonicalise + allowlist-check before any file open.
+        string? canonicalImagePath = null;
+        if (hasPath)
+        {
+            var imageValidation = _pathPolicy.Validate(imagePath!);
+            if (imageValidation.IsError)
+                return NativeResult.Fail<IReadOnlyList<InstructionView>>(
+                    imageValidation.Error!.Kind, imageValidation.Error.Message, imageValidation.Error.Detail);
+            canonicalImagePath = imageValidation.Data!;
+        }
+
         // ── Raw-blob mode ─────────────────────────────────────────────────────────
         if (rawBlob)
         {
@@ -95,7 +106,12 @@ public sealed partial class NativeTools
             JitIlMap? ilMap = null;
             if (!string.IsNullOrWhiteSpace(ilMapPath))
             {
-                var ilMapResult = JitIlMap.Load(ilMapPath!);
+                var ilMapValidation = _pathPolicy.Validate(ilMapPath!);
+                if (ilMapValidation.IsError)
+                    return NativeResult.Fail<IReadOnlyList<InstructionView>>(
+                        ilMapValidation.Error!.Kind, ilMapValidation.Error.Message, ilMapValidation.Error.Detail);
+
+                var ilMapResult = JitIlMap.Load(ilMapValidation.Data!);
                 if (ilMapResult.IsError)
                     return NativeResult.Fail<IReadOnlyList<InstructionView>>(
                         ilMapResult.Error!.Kind,
@@ -108,7 +124,7 @@ public sealed partial class NativeTools
             // resolveSource is silently ignored for raw blobs (no PDB/DWARF available).
             var blobOffset = rva ?? 0;
             return RawDisassembler.DisassembleBlob(
-                imagePath!,
+                canonicalImagePath!,
                 blobOffset,
                 size.Value,
                 parsedBlobArch.Value,
@@ -147,7 +163,7 @@ public sealed partial class NativeTools
             }
 
             return RawDisassembler.Disassemble(
-                imagePath!,
+                canonicalImagePath!,
                 rva.Value,
                 size.Value,
                 parsedArch,

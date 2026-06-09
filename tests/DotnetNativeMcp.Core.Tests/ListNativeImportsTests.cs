@@ -240,7 +240,7 @@ public class ListNativeImportsTests
             return found;
         }
 
-        public void RegisterHint(string path, string? buildId = null) { }
+        public DotnetNativeMcp.Core.NativeResult<string> RegisterHint(string path, string? buildId = null) => DotnetNativeMcp.Core.NativeResult.Ok("registered", path);
 
         public IReadOnlyList<NativeImage> List() => [.. _images.Values];
     }

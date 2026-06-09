@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using DotnetNativeMcp.Core.Imaging;
+using DotnetNativeMcp.Core.Security;
 using DotnetNativeMcp.Core.Xref;
 using DotnetNativeMcp.Core.Symbols;
 using DotnetNativeMcp.Server.Tools;
@@ -41,19 +42,22 @@ if (useStdio)
         o.TimestampFormat = "HH:mm:ss.fff ";
     });
 
-    ConfigureMcpServer(stdioBuilder.Services).WithStdioServerTransport();
+    ConfigureMcpServer(stdioBuilder.Services, BuildPathPolicy(stdioBuilder.Configuration)).WithStdioServerTransport();
 
-    await stdioBuilder.Build().RunAsync().ConfigureAwait(false);
+    var stdioHost = stdioBuilder.Build();
+    WarnIfPathPolicyPermissive(stdioHost.Services);
+    await stdioHost.RunAsync().ConfigureAwait(false);
     return 0;
 }
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
-ConfigureMcpServer(builder.Services).WithHttpTransport();
+ConfigureMcpServer(builder.Services, BuildPathPolicy(builder.Configuration)).WithHttpTransport();
 
 var bearerToken = ResolveBearerToken(builder.Configuration);
 EnsureSafeHttpBinding(builder.Configuration, bearerToken);
 var app = builder.Build();
+WarnIfPathPolicyPermissive(app.Services);
 
 var informationalVersion = typeof(Program).Assembly
     .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
@@ -91,8 +95,9 @@ app.MapMcp("/mcp");
 await app.RunAsync().ConfigureAwait(false);
 return 0;
 
-static IMcpServerBuilder ConfigureMcpServer(IServiceCollection services)
+static IMcpServerBuilder ConfigureMcpServer(IServiceCollection services, PathAccessPolicy pathPolicy)
 {
+    services.AddSingleton(pathPolicy);
     services.AddSingleton<INativeBinaryRegistry, NativeBinaryRegistry>();
     services.AddSingleton<NativeCallGraphCache>();
     services.AddSingleton<SourceResolver>();
@@ -107,6 +112,38 @@ static IMcpServerBuilder ConfigureMcpServer(IServiceCollection services)
             };
         })
         .WithTools<NativeTools>();
+}
+
+// Builds the untrusted-path-hint allowlist from operator configuration. Enforcement is
+// opt-in: supplying at least one root via NativeMcp:AllowedBinaryRoots,
+// NATIVE_MCP_ALLOWED_ROOTS (PATH-separator delimited) or BINARIES_DIR turns it on.
+static PathAccessPolicy BuildPathPolicy(IConfiguration configuration)
+{
+    var roots = new List<string>();
+
+    var configured = configuration.GetSection("NativeMcp:AllowedBinaryRoots").Get<string[]>();
+    if (configured is not null)
+        roots.AddRange(configured);
+
+    var envRoots = configuration["NATIVE_MCP_ALLOWED_ROOTS"];
+    if (!string.IsNullOrWhiteSpace(envRoots))
+        roots.AddRange(envRoots.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+    var binariesDir = configuration["BINARIES_DIR"];
+    if (!string.IsNullOrWhiteSpace(binariesDir))
+        roots.Add(binariesDir);
+
+    return PathPolicyBuilder.Build(roots);
+}
+
+static void WarnIfPathPolicyPermissive(IServiceProvider services)
+{
+    var policy = services.GetRequiredService<PathAccessPolicy>();
+    if (policy.Enforcing)
+        return;
+
+    var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("DotnetNativeMcp.Security");
+    Program.LogPathPolicyPermissive(logger);
 }
 
 static string? ResolveBearerToken(IConfiguration configuration)
@@ -265,4 +302,16 @@ static bool HasValidBearerToken(string? authorizationHeader, byte[] expectedToke
         && CryptographicOperations.FixedTimeEquals(presentedTokenBytes, expectedTokenBytes);
 }
 
-public partial class Program;
+public partial class Program
+{
+    private static readonly Action<ILogger, Exception?> LogPathPolicyPermissiveMessage =
+        LoggerMessage.Define(
+            LogLevel.Warning,
+            new EventId(1, nameof(LogPathPolicyPermissive)),
+            "Path-hint allowlist is DISABLED: filesystem paths supplied to load_native_binary, " +
+            "import_native_manifest, disassemble and the sidecar tools are canonicalised but not " +
+            "restricted to trusted roots. Configure NativeMcp:AllowedBinaryRoots (or " +
+            "NATIVE_MCP_ALLOWED_ROOTS / BINARIES_DIR) to enforce the untrusted-path-hint contract.");
+
+    internal static void LogPathPolicyPermissive(ILogger logger) => LogPathPolicyPermissiveMessage(logger, null);
+}

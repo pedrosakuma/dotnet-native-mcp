@@ -65,4 +65,7 @@ public static class ErrorKinds
 
     /// <summary>rawBlob=true requires 'size' because there is no section table to bound the code slice.</summary>
     public const string RawBlobMissingSize = "raw_blob_missing_size";
+
+    /// <summary>The canonicalised filesystem path resolved outside the configured allowlist of trusted roots. Untrusted handoff path hints are refused before any file is opened.</summary>
+    public const string PathNotAllowed = "path_not_allowed";
 }

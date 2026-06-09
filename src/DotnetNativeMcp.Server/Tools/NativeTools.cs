@@ -2,6 +2,7 @@ using System.Globalization;
 using DotnetNativeMcp.Core;
 using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Imaging; // for INativeBinaryRegistry
+using DotnetNativeMcp.Core.Security; // for PathAccessPolicy
 using DotnetNativeMcp.Core.Symbols; // for SourceResolver
 using DotnetNativeMcp.Core.Xref;   // for NativeCallGraphCache
 using ModelContextProtocol.Server;
@@ -14,9 +15,11 @@ namespace DotnetNativeMcp.Server.Tools;
 /// </summary>
 #pragma warning disable CS9113
 [McpServerToolType]
-public sealed partial class NativeTools(INativeBinaryRegistry registry, NativeCallGraphCache callGraphCache, SourceResolver sourceResolver)
+public sealed partial class NativeTools(INativeBinaryRegistry registry, NativeCallGraphCache callGraphCache, SourceResolver sourceResolver, PathAccessPolicy? pathPolicy = null)
 {
 #pragma warning restore CS9113
+
+    private readonly PathAccessPolicy _pathPolicy = pathPolicy ?? PathAccessPolicy.Permissive;
 
     private static string ToHex(ulong value) => value.ToString("x16", CultureInfo.InvariantCulture);
 

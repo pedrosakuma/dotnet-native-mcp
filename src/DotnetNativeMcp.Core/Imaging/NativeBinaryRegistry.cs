@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using DotnetNativeMcp.Core.Errors;
 using DotnetNativeMcp.Core.Imaging;
+using DotnetNativeMcp.Core.Security;
 
 namespace DotnetNativeMcp.Core.Imaging
 {
@@ -14,8 +15,9 @@ public interface INativeBinaryRegistry
     /// <summary>
     /// Records a lazy path hint without opening the binary.
     /// A later <see cref="Load"/> for the same path uses the hint's optional build-id for verification.
+    /// The path is canonicalised and (when the policy is enforcing) allowlist-checked before being recorded.
     /// </summary>
-    void RegisterHint(string path, string? buildId = null);
+    NativeResult<string> RegisterHint(string path, string? buildId = null);
 
     /// <summary>Attempts to retrieve a previously loaded image by handle string.</summary>
     bool TryGet(string imageHandle, out NativeImage? image);
@@ -33,11 +35,24 @@ public sealed class NativeBinaryRegistry : INativeBinaryRegistry
     private readonly ConcurrentDictionary<string, NativeImage> _byHandle = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, NativeImage> _byPath = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, string?> _hints = new(StringComparer.OrdinalIgnoreCase);
+    private readonly PathAccessPolicy _pathPolicy;
+
+    /// <summary>
+    /// Creates a registry. When <paramref name="pathPolicy"/> is omitted the registry is
+    /// permissive (canonicalises but never rejects), preserving the prior behaviour for tests
+    /// and unconfigured hosts.
+    /// </summary>
+    public NativeBinaryRegistry(PathAccessPolicy? pathPolicy = null) =>
+        _pathPolicy = pathPolicy ?? PathAccessPolicy.Permissive;
 
     /// <inheritdoc />
     public NativeResult<NativeImage> Load(string path, string? expectedBuildId = null)
     {
-        var absPath = path.Length > 0 ? Path.GetFullPath(path) : path;
+        var validation = _pathPolicy.Validate(path);
+        if (validation.IsError)
+            return NativeResult.Fail<NativeImage>(validation.Error!.Kind, validation.Error.Message, validation.Error.Detail);
+
+        var absPath = validation.Data!;
 
         // Prefer hint's buildId when the caller didn't supply one
         if (expectedBuildId is null && _hints.TryGetValue(absPath, out var hintBuildId))
@@ -74,10 +89,15 @@ public sealed class NativeBinaryRegistry : INativeBinaryRegistry
     }
 
     /// <inheritdoc />
-    public void RegisterHint(string path, string? buildId = null)
+    public NativeResult<string> RegisterHint(string path, string? buildId = null)
     {
-        var absPath = path.Length > 0 ? Path.GetFullPath(path) : path;
+        var validation = _pathPolicy.Validate(path);
+        if (validation.IsError)
+            return validation;
+
+        var absPath = validation.Data!;
         _hints[absPath] = buildId;
+        return NativeResult.Ok($"Registered hint for '{Path.GetFileName(absPath)}'.", absPath);
     }
 
     /// <inheritdoc />
