@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781042583560,
+  "lastUpdate": 1781047213459,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -540,6 +540,66 @@ window.BENCHMARK_DATA = {
             "value": 22.603405650456747,
             "unit": "ns",
             "range": "± 0.15471504795122742"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "33fecbd8e883ea5d90b0c8efcc4f59175c0c1d98",
+          "message": "sec: enforce trusted-path allowlist for untrusted path hints (#109) (#115)\n\nHonor the cross-MCP handoff contract's \"Path hints are untrusted\" rule:\nevery filesystem path arriving off the wire is now canonicalised (symlinks\nand junctions resolved, `..` flattened) and, when enforcement is enabled,\nchecked against an allowlist of trusted roots before any file is opened.\n\n- Add PathCanonicalizer (ResolveRealPath + boundary-aware IsUnderAllowedRoot),\n  PathAccessPolicy (Validate choke point, Permissive default) and\n  PathPolicyBuilder (operator roots ∪ well-known roots).\n- New `path_not_allowed` error kind (no published kind repurposed).\n- Wire validation into NativeBinaryRegistry.Load/RegisterHint and every tool\n  entry point (load, import manifest, disassemble imagePath/ilMapPath, and the\n  get_size_breakdown/explain_retention sidecar overrides AND their defaults).\n- Guard the implicit `.map` sidecar merge against a symlink escaping the\n  already-trusted binary directory.\n- Containment is case-insensitive only on Windows; case-sensitive elsewhere\n  (including case-sensitive macOS volumes) to avoid a containment bypass.\n- Enforcement is opt-in: permissive by default (still canonicalises) with a\n  one-time startup warning; enforces once an operator configures a root via\n  NativeMcp:AllowedBinaryRoots / NATIVE_MCP_ALLOWED_ROOTS / BINARIES_DIR.\n- Document the model in docs/handoff-contract.md and README.md.\n\nCloses #109\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-09T20:09:31-03:00",
+          "tree_id": "9a120da82bc07d7b68df9d12d58190a0aadc546d",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/33fecbd8e883ea5d90b0c8efcc4f59175c0c1d98"
+        },
+        "date": 1781047213436,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 12110700498.538462,
+            "unit": "ns",
+            "range": "± 12989588.820459956"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 28531916.783333335,
+            "unit": "ns",
+            "range": "± 483370.9012371691"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 32.11463366563503,
+            "unit": "ns",
+            "range": "± 0.12815394958653623"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 478185.6532689145,
+            "unit": "ns",
+            "range": "± 10131.240035389781"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 20449.63459777832,
+            "unit": "ns",
+            "range": "± 49.125331289711504"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 22.052001092831294,
+            "unit": "ns",
+            "range": "± 0.11359511767669354"
           }
         ]
       }
