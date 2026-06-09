@@ -1,5 +1,3 @@
-using System.ComponentModel;
-using System.Diagnostics;
 using System.Globalization;
 using System.Text.RegularExpressions;
 
@@ -170,43 +168,6 @@ internal static partial class ReadelfOracle
     private static ulong ParseHex(string hex) =>
         ulong.Parse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
 
-    private static string? Run(string path, string flag)
-    {
-        var psi = new ProcessStartInfo("readelf")
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
-        psi.ArgumentList.Add(flag);
-        psi.ArgumentList.Add(path);
-
-        try
-        {
-            using var proc = Process.Start(psi);
-            if (proc is null) return null;
-
-            // Drain both streams concurrently with the wait: reading stdout to EOF *before*
-            // waiting would defeat the timeout if readelf hangs, and an undrained stderr can
-            // deadlock once its pipe buffer fills.
-            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-            var stderrTask = proc.StandardError.ReadToEndAsync();
-
-            if (!proc.WaitForExit(30_000))
-            {
-                try { proc.Kill(entireProcessTree: true); } catch { /* best effort */ }
-                return null;
-            }
-
-            // Process has exited; the reads should complete promptly. Bound the join anyway.
-            if (!Task.WaitAll([stdoutTask, stderrTask], 5_000))
-                return null;
-
-            return proc.ExitCode == 0 ? stdoutTask.Result : null;
-        }
-        catch (Win32Exception)
-        {
-            return null; // readelf not installed
-        }
-    }
+    private static string? Run(string path, string flag) =>
+        OracleProcess.Run("readelf", flag, path);
 }

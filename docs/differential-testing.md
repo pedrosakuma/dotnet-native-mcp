@@ -24,7 +24,22 @@ the real comparison runs (see [CI](#ci)).
 The reference oracle is the shared `ReadelfOracle` helper
 (`tests/DotnetNativeMcp.Core.Tests/ReadelfOracle.cs`), which shells out to `readelf` and
 parses its wide (`-W`) output. The symbol oracle mirrors `ElfReader`'s table preference —
-`.symtab` when present, otherwise `.dynsym` — so the two read the same symbol table.
+`.symtab` when present, otherwise `.dynsym` — so the two read the same symbol table. The
+disassembly oracle (`ObjdumpOracle`) shells out to `objdump`. Both share the safe process
+runner in `OracleProcess` (concurrent stdout/stderr drain + timeout + missing-tool skip).
+
+#### Disassembly
+
+| Decoder | Reference oracle | Compared properties | Source |
+|---|---|---|---|
+| `IcedDisassembler` (x86/x64, via `RawDisassembler`) | GNU `objdump -d -M intel` | per-address instruction boundary + raw bytes (hard); mnemonic (soft) | `tests/DotnetNativeMcp.Core.Tests/ElfDisassemblyDifferentialTests.cs` |
+
+The hard oracle is **instruction-boundary + raw-byte** agreement: two independent decoders
+walking the same bytes must segment them identically, so a mismatch means one of them
+mis-sized an instruction — the most dangerous class of decoder bug, invisible to the
+"never throws" fuzz harness. The harness disassembles each function symbol in `.text`
+(bounded by size) both ways and asserts every Iced instruction has an `objdump` instruction
+at the same address with identical bytes.
 
 #### Comparison strategy per surface
 
@@ -39,15 +54,20 @@ parses its wide (`-W`) output. The symbol oracle mirrors `ElfReader`'s table pre
   geometry-existence match.
 - **Imports** — multiset-equivalent (order-independent, duplicate-aware) comparison of the
   `DT_NEEDED` library set and of the undefined `.dynsym` symbol names.
+- **Disassembly** — per-address boundary + raw-byte equality (hard). Mnemonics are compared
+  after normalizing `objdump`'s display: leading segment/`rep`/`lock`/`REX` prefix tokens are
+  stripped, `movabs` is mapped to Iced's `mov`, and the `nop`/`xchg ax,ax` NOP family is
+  treated as equivalent. Operand text is **not** compared (formatting differs by design).
 
 > Radix gotcha: `readelf -sW` prints symbol **Size in decimal**, while `readelf -SW` prints
-> section **Address/Off/Size in hex**. `ReadelfOracle` parses each accordingly.
+> section **Address/Off/Size in hex**. `ReadelfOracle` parses each accordingly. `objdump`
+> prints instruction addresses and bytes in hex.
 
 ### Fixtures exercised
 
 | Fixture | Why |
 |---|---|
-| `SampleAot` (NativeAOT ELF) | Clean `.symtab` with no SECTION/FILE symbols — enables an exact 1:1 comparison. |
+| `SampleAot` (NativeAOT ELF) | Clean `.symtab` with no SECTION/FILE symbols — enables an exact 1:1 comparison. It is also the disassembly fixture: its `.text` function symbols give well-bounded code ranges to decode both ways. |
 | `/usr/bin/cat` | Stock, usually-stripped system binary — exercises the `.dynsym` fallback and the `@GLIBC_x.y` version-suffix normalization. |
 
 ### Normalization notes
@@ -74,7 +94,7 @@ dotnet test tests/DotnetNativeMcp.Core.Tests/ \
   --filter "FullyQualifiedName~Differential"
 ```
 
-Requires GNU binutils (`readelf`) on `PATH`:
+Requires GNU binutils (`readelf`, `objdump`) on `PATH`:
 
 ```bash
 sudo apt-get update && sudo apt-get install -y binutils
@@ -110,7 +130,7 @@ readelf -sW <binary> | awk '/Symbol table/{t=$3} $1=="42:"{print t, $0}'
 ## CI
 
 The differential tests run inside the standard `dotnet test` step of `.github/workflows/ci.yml`.
-`ubuntu-latest` ships `readelf` preinstalled and the workflow builds the NativeAOT fixture,
-so the comparison executes for real on every push and pull request — it is not silently
+`ubuntu-latest` ships `readelf` and `objdump` preinstalled and the workflow builds the NativeAOT
+fixture, so the comparison executes for real on every push and pull request — it is not silently
 skipped. The existing "Verify NativeAOT fixture outputs" guard fails the build if the
 fixture did not compile, which would otherwise let the `SampleAot` comparison skip unnoticed.
