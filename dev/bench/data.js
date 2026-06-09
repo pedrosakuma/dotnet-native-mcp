@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781017833942,
+  "lastUpdate": 1781017835420,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -446,6 +446,42 @@ window.BENCHMARK_DATA = {
             "value": 102.2530642802065,
             "unit": "ns",
             "range": "± 3.897783869463223"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "aa2e0c221ae3d34514d4d5a938f683feedc5e6b5",
+          "message": "test: add differential (oracle) harness for the ELF reader vs readelf (#110)\n\nAdds a differential test harness that cross-checks ElfReader against GNU\nreadelf, complementing the existing fuzz harness (which only proves the\nparsers never throw) with a correctness oracle.\n\nSurfaces covered:\n- symbols (readelf -sW): per-index name, value, size, function flag + count\n- sections (readelf -SW): per-name virtual address, file offset, size\n- imports: DT_NEEDED libraries (readelf -dW) and undefined .dynsym symbols\n\nNotes:\n- Shared ReadelfOracle helper shells out to readelf and parses its wide\n  (-W) output; drains stdout/stderr asynchronously with an effective\n  timeout. Symbol Size is decimal in -sW; section geometry is hex in -SW.\n- Tests no-op when readelf or the NativeAOT fixture are unavailable, so\n  the suite stays green on hosts without binutils. CI (ubuntu-latest) has\n  readelf and builds the fixture, so the comparison runs for real.\n- Version suffixes (@GLIBC_x.y) are normalized on both sides; SHT_NOBITS\n  FileSize is not checked; duplicate section names fall back to a\n  geometry-existence match.\n\nSee docs/differential-testing.md.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-09T11:59:55-03:00",
+          "tree_id": "9a7a776f87447e5bac73499ce540ffc6550d3e39",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/aa2e0c221ae3d34514d4d5a938f683feedc5e6b5"
+        },
+        "date": 1781017835400,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 6809153.075334822,
+            "unit": "ns",
+            "range": "± 35593.27979282391"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 93.7999546783311,
+            "unit": "ns",
+            "range": "± 0.3435435713224244"
           }
         ]
       }
