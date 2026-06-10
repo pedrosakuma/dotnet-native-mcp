@@ -18,12 +18,16 @@ public sealed partial class NativeTools
         "When includeImportSections is true, also decodes the ImportSections section (type 101) into " +
         "per-entry fixup-region metadata (RVA/size, decoded Type and Flags, EntrySize, Signatures and " +
         "AuxiliaryData RVAs); individual fixup signatures are not decoded. " +
+        "When includeCompositeInfo is true, also decodes the composite-image ComponentAssemblies " +
+        "(type 115) entries and ManifestAssemblyMvids (type 118) GUIDs when present. " +
         "Returns r2r_not_present when the image has no R2R header (pure managed assembly or NativeAOT binary). " +
         "Use list_r2r_runtime_functions to navigate the RuntimeFunctions section.")]
     public NativeResult<R2RHeaderResult> GetR2RHeader(
         [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
         [Description("When true, also decode and return the ImportSections (type 101) entries. Default false.")]
-        bool includeImportSections = false)
+        bool includeImportSections = false,
+        [Description("When true, also decode the composite-image ComponentAssemblies (type 115) and ManifestAssemblyMvids (type 118). Default false.")]
+        bool includeCompositeInfo = false)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
             return NativeResult.Fail<R2RHeaderResult>(
@@ -38,6 +42,9 @@ public sealed partial class NativeTools
         var hdr = headerResult.Data!;
         var hasRtFuncs = hdr.FindSection(ReadyToRunSectionType.RuntimeFunctions) is not null;
         var hasImportSections = hdr.FindSection(ReadyToRunSectionType.ImportSections) is not null;
+        var hasComponentAssemblies = hdr.FindSection(ReadyToRunSectionType.ComponentAssemblies) is not null;
+        var hasManifestMvids = hdr.FindSection(ReadyToRunSectionType.ManifestAssemblyMvids) is not null;
+        var hasCompositeInfo = hasComponentAssemblies || hasManifestMvids;
 
         var hints = new List<NextActionHint>
         {
@@ -63,6 +70,18 @@ public sealed partial class NativeTools
                 {
                     ["imageHandle"] = imageHandle,
                     ["includeImportSections"] = true,
+                }));
+        }
+
+        if (hasCompositeInfo && !includeCompositeInfo)
+        {
+            hints.Add(new NextActionHint(
+                "get_r2r_header",
+                "Re-run with includeCompositeInfo=true to decode the composite-image ComponentAssemblies (type 115) and ManifestAssemblyMvids (type 118).",
+                new Dictionary<string, object?>
+                {
+                    ["imageHandle"] = imageHandle,
+                    ["includeCompositeInfo"] = true,
                 }));
         }
 
@@ -96,6 +115,36 @@ public sealed partial class NativeTools
         var compilerIdentifier = ReadyToRunReader.ReadCompilerIdentifier(image, hdr);
         var ownerCompositeExecutable = ReadyToRunReader.ReadOwnerCompositeExecutable(image, hdr);
 
+        List<R2RComponentAssemblyView>? componentAssemblies = null;
+        List<string>? manifestAssemblyMvids = null;
+        if (includeCompositeInfo)
+        {
+            if (hasComponentAssemblies)
+            {
+                var caResult = ReadyToRunReader.ReadComponentAssemblies(image, hdr);
+                if (caResult.IsError)
+                    return NativeResult.Fail<R2RHeaderResult>(
+                        caResult.Error!.Kind, caResult.Error.Message, caResult.Error.Detail);
+
+                componentAssemblies = caResult.Data!.Select(c => new R2RComponentAssemblyView(
+                    c.Index,
+                    $"0x{c.CorHeaderRva:X8}",
+                    c.CorHeaderSize,
+                    $"0x{c.AssemblyHeaderRva:X8}",
+                    c.AssemblyHeaderSize)).ToList();
+            }
+
+            if (hasManifestMvids)
+            {
+                var mvidResult = ReadyToRunReader.ReadManifestAssemblyMvids(image, hdr);
+                if (mvidResult.IsError)
+                    return NativeResult.Fail<R2RHeaderResult>(
+                        mvidResult.Error!.Kind, mvidResult.Error.Message, mvidResult.Error.Detail);
+
+                manifestAssemblyMvids = mvidResult.Data!.Select(g => g.ToString("D")).ToList();
+            }
+        }
+
         var data = new R2RHeaderResult(
             imageHandle,
             hdr.Version,
@@ -110,12 +159,15 @@ public sealed partial class NativeTools
             sections,
             importSections,
             compilerIdentifier,
-            ownerCompositeExecutable);
+            ownerCompositeExecutable,
+            componentAssemblies,
+            manifestAssemblyMvids);
 
         var flagSummary = flagNames.Count > 0 ? $", flags [{string.Join(", ", flagNames)}]" : string.Empty;
         var importSummary = importSections is not null ? $", {importSections.Count} import sections" : string.Empty;
+        var compositeSummary = componentAssemblies is not null ? $", {componentAssemblies.Count} component assemblies" : string.Empty;
         return NativeResult.Ok(
-            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}{importSummary}.",
+            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}{importSummary}{compositeSummary}.",
             data,
             hints);
     }
@@ -217,6 +269,14 @@ public sealed partial class NativeTools
 /// The OwnerCompositeExecutable (type 116) filename of the composite executable that owns this
 /// component image, or <c>null</c> when the image is not a composite component (section absent).
 /// </param>
+/// <param name="ComponentAssemblies">
+/// Decoded ComponentAssemblies (type 115) entries of a composite image, or <c>null</c> when
+/// <c>includeCompositeInfo</c> was false or the image has no ComponentAssemblies section.
+/// </param>
+/// <param name="ManifestAssemblyMvids">
+/// The ManifestAssemblyMvids (type 118) GUIDs (in "D" format), one per manifest assembly, or
+/// <c>null</c> when <c>includeCompositeInfo</c> was false or the section is absent.
+/// </param>
 public sealed record R2RHeaderResult(
     string ImageHandle,
     string Version,
@@ -231,7 +291,22 @@ public sealed record R2RHeaderResult(
     IReadOnlyList<R2RSectionView> Sections,
     IReadOnlyList<R2RImportSectionView>? ImportSections = null,
     string? CompilerIdentifier = null,
-    string? OwnerCompositeExecutable = null);
+    string? OwnerCompositeExecutable = null,
+    IReadOnlyList<R2RComponentAssemblyView>? ComponentAssemblies = null,
+    IReadOnlyList<string>? ManifestAssemblyMvids = null);
+
+/// <summary>One decoded entry of the R2R ComponentAssemblies section (type 115).</summary>
+/// <param name="Index">Zero-based index in the component-assemblies table.</param>
+/// <param name="CorHeaderRva">RVA of the component's COR (CLI) header (hex).</param>
+/// <param name="CorHeaderSize">Byte size of the component's COR header.</param>
+/// <param name="AssemblyHeaderRva">RVA of the component's R2R assembly header (hex).</param>
+/// <param name="AssemblyHeaderSize">Byte size of the component's R2R assembly header.</param>
+public sealed record R2RComponentAssemblyView(
+    int Index,
+    string CorHeaderRva,
+    uint CorHeaderSize,
+    string AssemblyHeaderRva,
+    uint AssemblyHeaderSize);
 
 /// <summary>One decoded entry of the R2R ImportSections section (type 101).</summary>
 /// <param name="Index">Zero-based index in the import-sections table.</param>

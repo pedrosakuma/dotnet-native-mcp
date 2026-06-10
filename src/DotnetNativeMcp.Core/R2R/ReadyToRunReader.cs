@@ -29,6 +29,12 @@ public static class ReadyToRunReader
     /// <summary>Byte size of one <c>READYTORUN_IMPORT_SECTION</c> entry.</summary>
     private const int ImportSectionEntrySize = 20; // dir(8) + flags(2) + type(1) + entrySize(1) + signatures(4) + auxData(4)
 
+    /// <summary>Byte size of one <c>READYTORUN_COMPONENT_ASSEMBLIES_ENTRY</c> (two IMAGE_DATA_DIRECTORY).</summary>
+    private const int ComponentAssemblyEntrySize = 16; // corHeader(rva+size) + assemblyHeader(rva+size)
+
+    /// <summary>Byte size of a GUID / MVID.</summary>
+    private const int GuidByteSize = 16;
+
     private const uint Arm64PackedFlagMask = 0x3u;
     private const int Arm64PackedFunctionLengthShift = 2;
     private const uint Arm64PackedFunctionLengthMask = 0x7FFu;
@@ -428,6 +434,112 @@ public static class ReadyToRunReader
 
         var slice = bytes.Slice(fileOffset.Value, (int)contentLength);
         return System.Text.Encoding.UTF8.GetString(slice);
+    }
+
+    /// <summary>
+    /// Reads the <c>ComponentAssemblies</c> section (type 115) from the R2R header and decodes each
+    /// <c>READYTORUN_COMPONENT_ASSEMBLIES_ENTRY</c>. Present only in composite ReadyToRun images.
+    /// </summary>
+    public static NativeResult<IReadOnlyList<ReadyToRunComponentAssembly>> ReadComponentAssemblies(
+        NativeImage image,
+        ReadyToRunHeader header)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(header);
+
+        var section = header.FindSection(ReadyToRunSectionType.ComponentAssemblies);
+        if (section is null)
+            return NativeResult.Fail<IReadOnlyList<ReadyToRunComponentAssembly>>(
+                ErrorKinds.R2RSectionNotPresent,
+                "This R2R image does not contain a ComponentAssemblies section (type 115). It is not a composite image.");
+
+        var totalEntries = (int)(section.Size / (uint)ComponentAssemblyEntrySize);
+        if (totalEntries == 0)
+            return NativeResult.Ok(
+                "ComponentAssemblies section is empty.",
+                (IReadOnlyList<ReadyToRunComponentAssembly>)Array.Empty<ReadyToRunComponentAssembly>());
+
+        var fileOffset = image.RvaToFileOffset(section.VirtualAddress);
+        if (fileOffset is null)
+            return NativeResult.Fail<IReadOnlyList<ReadyToRunComponentAssembly>>(
+                ErrorKinds.InvalidArgument,
+                $"ComponentAssemblies RVA 0x{section.VirtualAddress:X8} could not be mapped to a file offset.");
+
+        var bytes = image.RawBytes.Span;
+
+        // The section size and start offset both originate from the (untrusted) image, so validate
+        // that the entire declared table fits within the file before allocating or indexing.
+        var declaredBytes = (long)totalEntries * ComponentAssemblyEntrySize;
+        if (fileOffset.Value < 0 || fileOffset.Value + declaredBytes > bytes.Length)
+            return NativeResult.Fail<IReadOnlyList<ReadyToRunComponentAssembly>>(
+                ErrorKinds.InvalidArgument,
+                $"ComponentAssemblies table ({totalEntries} entries) extends beyond the end of the file.");
+
+        var entries = new List<ReadyToRunComponentAssembly>(totalEntries);
+        for (var i = 0; i < totalEntries; i++)
+        {
+            var off = fileOffset.Value + i * ComponentAssemblyEntrySize;
+            var corHeaderRva = BinaryPrimitives.ReadUInt32LittleEndian(bytes[off..]);
+            var corHeaderSize = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(off + 4)..]);
+            var asmHeaderRva = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(off + 8)..]);
+            var asmHeaderSize = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(off + 12)..]);
+
+            entries.Add(new ReadyToRunComponentAssembly(
+                i, corHeaderRva, corHeaderSize, asmHeaderRva, asmHeaderSize));
+        }
+
+        return NativeResult.Ok(
+            $"Decoded {entries.Count} ComponentAssembl{(entries.Count == 1 ? "y" : "ies")}.",
+            (IReadOnlyList<ReadyToRunComponentAssembly>)entries);
+    }
+
+    /// <summary>
+    /// Reads the <c>ManifestAssemblyMvids</c> section (type 118) from the R2R header — the array of
+    /// 16-byte module version IDs (GUIDs) of the manifest assemblies. Present only in composite images.
+    /// </summary>
+    public static NativeResult<IReadOnlyList<Guid>> ReadManifestAssemblyMvids(
+        NativeImage image,
+        ReadyToRunHeader header)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(header);
+
+        var section = header.FindSection(ReadyToRunSectionType.ManifestAssemblyMvids);
+        if (section is null)
+            return NativeResult.Fail<IReadOnlyList<Guid>>(
+                ErrorKinds.R2RSectionNotPresent,
+                "This R2R image does not contain a ManifestAssemblyMvids section (type 118). It is not a composite image.");
+
+        var totalEntries = (int)(section.Size / (uint)GuidByteSize);
+        if (totalEntries == 0)
+            return NativeResult.Ok(
+                "ManifestAssemblyMvids section is empty.",
+                (IReadOnlyList<Guid>)Array.Empty<Guid>());
+
+        var fileOffset = image.RvaToFileOffset(section.VirtualAddress);
+        if (fileOffset is null)
+            return NativeResult.Fail<IReadOnlyList<Guid>>(
+                ErrorKinds.InvalidArgument,
+                $"ManifestAssemblyMvids RVA 0x{section.VirtualAddress:X8} could not be mapped to a file offset.");
+
+        var bytes = image.RawBytes.Span;
+
+        var declaredBytes = (long)totalEntries * GuidByteSize;
+        if (fileOffset.Value < 0 || fileOffset.Value + declaredBytes > bytes.Length)
+            return NativeResult.Fail<IReadOnlyList<Guid>>(
+                ErrorKinds.InvalidArgument,
+                $"ManifestAssemblyMvids table ({totalEntries} entries) extends beyond the end of the file.");
+
+        var mvids = new List<Guid>(totalEntries);
+        for (var i = 0; i < totalEntries; i++)
+        {
+            var off = fileOffset.Value + i * GuidByteSize;
+            mvids.Add(new Guid(bytes.Slice(off, GuidByteSize)));
+        }
+
+        return NativeResult.Ok(
+            $"Decoded {mvids.Count} manifest assembly MVID{(mvids.Count == 1 ? string.Empty : "s")}.",
+            (IReadOnlyList<Guid>)mvids);
     }
 
     private static RuntimeFunctionLayout? GetRuntimeFunctionLayout(NativeImage image)
