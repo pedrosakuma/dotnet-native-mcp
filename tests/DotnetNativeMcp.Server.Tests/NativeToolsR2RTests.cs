@@ -282,6 +282,23 @@ public class NativeToolsR2RTests
         result.Data.SectionCount.Should().Be(0);
     }
 
+    [Fact]
+    public void GetR2RHeader_SyntheticR2R_DecodesHeaderFlags()
+    {
+        // The synthetic builder writes raw flags 0x00000003
+        // (PlatformNeutralSource | SkipTypeValidation).
+        var image = BuildSyntheticR2RImage();
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.Flags.Should().Be(0x00000003u);
+        result.Data.FlagsHex.Should().Be("0x00000003");
+        result.Data.FlagNames.Should().Equal("PlatformNeutralSource", "SkipTypeValidation");
+        result.Summary.Should().Contain("PlatformNeutralSource");
+    }
+
     // -----------------------------------------------------------------------
     // ListR2RRuntimeFunctions tests
     // -----------------------------------------------------------------------

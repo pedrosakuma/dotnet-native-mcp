@@ -793,6 +793,48 @@ public class ReadyToRunReaderTests
         }
     }
 
+    [Fact]
+    public void ReadHeader_RealR2RImage_DecodesHeaderFlagsConsistently()
+    {
+        var dllPaths = RealR2RImagePaths().ToList();
+        if (dllPaths.Count == 0) return;  // skip when no real R2R fixture is available
+
+        foreach (var dllPath in dllPaths)
+        {
+            var bytes = File.ReadAllBytes(dllPath);
+            var image = PeNativeReader.Read(new ReadOnlyMemory<byte>(bytes), dllPath);
+            image.Should().NotBeNull();
+
+            var hdr = ReadyToRunReader.ReadHeader(image!).Data!;
+            var names = ReadyToRunHeaderAttributesExtensions.DecodeNames(hdr.Flags);
+
+            if (hdr.Flags == 0)
+            {
+                names.Should().BeEmpty();
+                continue;
+            }
+
+            // Every set bit must be accounted for: re-OR the decoded known flags
+            // plus any residual Unknown(0x...) bits and the result must equal the raw value.
+            uint reencoded = 0;
+            foreach (var name in names)
+            {
+                if (name.StartsWith("Unknown(0x", StringComparison.Ordinal))
+                {
+                    var hex = name["Unknown(0x".Length..].TrimEnd(')');
+                    reencoded |= Convert.ToUInt32(hex, 16);
+                }
+                else
+                {
+                    reencoded |= (uint)Enum.Parse<ReadyToRunHeaderAttributes>(name);
+                }
+            }
+
+            reencoded.Should().Be(hdr.Flags,
+                $"decoded flag names for {dllPath} must round-trip back to the raw flags value");
+        }
+    }
+
     private static IEnumerable<string> RealR2RImagePaths()
     {
         var spc = FixturePaths.SystemPrivateCoreLib ?? FindInstalledSystemPrivateCoreLib();
