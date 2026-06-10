@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781098511684,
+  "lastUpdate": 1781098513277,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1310,6 +1310,42 @@ window.BENCHMARK_DATA = {
             "value": 84.88604099016923,
             "unit": "ns",
             "range": "± 0.13159301398866882"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "61c0bace78e1d4f4481cedcee73192eeeb75a120",
+          "message": "feat(r2r): decode ReadyToRun header flags in get_r2r_header (#119)\n\nThe get_r2r_header tool previously surfaced only the raw uint Flags value.\nThis adds decoding of the set bits into their READYTORUN_FLAG_* names so\ncallers can tell at a glance whether an image is a composite Component,\nPartial, EmbeddedMsil, has StrippedIlBodies, etc. — without manually\ndecoding the bitmask.\n\n- ReadyToRunHeaderAttributes: new [Flags] enum mirroring ReadyToRunFlag in\n  coreclr/inc/readytorun.h (12 flags, 0x1..0x800). Named with the BCL flags-\n  enum convention (cf. TypeAttributes) to satisfy CA1711.\n- DecodeNames(uint): decodes set bits to names; any bit not covered by a\n  known flag is reported as a single Unknown(0x...) entry so information is\n  never silently dropped.\n- R2RHeaderResult gains FlagsHex (e.g. \"0x00000003\") and FlagNames; the tool\n  summary lists the decoded names. Raw Flags is retained for back-compat.\n- Tests: Core decode unit tests (single/multiple/all-known/unknown-residue),\n  a real-image round-trip regression (decoded names must re-OR back to the\n  raw flags), plus a synthetic server-tool assertion.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T10:25:24-03:00",
+          "tree_id": "8e9351180348ab1179bc6370ff3600978fc2af67",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/61c0bace78e1d4f4481cedcee73192eeeb75a120"
+        },
+        "date": 1781098513251,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 7519999.011160715,
+            "unit": "ns",
+            "range": "± 96430.38062174115"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 86.06280561004367,
+            "unit": "ns",
+            "range": "± 1.2363124171350672"
           }
         ]
       }
