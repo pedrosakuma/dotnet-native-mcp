@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781096549486,
+  "lastUpdate": 1781096550745,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1214,6 +1214,42 @@ window.BENCHMARK_DATA = {
             "value": 90.73028745821544,
             "unit": "ns",
             "range": "± 1.1866732545421075"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8f7a2b4f3ea26fbe3a6466f5d191175e93c4c95d",
+          "message": "test(r2r): add differential harness for RuntimeFunctions vs PE exception directory (#118)\n\nAdds regression coverage for the R2R RuntimeFunctions reader using the\nestablished differential-testing harness. In a crossgen2 R2R image the\nRuntimeFunctions section (type 102) IS the PE exception data directory\n(.pdata) — identical RVA and size — giving two independent paths to the\nsame table:\n\n- ReadyToRunReader: managed-native header -> R2R signature -> section 102.\n- A battle-tested PE reader: optional-header data directories.\n\nThe two paths must agree; that invariant is exactly what the section-type\nenum bug (RuntimeFunctions mis-mapped to type 5) violated, so this guards\nagainst regression.\n\n- LlvmReadobjOracle.TryReadPeExceptionDirectory: parses the exception data\n  directory from `llvm-readobj --file-headers` (decoded regardless of the\n  CoreCLR per-OS machine override, e.g. 0xFD1D on linux-x64).\n- R2RRuntimeFunctionsDifferentialTests: location match vs llvm-readobj, plus\n  an in-process independent PEReader decode of the first 32 x64\n  RUNTIME_FUNCTION rows compared against ReadRuntimeFunctions. Both no-op\n  when the fixture is unbuilt (and the location test when llvm-readobj is\n  absent).\n- docs/differential-testing.md: matrix row + explanatory note.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T09:52:12-03:00",
+          "tree_id": "1746b2283790530b537795d55f357ba50907c3b4",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/8f7a2b4f3ea26fbe3a6466f5d191175e93c4c95d"
+        },
+        "date": 1781096550721,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 7466214.472916666,
+            "unit": "ns",
+            "range": "± 85603.39734380931"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 84.88604099016923,
+            "unit": "ns",
+            "range": "± 0.13159301398866882"
           }
         ]
       }
