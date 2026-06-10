@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781113184492,
+  "lastUpdate": 1781113185820,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1790,6 +1790,42 @@ window.BENCHMARK_DATA = {
             "value": 93.62585722517085,
             "unit": "ns",
             "range": "± 4.057786378735384"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0750b47dbb57b21278a053b9d42c056b1086c715",
+          "message": "Add NativeArray + MethodDefEntryPoints (type 103) R2R decode (#125)\n\nPR2 of the NativeFormat reader epic. Ports the runtime's sparse\nindex-addressable NativeArray (16-element-block bit-tree) and decodes the\nMethodDefEntryPoints section, mapping each present MethodDef RID to its\nentry-point RUNTIME_FUNCTION index and hasFixups flag. Rides on the existing\nget_r2r_header tool via additive includeMethodEntryPoints /\nmethodEntryPointsLimit params and a nullable result field (no new tool).\n\nHardening:\n- Bound the decode loop with a 2,000,000-slot scan cap so a crafted section\n  advertising a huge untrusted Count backed by an in-bounds all-absent index\n  cannot spin unbounded; over-cap results are flagged Truncated.\n- DecodeMethodEntryPoint now consumes the trailing delta-encoded fixup offset\n  when the id marks it (id & 2), faithfully mirroring the runtime's\n  GetRuntimeFunctionIndexFromOffset so truncated fixup entries fail with\n  InvalidArgument instead of being silently accepted.\n\nTests: synthetic end-to-end decode, limit/truncation, fixup-delta consume and\ntruncated-delta failure, bounded-scan regression, and a real\nSystem.Private.CoreLib regression cross-checking every entry against the\nRuntimeFunctions bound.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T14:29:56-03:00",
+          "tree_id": "8ac0bfc4ba2e6c6a2f223606e6363f25fe77e0a5",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/0750b47dbb57b21278a053b9d42c056b1086c715"
+        },
+        "date": 1781113185796,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 7294694.459375,
+            "unit": "ns",
+            "range": "± 59085.925226816085"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 85.48247716029485,
+            "unit": "ns",
+            "range": "± 0.9337905181939736"
           }
         ]
       }
