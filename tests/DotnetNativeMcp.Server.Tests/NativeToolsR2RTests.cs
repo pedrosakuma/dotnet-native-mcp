@@ -792,6 +792,87 @@ public class NativeToolsR2RTests
             h.SuggestedArguments.ContainsKey("includeAvailableTypes"));
     }
 
+    [Fact]
+    public void GetR2RHeader_IncludeInfoMaps_DecodesEnclosingTypeMap()
+    {
+        // 3 types: rid 2 nested in rid 1, others top-level. u16 count then u16 entries.
+        var blob = new byte[] { 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 };
+        var image = BuildSyntheticR2RWithRawSection(
+            (uint)ReadyToRunSectionType.EnclosingTypeMap, blob, "r2r_etm.dll", "aabbccddee0e");
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value, includeInfoMaps: true);
+
+        result.IsError.Should().BeFalse();
+        var em = result.Data!.InfoMaps!.EnclosingTypeMap;
+        em.Should().NotBeNull();
+        em!.TypeDefCount.Should().Be(3);
+        em.NestedTypes.Should().ContainSingle();
+        em.NestedTypes[0].NestedTypeToken.Should().Be("0x02000002");
+        em.NestedTypes[0].EnclosingTypeToken.Should().Be("0x02000001");
+        result.Summary.Should().Contain("info maps decoded");
+    }
+
+    [Fact]
+    public void GetR2RHeader_IncludeInfoMaps_DecodesMethodIsGenericMap()
+    {
+        // 10 methods, generic at index 0 (rid 1) and 9 (rid 10): int32 count then MSB-first bits.
+        var blob = new byte[] { 0x0A, 0x00, 0x00, 0x00, 0x80, 0x40 };
+        var image = BuildSyntheticR2RWithRawSection(
+            (uint)ReadyToRunSectionType.MethodIsGenericMap, blob, "r2r_mgm.dll", "aabbccddee0f");
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value, includeInfoMaps: true);
+
+        result.IsError.Should().BeFalse();
+        var mm = result.Data!.InfoMaps!.MethodIsGenericMap;
+        mm.Should().NotBeNull();
+        mm!.MethodDefCount.Should().Be(10);
+        mm.GenericMethodCount.Should().Be(2);
+        mm.GenericMethodTokens.Should().Equal("0x06000001", "0x0600000A");
+    }
+
+    [Fact]
+    public void GetR2RHeader_IncludeInfoMaps_DecodesTypeGenericInfoMap()
+    {
+        // 3 types: rid1 non-generic, rid2 generic 1-arg+variance (0x9), rid3 generic 2-arg+constraints (0x6).
+        var blob = new byte[] { 0x03, 0x00, 0x00, 0x00, 0x09, 0x60 };
+        var image = BuildSyntheticR2RWithRawSection(
+            (uint)ReadyToRunSectionType.TypeGenericInfoMap, blob, "r2r_tgm.dll", "aabbccddee10");
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value, includeInfoMaps: true);
+
+        result.IsError.Should().BeFalse();
+        var tm = result.Data!.InfoMaps!.TypeGenericInfoMap;
+        tm.Should().NotBeNull();
+        tm!.GenericTypeCount.Should().Be(2);
+        tm.GenericTypes[0].TypeToken.Should().Be("0x02000002");
+        tm.GenericTypes[0].GenericArgCount.Should().Be(1);
+        tm.GenericTypes[0].HasVariance.Should().BeTrue();
+        tm.GenericTypes[1].TypeToken.Should().Be("0x02000003");
+        tm.GenericTypes[1].GenericArgCount.Should().Be(2);
+        tm.GenericTypes[1].HasConstraints.Should().BeTrue();
+    }
+
+    [Fact]
+    public void GetR2RHeader_InfoMapsPresent_NotIncluded_OffersHint()
+    {
+        var blob = new byte[] { 0x03, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00 };
+        var image = BuildSyntheticR2RWithRawSection(
+            (uint)ReadyToRunSectionType.EnclosingTypeMap, blob, "r2r_im_hint.dll", "aabbccddee11");
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.InfoMaps.Should().BeNull();
+        result.Hints.Should().Contain(h =>
+            h.NextTool == "get_r2r_header" &&
+            h.SuggestedArguments != null &&
+            h.SuggestedArguments.ContainsKey("includeInfoMaps"));
+    }
+
     // -----------------------------------------------------------------------
     // ListR2RRuntimeFunctions tests
     // -----------------------------------------------------------------------

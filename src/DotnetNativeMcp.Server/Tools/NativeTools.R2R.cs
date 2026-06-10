@@ -26,6 +26,10 @@ public sealed partial class NativeTools
         "When includeAvailableTypes is true, also decodes the AvailableTypes section (type 108) — " +
         "a NativeFormat hashtable of the types compiled into the image — into metadata tokens " +
         "(TypeDef table 0x02 or ExportedType table 0x27); type names are not resolved (capped by availableTypesLimit). " +
+        "When includeInfoMaps is true, also decodes the V9 RID-indexed info maps when present: " +
+        "EnclosingTypeMap (type 122, nested-type -> enclosing-type), MethodIsGenericMap (type 121, generic methods) " +
+        "and TypeGenericInfoMap (type 123, per-type generic arity/variance/constraints), emitting metadata tokens " +
+        "for handoff (capped by infoMapsLimit). " +
         "Returns r2r_not_present when the image has no R2R header (pure managed assembly or NativeAOT binary). " +
         "Use list_r2r_runtime_functions to navigate the RuntimeFunctions section.")]
     public NativeResult<R2RHeaderResult> GetR2RHeader(
@@ -41,7 +45,11 @@ public sealed partial class NativeTools
         [Description("When true, also decode the AvailableTypes (type 108) section into metadata tokens. Default false.")]
         bool includeAvailableTypes = false,
         [Description("Maximum AvailableTypes entries to return (default 200, max 2000). Ignored unless includeAvailableTypes is true.")]
-        int availableTypesLimit = 200)
+        int availableTypesLimit = 200,
+        [Description("When true, also decode the V9 info maps (EnclosingTypeMap 122, MethodIsGenericMap 121, TypeGenericInfoMap 123) when present. Default false.")]
+        bool includeInfoMaps = false,
+        [Description("Maximum entries to return per info map (default 200, max 2000). Ignored unless includeInfoMaps is true.")]
+        int infoMapsLimit = 200)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
             return NativeResult.Fail<R2RHeaderResult>(
@@ -61,6 +69,10 @@ public sealed partial class NativeTools
         var hasCompositeInfo = hasComponentAssemblies || hasManifestMvids;
         var hasMethodEntryPoints = hdr.FindSection(ReadyToRunSectionType.MethodDefEntryPoints) is not null;
         var hasAvailableTypes = hdr.FindSection(ReadyToRunSectionType.AvailableTypes) is not null;
+        var hasEnclosingTypeMap = hdr.FindSection(ReadyToRunSectionType.EnclosingTypeMap) is not null;
+        var hasMethodIsGenericMap = hdr.FindSection(ReadyToRunSectionType.MethodIsGenericMap) is not null;
+        var hasTypeGenericInfoMap = hdr.FindSection(ReadyToRunSectionType.TypeGenericInfoMap) is not null;
+        var hasInfoMaps = hasEnclosingTypeMap || hasMethodIsGenericMap || hasTypeGenericInfoMap;
 
         var hints = new List<NextActionHint>
         {
@@ -122,6 +134,18 @@ public sealed partial class NativeTools
                 {
                     ["imageHandle"] = imageHandle,
                     ["includeAvailableTypes"] = true,
+                }));
+        }
+
+        if (hasInfoMaps && !includeInfoMaps)
+        {
+            hints.Add(new NextActionHint(
+                "get_r2r_header",
+                "Re-run with includeInfoMaps=true to decode the V9 info maps (EnclosingTypeMap 122, MethodIsGenericMap 121, TypeGenericInfoMap 123).",
+                new Dictionary<string, object?>
+                {
+                    ["imageHandle"] = imageHandle,
+                    ["includeInfoMaps"] = true,
                 }));
         }
 
@@ -220,6 +244,52 @@ public sealed partial class NativeTools
                     $"0x{t.MetadataToken:X8}", t.IsExportedType)).ToList());
         }
 
+        R2RInfoMapsView? infoMaps = null;
+        if (includeInfoMaps && hasInfoMaps)
+        {
+            var limit = Math.Clamp(infoMapsLimit, 1, 2000);
+
+            R2REnclosingTypeMapView? enclosingMap = null;
+            if (hasEnclosingTypeMap)
+            {
+                var r = ReadyToRunReader.ReadEnclosingTypeMap(image, hdr, limit);
+                if (r.IsError)
+                    return NativeResult.Fail<R2RHeaderResult>(r.Error!.Kind, r.Error.Message, r.Error.Detail);
+                var t = r.Data!;
+                enclosingMap = new R2REnclosingTypeMapView(
+                    t.TypeDefCount, t.NestedTypes.Count, t.Truncated,
+                    t.NestedTypes.Select(n => new R2RNestedTypeView(
+                        $"0x{n.NestedTypeToken:X8}", $"0x{n.EnclosingTypeToken:X8}")).ToList());
+            }
+
+            R2RMethodIsGenericMapView? methodGenericMap = null;
+            if (hasMethodIsGenericMap)
+            {
+                var r = ReadyToRunReader.ReadMethodIsGenericMap(image, hdr, limit);
+                if (r.IsError)
+                    return NativeResult.Fail<R2RHeaderResult>(r.Error!.Kind, r.Error.Message, r.Error.Detail);
+                var t = r.Data!;
+                methodGenericMap = new R2RMethodIsGenericMapView(
+                    t.MethodDefCount, t.GenericMethodCount, t.Truncated,
+                    t.GenericMethodTokens.Select(x => $"0x{x:X8}").ToList());
+            }
+
+            R2RTypeGenericInfoMapView? typeGenericMap = null;
+            if (hasTypeGenericInfoMap)
+            {
+                var r = ReadyToRunReader.ReadTypeGenericInfoMap(image, hdr, limit);
+                if (r.IsError)
+                    return NativeResult.Fail<R2RHeaderResult>(r.Error!.Kind, r.Error.Message, r.Error.Detail);
+                var t = r.Data!;
+                typeGenericMap = new R2RTypeGenericInfoMapView(
+                    t.TypeDefCount, t.GenericTypeCount, t.Truncated,
+                    t.GenericTypes.Select(g => new R2RTypeGenericInfoView(
+                        $"0x{g.TypeToken:X8}", g.GenericArgCount, g.HasVariance, g.HasConstraints)).ToList());
+            }
+
+            infoMaps = new R2RInfoMapsView(enclosingMap, methodGenericMap, typeGenericMap);
+        }
+
         var data = new R2RHeaderResult(
             imageHandle,
             hdr.Version,
@@ -238,15 +308,17 @@ public sealed partial class NativeTools
             componentAssemblies,
             manifestAssemblyMvids,
             methodEntryPoints,
-            availableTypes);
+            availableTypes,
+            infoMaps);
 
         var flagSummary = flagNames.Count > 0 ? $", flags [{string.Join(", ", flagNames)}]" : string.Empty;
         var importSummary = importSections is not null ? $", {importSections.Count} import sections" : string.Empty;
         var compositeSummary = componentAssemblies is not null ? $", {componentAssemblies.Count} component assemblies" : string.Empty;
         var mepSummary = methodEntryPoints is not null ? $", {methodEntryPoints.ReturnedCount} method entry points" : string.Empty;
         var atSummary = availableTypes is not null ? $", {availableTypes.ReturnedCount} available types" : string.Empty;
+        var infoMapsSummary = infoMaps is not null ? ", info maps decoded" : string.Empty;
         return NativeResult.Ok(
-            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}{importSummary}{compositeSummary}{mepSummary}{atSummary}.",
+            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}{importSummary}{compositeSummary}{mepSummary}{atSummary}{infoMapsSummary}.",
             data,
             hints);
     }
@@ -364,6 +436,10 @@ public sealed partial class NativeTools
 /// Decoded AvailableTypes (type 108) metadata tokens, or <c>null</c> when <c>includeAvailableTypes</c>
 /// was false or the image has no AvailableTypes section.
 /// </param>
+/// <param name="InfoMaps">
+/// Decoded V9 RID-indexed info maps (EnclosingTypeMap 122, MethodIsGenericMap 121, TypeGenericInfoMap 123),
+/// or <c>null</c> when <c>includeInfoMaps</c> was false or the image has none of those sections.
+/// </param>
 public sealed record R2RHeaderResult(
     string ImageHandle,
     string Version,
@@ -382,7 +458,8 @@ public sealed record R2RHeaderResult(
     IReadOnlyList<R2RComponentAssemblyView>? ComponentAssemblies = null,
     IReadOnlyList<string>? ManifestAssemblyMvids = null,
     R2RMethodEntryPointsView? MethodEntryPoints = null,
-    R2RAvailableTypesView? AvailableTypes = null);
+    R2RAvailableTypesView? AvailableTypes = null,
+    R2RInfoMapsView? InfoMaps = null);
 
 /// <summary>Decoded MethodDefEntryPoints (type 103) table.</summary>
 /// <param name="MethodCount">
@@ -425,6 +502,66 @@ public sealed record R2RAvailableTypesView(
 public sealed record R2RAvailableTypeView(
     string MetadataToken,
     bool IsExportedType);
+
+/// <summary>Decoded V9 RID-indexed info maps. Each field is <c>null</c> when its section is absent.</summary>
+/// <param name="EnclosingTypeMap">Nested-type -> enclosing-type relationships (type 122).</param>
+/// <param name="MethodIsGenericMap">Generic-method markers (type 121).</param>
+/// <param name="TypeGenericInfoMap">Per-type generic arity / variance / constraints (type 123).</param>
+public sealed record R2RInfoMapsView(
+    R2REnclosingTypeMapView? EnclosingTypeMap,
+    R2RMethodIsGenericMapView? MethodIsGenericMap,
+    R2RTypeGenericInfoMapView? TypeGenericInfoMap);
+
+/// <summary>Decoded EnclosingTypeMap (type 122).</summary>
+/// <param name="TypeDefCount">Total number of TypeDef rows the map covers.</param>
+/// <param name="ReturnedCount">Number of nested-type entries returned (after the limit).</param>
+/// <param name="Truncated"><c>true</c> when more nested types existed than were returned.</param>
+/// <param name="NestedTypes">Nested-type -> enclosing-type token pairs, capped at the requested limit.</param>
+public sealed record R2REnclosingTypeMapView(
+    int TypeDefCount,
+    int ReturnedCount,
+    bool Truncated,
+    IReadOnlyList<R2RNestedTypeView> NestedTypes);
+
+/// <summary>One nested-type relationship from the EnclosingTypeMap (type 122).</summary>
+/// <param name="NestedTypeToken">TypeDef token (hex, table 0x02) of the nested type.</param>
+/// <param name="EnclosingTypeToken">TypeDef token (hex, table 0x02) of the declaring type. Hand off to dotnet-assembly-mcp.</param>
+public sealed record R2RNestedTypeView(
+    string NestedTypeToken,
+    string EnclosingTypeToken);
+
+/// <summary>Decoded MethodIsGenericMap (type 121).</summary>
+/// <param name="MethodDefCount">Total number of MethodDef rows the bit array covers.</param>
+/// <param name="GenericMethodCount">Total number of generic methods (even past the limit).</param>
+/// <param name="Truncated"><c>true</c> when more generic methods existed than were returned.</param>
+/// <param name="GenericMethodTokens">MethodDef tokens (hex, table 0x06) of generic methods, capped at the requested limit.</param>
+public sealed record R2RMethodIsGenericMapView(
+    int MethodDefCount,
+    int GenericMethodCount,
+    bool Truncated,
+    IReadOnlyList<string> GenericMethodTokens);
+
+/// <summary>Decoded TypeGenericInfoMap (type 123).</summary>
+/// <param name="TypeDefCount">Total number of TypeDef rows the nibble array covers.</param>
+/// <param name="GenericTypeCount">Total number of generic types (even past the limit).</param>
+/// <param name="Truncated"><c>true</c> when more generic types existed than were returned.</param>
+/// <param name="GenericTypes">Per-type generic info, capped at the requested limit.</param>
+public sealed record R2RTypeGenericInfoMapView(
+    int TypeDefCount,
+    int GenericTypeCount,
+    bool Truncated,
+    IReadOnlyList<R2RTypeGenericInfoView> GenericTypes);
+
+/// <summary>One generic type's info from the TypeGenericInfoMap (type 123).</summary>
+/// <param name="TypeToken">TypeDef token (hex, table 0x02) of the generic type. Hand off to dotnet-assembly-mcp.</param>
+/// <param name="GenericArgCount">Generic-parameter count: 1, 2, or 3 meaning "more than two".</param>
+/// <param name="HasVariance"><c>true</c> when any generic parameter is variant (in/out).</param>
+/// <param name="HasConstraints"><c>true</c> when any generic parameter has a constraint.</param>
+public sealed record R2RTypeGenericInfoView(
+    string TypeToken,
+    int GenericArgCount,
+    bool HasVariance,
+    bool HasConstraints);
 
 /// <summary>One decoded entry of the R2R ComponentAssemblies section (type 115).</summary>
 /// <param name="Index">Zero-based index in the component-assemblies table.</param>

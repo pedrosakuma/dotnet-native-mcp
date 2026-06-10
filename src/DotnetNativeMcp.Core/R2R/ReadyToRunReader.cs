@@ -811,6 +811,255 @@ public static class ReadyToRunReader
         }
     }
 
+    private const uint MethodDefTokenBase = 0x06000000;
+
+    /// <summary>
+    /// Reads the <c>EnclosingTypeMap</c> section (type 122) — a fixed-width map,
+    /// indexed by (TypeDef RID − 1), of the enclosing (declaring) type's RID for
+    /// each nested type (0 for top-level types). The layout is a <c>ushort</c>
+    /// type count followed by that many little-endian <c>ushort</c> entries. Only
+    /// the nested types (non-zero entries) are returned, each as a pair of TypeDef
+    /// metadata tokens; the full count is reported separately. Returns at most
+    /// <paramref name="limit"/> nested entries.
+    /// </summary>
+    public static NativeResult<ReadyToRunEnclosingTypeMapTable> ReadEnclosingTypeMap(
+        NativeImage image,
+        ReadyToRunHeader header,
+        int limit)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(header);
+        if (limit <= 0)
+            limit = 1;
+
+        var slice = MapSectionBytes(
+            image, header, ReadyToRunSectionType.EnclosingTypeMap, "EnclosingTypeMap (type 122)",
+            out var error);
+        if (error is not null)
+            return NativeResult.Fail<ReadyToRunEnclosingTypeMapTable>(error.Kind, error.Message, error.Detail);
+
+        if (slice.Length < 2)
+            return NativeResult.Fail<ReadyToRunEnclosingTypeMapTable>(
+                ErrorKinds.InvalidArgument, "EnclosingTypeMap section is too small to hold its count.");
+
+        int count = BinaryPrimitives.ReadUInt16LittleEndian(slice);
+        var bodyBytes = (long)count * 2;
+        if (2 + bodyBytes > slice.Length)
+            return NativeResult.Fail<ReadyToRunEnclosingTypeMapTable>(
+                ErrorKinds.InvalidArgument,
+                $"EnclosingTypeMap declares {count} entries that extend beyond the section.");
+
+        var nested = new List<ReadyToRunNestedType>();
+        var truncated = false;
+        for (var i = 0; i < count; i++)
+        {
+            int enclosingRid = BinaryPrimitives.ReadUInt16LittleEndian(slice.Slice(2 + i * 2, 2));
+            if (enclosingRid == 0)
+                continue; // top-level type
+
+            if (nested.Count >= limit)
+            {
+                truncated = true;
+                break;
+            }
+
+            var nestedToken = (int)(TypeDefTokenBase | (uint)(i + 1));
+            var enclosingToken = (int)(TypeDefTokenBase | (uint)enclosingRid);
+            nested.Add(new ReadyToRunNestedType(nestedToken, enclosingToken));
+        }
+
+        return NativeResult.Ok(
+            $"Decoded EnclosingTypeMap: {nested.Count} nested type{(nested.Count == 1 ? string.Empty : "s")} of {count}" +
+            $"{(truncated ? " (truncated)" : string.Empty)}.",
+            new ReadyToRunEnclosingTypeMapTable(count, nested, truncated));
+    }
+
+    /// <summary>
+    /// Reads the <c>MethodIsGenericMap</c> section (type 121) — a bit array,
+    /// indexed by (MethodDef RID − 1), where a set bit marks a generic method. The
+    /// layout is an <c>int</c> method count followed by <c>ceil(count / 8)</c> bytes
+    /// of bits packed most-significant-bit first. The RIDs of the generic methods
+    /// are returned as MethodDef metadata tokens, capped at <paramref name="limit"/>.
+    /// </summary>
+    public static NativeResult<ReadyToRunMethodIsGenericMapTable> ReadMethodIsGenericMap(
+        NativeImage image,
+        ReadyToRunHeader header,
+        int limit)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(header);
+        if (limit <= 0)
+            limit = 1;
+
+        var slice = MapSectionBytes(
+            image, header, ReadyToRunSectionType.MethodIsGenericMap, "MethodIsGenericMap (type 121)",
+            out var error);
+        if (error is not null)
+            return NativeResult.Fail<ReadyToRunMethodIsGenericMapTable>(error.Kind, error.Message, error.Detail);
+
+        if (slice.Length < 4)
+            return NativeResult.Fail<ReadyToRunMethodIsGenericMapTable>(
+                ErrorKinds.InvalidArgument, "MethodIsGenericMap section is too small to hold its count.");
+
+        var rawCount = BinaryPrimitives.ReadInt32LittleEndian(slice);
+        if (rawCount < 0)
+            return NativeResult.Fail<ReadyToRunMethodIsGenericMapTable>(
+                ErrorKinds.InvalidArgument, "MethodIsGenericMap declares a negative method count.");
+
+        var count = rawCount;
+        var bitBytes = ((long)count + 7) / 8;
+        if (4 + bitBytes > slice.Length)
+            return NativeResult.Fail<ReadyToRunMethodIsGenericMapTable>(
+                ErrorKinds.InvalidArgument,
+                $"MethodIsGenericMap declares {count} methods whose bit array extends beyond the section.");
+
+        var bits = slice.Slice(4);
+        var generic = new List<int>();
+        var genericCount = 0;
+        var truncated = false;
+        for (var j = 0; j < count; j++)
+        {
+            var bit = (bits[j >> 3] >> (7 - (j & 7))) & 1;
+            if (bit == 0)
+                continue;
+
+            genericCount++;
+            if (generic.Count >= limit)
+            {
+                truncated = true;
+                continue; // keep counting total generic methods even past the limit
+            }
+
+            generic.Add((int)(MethodDefTokenBase | (uint)(j + 1)));
+        }
+
+        return NativeResult.Ok(
+            $"Decoded MethodIsGenericMap: {genericCount} generic method{(genericCount == 1 ? string.Empty : "s")} of {count}" +
+            $"{(truncated ? " (returned list truncated)" : string.Empty)}.",
+            new ReadyToRunMethodIsGenericMapTable(count, genericCount, generic, truncated));
+    }
+
+    /// <summary>
+    /// Reads the <c>TypeGenericInfoMap</c> section (type 123) — a nibble array,
+    /// indexed by (TypeDef RID − 1), carrying each type's generic-parameter info.
+    /// The layout is a <c>uint</c> type count followed by <c>ceil(count / 2)</c>
+    /// bytes, two 4-bit entries per byte (the even index in the high nibble). Each
+    /// nibble is the low 2 bits = generic-argument count (3 meaning "more than two"),
+    /// bit 0x4 = HasConstraints, bit 0x8 = HasVariance. Only generic types (non-zero
+    /// argument count) are returned, capped at <paramref name="limit"/>.
+    /// </summary>
+    public static NativeResult<ReadyToRunTypeGenericInfoMapTable> ReadTypeGenericInfoMap(
+        NativeImage image,
+        ReadyToRunHeader header,
+        int limit)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(header);
+        if (limit <= 0)
+            limit = 1;
+
+        var slice = MapSectionBytes(
+            image, header, ReadyToRunSectionType.TypeGenericInfoMap, "TypeGenericInfoMap (type 123)",
+            out var error);
+        if (error is not null)
+            return NativeResult.Fail<ReadyToRunTypeGenericInfoMapTable>(error.Kind, error.Message, error.Detail);
+
+        if (slice.Length < 4)
+            return NativeResult.Fail<ReadyToRunTypeGenericInfoMapTable>(
+                ErrorKinds.InvalidArgument, "TypeGenericInfoMap section is too small to hold its count.");
+
+        var rawCount = BinaryPrimitives.ReadUInt32LittleEndian(slice);
+        if (rawCount > int.MaxValue)
+            return NativeResult.Fail<ReadyToRunTypeGenericInfoMapTable>(
+                ErrorKinds.InvalidArgument, "TypeGenericInfoMap declares an implausibly large type count.");
+
+        var count = (int)rawCount;
+        var nibbleBytes = (long)(((long)count + 1) / 2);
+        if (4 + nibbleBytes > slice.Length)
+            return NativeResult.Fail<ReadyToRunTypeGenericInfoMapTable>(
+                ErrorKinds.InvalidArgument,
+                $"TypeGenericInfoMap declares {count} types whose nibble array extends beyond the section.");
+
+        var nibbles = slice.Slice(4);
+        var generic = new List<ReadyToRunTypeGenericInfo>();
+        var genericCount = 0;
+        var truncated = false;
+        for (var i = 0; i < count; i++)
+        {
+            var b = nibbles[i >> 1];
+            var nibble = (i & 1) == 0 ? (b >> 4) : (b & 0xF);
+
+            var argCount = nibble & 0x3;
+            if (argCount == 0)
+                continue; // non-generic type
+
+            genericCount++;
+            if (generic.Count >= limit)
+            {
+                truncated = true;
+                continue;
+            }
+
+            var hasConstraints = (nibble & 0x4) != 0;
+            var hasVariance = (nibble & 0x8) != 0;
+            generic.Add(new ReadyToRunTypeGenericInfo(
+                (int)(TypeDefTokenBase | (uint)(i + 1)), argCount, hasVariance, hasConstraints));
+        }
+
+        return NativeResult.Ok(
+            $"Decoded TypeGenericInfoMap: {genericCount} generic type{(genericCount == 1 ? string.Empty : "s")} of {count}" +
+            $"{(truncated ? " (returned list truncated)" : string.Empty)}.",
+            new ReadyToRunTypeGenericInfoMapTable(count, genericCount, generic, truncated));
+    }
+
+    /// <summary>
+    /// Resolves the file-offset slice for a fixed-width R2R map section, applying the
+    /// shared section-absent / unmappable-RVA / out-of-bounds validation. On success
+    /// returns the section's bytes and sets <paramref name="error"/> to <c>null</c>;
+    /// on failure returns an empty span and populates <paramref name="error"/>.
+    /// </summary>
+    private static ReadOnlySpan<byte> MapSectionBytes(
+        NativeImage image,
+        ReadyToRunHeader header,
+        ReadyToRunSectionType sectionType,
+        string label,
+        out NativeError? error)
+    {
+        var section = header.FindSection(sectionType);
+        if (section is null)
+        {
+            error = new NativeError(
+                ErrorKinds.R2RSectionNotPresent, $"This R2R image does not contain a {label} section.");
+            return default;
+        }
+
+        if (section.Size == 0)
+        {
+            error = new NativeError(ErrorKinds.InvalidArgument, $"{label} section is empty.");
+            return default;
+        }
+
+        var fileOffset = image.RvaToFileOffset(section.VirtualAddress);
+        if (fileOffset is null || fileOffset.Value < 0)
+        {
+            error = new NativeError(
+                ErrorKinds.InvalidArgument,
+                $"{label} RVA 0x{section.VirtualAddress:X8} could not be mapped to a file offset.");
+            return default;
+        }
+
+        var bytes = image.RawBytes.Span;
+        if ((long)fileOffset.Value + section.Size > bytes.Length)
+        {
+            error = new NativeError(
+                ErrorKinds.InvalidArgument, $"{label} section extends beyond the end of the file.");
+            return default;
+        }
+
+        error = null;
+        return bytes.Slice(fileOffset.Value, (int)section.Size);
+    }
+
     private static RuntimeFunctionLayout? GetRuntimeFunctionLayout(NativeImage image)
     {
         if (image.Architecture == Architecture.X64)
@@ -1052,3 +1301,52 @@ public sealed record ReadyToRunAvailableTypeTable(
 public sealed record ReadyToRunAvailableType(
     int MetadataToken,
     bool IsExportedType);
+
+/// <summary>Decoded <c>EnclosingTypeMap</c> (type 122) table.</summary>
+/// <param name="TypeDefCount">Total number of TypeDef rows the map covers.</param>
+/// <param name="NestedTypes">The nested types (non-top-level entries), capped at the requested limit.</param>
+/// <param name="Truncated"><c>true</c> when more nested types existed than the limit returned.</param>
+public sealed record ReadyToRunEnclosingTypeMapTable(
+    int TypeDefCount,
+    IReadOnlyList<ReadyToRunNestedType> NestedTypes,
+    bool Truncated);
+
+/// <summary>One nested-type relationship from the <c>EnclosingTypeMap</c> (type 122).</summary>
+/// <param name="NestedTypeToken">TypeDef token (table 0x02) of the nested type.</param>
+/// <param name="EnclosingTypeToken">TypeDef token (table 0x02) of the declaring (enclosing) type.</param>
+public sealed record ReadyToRunNestedType(
+    int NestedTypeToken,
+    int EnclosingTypeToken);
+
+/// <summary>Decoded <c>MethodIsGenericMap</c> (type 121) table.</summary>
+/// <param name="MethodDefCount">Total number of MethodDef rows the bit array covers.</param>
+/// <param name="GenericMethodCount">Total number of generic methods (set bits), even past the limit.</param>
+/// <param name="GenericMethodTokens">MethodDef tokens (table 0x06) of generic methods, capped at the requested limit.</param>
+/// <param name="Truncated"><c>true</c> when more generic methods existed than the limit returned.</param>
+public sealed record ReadyToRunMethodIsGenericMapTable(
+    int MethodDefCount,
+    int GenericMethodCount,
+    IReadOnlyList<int> GenericMethodTokens,
+    bool Truncated);
+
+/// <summary>Decoded <c>TypeGenericInfoMap</c> (type 123) table.</summary>
+/// <param name="TypeDefCount">Total number of TypeDef rows the nibble array covers.</param>
+/// <param name="GenericTypeCount">Total number of generic types, even past the limit.</param>
+/// <param name="GenericTypes">Per-type generic info for generic types, capped at the requested limit.</param>
+/// <param name="Truncated"><c>true</c> when more generic types existed than the limit returned.</param>
+public sealed record ReadyToRunTypeGenericInfoMapTable(
+    int TypeDefCount,
+    int GenericTypeCount,
+    IReadOnlyList<ReadyToRunTypeGenericInfo> GenericTypes,
+    bool Truncated);
+
+/// <summary>One generic type's info from the <c>TypeGenericInfoMap</c> (type 123).</summary>
+/// <param name="TypeToken">TypeDef token (table 0x02) of the generic type.</param>
+/// <param name="GenericArgCount">Generic-parameter count: 1, 2, or 3 meaning "more than two".</param>
+/// <param name="HasVariance"><c>true</c> when any generic parameter is variant (in/out).</param>
+/// <param name="HasConstraints"><c>true</c> when any generic parameter has a constraint.</param>
+public sealed record ReadyToRunTypeGenericInfo(
+    int TypeToken,
+    int GenericArgCount,
+    bool HasVariance,
+    bool HasConstraints);
