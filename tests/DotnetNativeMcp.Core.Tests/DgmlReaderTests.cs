@@ -42,6 +42,64 @@ public class DgmlReaderTests
     }
 
     [Fact]
+    public void Read_LinkWithReason_CapturesReasonAsEdgeLabel()
+    {
+        // The ILC emits the retention reason on the DGML 'Reason' attribute, not 'Label'.
+        var path = WriteScratchFile("reason.dgml", """
+            <DirectedGraph xmlns="http://schemas.microsoft.com/vs/2009/dgml">
+              <Nodes>
+                <Node Id="0" Label="App" />
+                <Node Id="1" Label="MyType" />
+              </Nodes>
+              <Links>
+                <Link Source="0" Target="1" Reason="Reflectable type" />
+              </Links>
+            </DirectedGraph>
+            """);
+
+        try
+        {
+            var result = DgmlReader.Read(path);
+
+            result.IsError.Should().BeFalse();
+            result.Data!.Edges.Should().ContainSingle(edge =>
+                edge.Source == "0" && edge.Target == "1" && edge.Label == "Reflectable type");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Read_LinkWithReasonAndLabel_PrefersReason()
+    {
+        var path = WriteScratchFile("reason-and-label.dgml", """
+            <DirectedGraph xmlns="http://schemas.microsoft.com/vs/2009/dgml">
+              <Nodes>
+                <Node Id="0" Label="App" />
+                <Node Id="1" Label="MyType" />
+              </Nodes>
+              <Links>
+                <Link Source="0" Target="1" Reason="call" Label="ignored" />
+              </Links>
+            </DirectedGraph>
+            """);
+
+        try
+        {
+            var result = DgmlReader.Read(path);
+
+            result.IsError.Should().BeFalse();
+            result.Data!.Edges.Should().ContainSingle(edge => edge.Label == "call");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Read_MalformedXml_ReturnsInternalError()
     {
         var path = WriteScratchFile("malformed.dgml", "<DirectedGraph xmlns=\"http://schemas.microsoft.com/vs/2009/dgml\"><Nodes>");

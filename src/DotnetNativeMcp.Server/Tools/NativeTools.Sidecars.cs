@@ -89,13 +89,17 @@ public sealed partial class NativeTools
 
     [McpServerTool(Name = "explain_retention")]
     [Description(
-        "Reads the NativeAOT DGML reachability sidecar paired with a loaded binary and returns the shortest retained-by path " +
-        "from any root to the matched node. Target matches exact DGML node id or a case-insensitive substring on node label.")]
+        "Reads the NativeAOT DGML reachability sidecar paired with a loaded binary and returns retention paths " +
+        "from roots to the matched node. Edge labels carry the ILC retention reason (e.g. 'call', 'reloc', " +
+        "'Reflectable type', 'Virtual method'). With maxPaths>1 returns the shortest chain from each distinct root " +
+        "that retains the target — the independent reasons it stays in the binary. Target matches an exact DGML node " +
+        "id or a case-insensitive substring on node label; ambiguous matches are surfaced under Candidates.")]
     public NativeResult<ExplainRetentionResult> ExplainRetention(
         [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
         [Description("Target DGML node query. Matches exact node id or a case-insensitive substring on the node label.")] string target,
         [Description("Optional absolute path override for the .dgml sidecar. Defaults to a sibling file next to the loaded binary.")] string? dgmlPath = null,
-        [Description("Maximum edge depth to search from any root. Default 12, valid range 1..64.")] int maxDepth = RetentionPathFinder.DefaultMaxDepth)
+        [Description("Maximum edge depth to search from any root. Default 12, valid range 1..64.")] int maxDepth = RetentionPathFinder.DefaultMaxDepth,
+        [Description("Maximum number of retention paths to return — the shortest chain from each distinct root that retains the target, ranked shortest-first. Default 1, valid range 1..64.")] int maxPaths = RetentionPathFinder.DefaultMaxPaths)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
             return NativeResult.Fail<ExplainRetentionResult>(
@@ -114,6 +118,13 @@ public sealed partial class NativeTools
                 $"maxDepth must be between 1 and {RetentionPathFinder.MaxDepthLimit}. Actual: {maxDepth.ToString(CultureInfo.InvariantCulture)}.");
         }
 
+        if (maxPaths < 1 || maxPaths > RetentionPathFinder.MaxPathsLimit)
+        {
+            return NativeResult.Fail<ExplainRetentionResult>(
+                ErrorKinds.InvalidArgument,
+                $"maxPaths must be between 1 and {RetentionPathFinder.MaxPathsLimit}. Actual: {maxPaths.ToString(CultureInfo.InvariantCulture)}.");
+        }
+
         var dgmlCandidate = !string.IsNullOrWhiteSpace(dgmlPath)
             ? dgmlPath
             : DgmlReader.GetDefaultDgmlPath(image.FilePath);
@@ -126,19 +137,40 @@ public sealed partial class NativeTools
         if (dgml.IsError)
             return NativeResult.Fail<ExplainRetentionResult>(dgml.Error!.Kind, dgml.Error.Message, dgml.Error.Detail);
 
-        var targetMatchCount = RetentionPathFinder.CountTargetMatches(dgml.Data!, target);
-        var path = RetentionPathFinder.FindShortestPath(dgml.Data!, target, maxDepth)
-            .Select(segment => new RetentionPathNodeRow(
-                segment.NodeId,
-                segment.Label,
-                segment.Category,
-                segment.IncomingEdgeLabel))
+        var graph = dgml.Data!;
+        var candidates = RetentionPathFinder.FindTargets(graph, target, maxResults: 25)
+            .Select(candidate => new RetentionTargetCandidateRow(candidate.NodeId, candidate.Label, candidate.Category))
+            .ToList();
+        var targetMatchCount = RetentionPathFinder.CountTargetMatches(graph, target);
+
+        var paths = RetentionPathFinder.FindRetentionPaths(graph, target, maxDepth, maxPaths)
+            .Select(retentionPath => new RetentionPathRow(
+                retentionPath.RootId,
+                retentionPath.RootLabel,
+                retentionPath.RootCategory,
+                retentionPath.Depth,
+                retentionPath.Segments.Select(ToNodeRow).ToList()))
             .ToList();
 
-        var matchedNode = path.Count > 0 ? path[^1] : null;
-        var summary = path.Count > 0
-            ? $"Found a retention path with {path.Count} node(s) to '{matchedNode!.Label}' from '{Path.GetFileName(resolvedDgmlPath)}'."
-            : $"No retention path found for '{target}' in '{Path.GetFileName(resolvedDgmlPath)}'.";
+        var primaryPath = paths.Count > 0 ? paths[0].Nodes : (IReadOnlyList<RetentionPathNodeRow>)[];
+        var matchedNode = candidates.Count > 0 ? candidates[0] : null;
+
+        string summary;
+        if (paths.Count > 0)
+        {
+            var ambiguity = candidates.Count > 1
+                ? $" (query matched {candidates.Count} node(s); resolved to the first — pass an exact node id to disambiguate)"
+                : string.Empty;
+            summary = paths.Count == 1
+                ? $"Found a retention path with {primaryPath.Count} node(s) to '{matchedNode!.Label}' from '{Path.GetFileName(resolvedDgmlPath)}'.{ambiguity}"
+                : $"Found {paths.Count} retention path(s) to '{matchedNode!.Label}' (shortest has {primaryPath.Count} node(s)) from '{Path.GetFileName(resolvedDgmlPath)}'.{ambiguity}";
+        }
+        else
+        {
+            summary = matchedNode is null
+                ? $"No node matched '{target}' in '{Path.GetFileName(resolvedDgmlPath)}'."
+                : $"Matched '{matchedNode.Label}' but found no retention path within depth {maxDepth.ToString(CultureInfo.InvariantCulture)} in '{Path.GetFileName(resolvedDgmlPath)}'.";
+        }
 
         return NativeResult.Ok(
             summary,
@@ -149,8 +181,13 @@ public sealed partial class NativeTools
                 matchedNode?.Id,
                 matchedNode?.Label,
                 matchedNode?.Category,
-                path));
+                primaryPath,
+                candidates,
+                paths));
     }
+
+    private static RetentionPathNodeRow ToNodeRow(RetentionPathSegment segment) =>
+        new(segment.NodeId, segment.Label, segment.Category, segment.IncomingEdgeLabel);
 
     private static bool TryParseGroupBy(string? value, out MstatGroupBy groupBy)
     {
@@ -386,7 +423,23 @@ public sealed record ExplainRetentionResult(
     string? MatchedNodeId,
     string? MatchedNodeLabel,
     string? MatchedNodeCategory,
-    IReadOnlyList<RetentionPathNodeRow> Path);
+    IReadOnlyList<RetentionPathNodeRow> Path,
+    IReadOnlyList<RetentionTargetCandidateRow> Candidates,
+    IReadOnlyList<RetentionPathRow> Paths);
+
+/// <summary>A node the target query matched, surfaced to disambiguate an ambiguous query.</summary>
+public sealed record RetentionTargetCandidateRow(
+    string Id,
+    string Label,
+    string? Category);
+
+/// <summary>One retention path: a root-to-target chain plus the root that anchors it and its edge depth.</summary>
+public sealed record RetentionPathRow(
+    string RootId,
+    string RootLabel,
+    string? RootCategory,
+    int Depth,
+    IReadOnlyList<RetentionPathNodeRow> Nodes);
 
 /// <summary>One node in a DGML retention path.</summary>
 public sealed record RetentionPathNodeRow(

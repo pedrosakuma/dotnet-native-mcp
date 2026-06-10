@@ -6,6 +6,11 @@ namespace DotnetNativeMcp.Core.Dgml;
 
 public sealed record DgmlNode(string Id, string Label, string? Category);
 
+/// <summary>
+/// A directed dependency edge. <paramref name="Label"/> carries the ILC retention reason
+/// (the DGML <c>Reason</c> attribute, e.g. <c>call</c>, <c>reloc</c>, <c>Reflectable type</c>)
+/// when present, falling back to the generic DGML <c>Label</c> attribute.
+/// </summary>
 public sealed record DgmlEdge(string Source, string Target, string? Label);
 
 public sealed record DgmlGraph(
@@ -122,7 +127,9 @@ public static class DgmlReader
                             ErrorKinds.InternalError,
                             $"Malformed DGML in '{Path.GetFileName(fullPath)}': DGML link is missing required 'Target'.");
 
-                    edges.Add(new DgmlEdge(source, target, NormalizeOptional(reader.GetAttribute("Label"))));
+                    var edgeLabel = NormalizeOptional(reader.GetAttribute("Reason"))
+                        ?? NormalizeOptional(reader.GetAttribute("Label"));
+                    edges.Add(new DgmlEdge(source, target, edgeLabel));
                 }
             }
 
