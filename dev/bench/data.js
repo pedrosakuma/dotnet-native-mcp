@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781054618951,
+  "lastUpdate": 1781093552712,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -660,6 +660,66 @@ window.BENCHMARK_DATA = {
             "value": 19.649578001101812,
             "unit": "ns",
             "range": "± 0.31406324674945074"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "616be79dda9adaf108d231f4a8b4674b68d8a78b",
+          "message": "fix(r2r): correct ReadyToRunSectionType enum to match readytorun.h (#117)\n\nThe ReadyToRunSectionType enum was fabricated with incorrect values\n(RuntimeFunctions = 5 plus fictional low/high-numbered members). The\nauthoritative runtime header src/coreclr/inc/readytorun.h defines every\nR2R section type in the 100+ range, with RuntimeFunctions = 102.\n\nBecause the reader searched for section type 5, list_r2r_runtime_functions\nALWAYS returned r2r_section_not_present for real .NET 8/9/10 R2R images —\nthe primary handoff target. Verified empirically: the .NET 10\nSystem.Private.CoreLib.dll R2R image (v16.0) carries section type 102 with\n50471 valid x64 RUNTIME_FUNCTION entries. The earlier premise that modern\nR2R replaced RuntimeFunctions with \"MethodHeaderAndCodeInfo (type 105)\" was\nfalse — type 105 is DebugInfo; RuntimeFunctions is alive at type 102.\n\nChanges:\n- Rewrite ReadyToRunSectionType.cs to mirror readytorun.h exactly, removing\n  all fabricated members (incl. the fictional MethodHeaderAndCodeInfo = 105).\n- RawDisassembler: gate the decode-probe arch fallback on RuntimeFunctions\n  being absent (was gated on the fictional MethodHeaderAndCodeInfo section).\n- Fix error messages and tool/XML-doc descriptions referencing type 5/105.\n- Update synthetic R2R PE test builders to write the corrected section type.\n- Add real-image regression tests (RuntimeFunctions_SectionType_Is102 and\n  ReadRuntimeFunctions_RealR2RImage_ReturnsDecodableEntries) that would have\n  caught the bug; they skip gracefully when no R2R fixture is available.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T09:02:20-03:00",
+          "tree_id": "e800b2b3e8258f5f6c06a6a234aa69cf0cc338b2",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/616be79dda9adaf108d231f4a8b4674b68d8a78b"
+        },
+        "date": 1781093552689,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 11877351717.266666,
+            "unit": "ns",
+            "range": "± 59523729.890686795"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 27464865.667410713,
+            "unit": "ns",
+            "range": "± 184708.2489219744"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 32.06015139023463,
+            "unit": "ns",
+            "range": "± 0.15935814392391587"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 460871.41399739584,
+            "unit": "ns",
+            "range": "± 8500.026798337329"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 20271.984228515626,
+            "unit": "ns",
+            "range": "± 161.4506887635486"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 21.953592936197918,
+            "unit": "ns",
+            "range": "± 0.14099365289068425"
           }
         ]
       }
