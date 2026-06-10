@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781093555588,
+  "lastUpdate": 1781096549486,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -720,6 +720,66 @@ window.BENCHMARK_DATA = {
             "value": 21.953592936197918,
             "unit": "ns",
             "range": "± 0.14099365289068425"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8f7a2b4f3ea26fbe3a6466f5d191175e93c4c95d",
+          "message": "test(r2r): add differential harness for RuntimeFunctions vs PE exception directory (#118)\n\nAdds regression coverage for the R2R RuntimeFunctions reader using the\nestablished differential-testing harness. In a crossgen2 R2R image the\nRuntimeFunctions section (type 102) IS the PE exception data directory\n(.pdata) — identical RVA and size — giving two independent paths to the\nsame table:\n\n- ReadyToRunReader: managed-native header -> R2R signature -> section 102.\n- A battle-tested PE reader: optional-header data directories.\n\nThe two paths must agree; that invariant is exactly what the section-type\nenum bug (RuntimeFunctions mis-mapped to type 5) violated, so this guards\nagainst regression.\n\n- LlvmReadobjOracle.TryReadPeExceptionDirectory: parses the exception data\n  directory from `llvm-readobj --file-headers` (decoded regardless of the\n  CoreCLR per-OS machine override, e.g. 0xFD1D on linux-x64).\n- R2RRuntimeFunctionsDifferentialTests: location match vs llvm-readobj, plus\n  an in-process independent PEReader decode of the first 32 x64\n  RUNTIME_FUNCTION rows compared against ReadRuntimeFunctions. Both no-op\n  when the fixture is unbuilt (and the location test when llvm-readobj is\n  absent).\n- docs/differential-testing.md: matrix row + explanatory note.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T09:52:12-03:00",
+          "tree_id": "1746b2283790530b537795d55f357ba50907c3b4",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/8f7a2b4f3ea26fbe3a6466f5d191175e93c4c95d"
+        },
+        "date": 1781096549462,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 12927942825.285715,
+            "unit": "ns",
+            "range": "± 20922106.266511466"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 26474462.355769232,
+            "unit": "ns",
+            "range": "± 81067.29963553238"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 31.241214563449223,
+            "unit": "ns",
+            "range": "± 0.018872141226937242"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 358504.7840820312,
+            "unit": "ns",
+            "range": "± 4307.298707825345"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 22173.75714111328,
+            "unit": "ns",
+            "range": "± 33.176042583452855"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 22.296212399235138,
+            "unit": "ns",
+            "range": "± 0.02246174739050758"
           }
         ]
       }
