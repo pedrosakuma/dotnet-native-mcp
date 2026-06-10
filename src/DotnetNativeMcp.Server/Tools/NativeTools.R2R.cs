@@ -23,6 +23,9 @@ public sealed partial class NativeTools
         "When includeMethodEntryPoints is true, also decodes the MethodDefEntryPoints section (type 103) — " +
         "a NativeFormat array mapping each MethodDef RID to its entry-point RUNTIME_FUNCTION index and a " +
         "has-fixups flag (capped by methodEntryPointsLimit). " +
+        "When includeAvailableTypes is true, also decodes the AvailableTypes section (type 108) — " +
+        "a NativeFormat hashtable of the types compiled into the image — into metadata tokens " +
+        "(TypeDef table 0x02 or ExportedType table 0x27); type names are not resolved (capped by availableTypesLimit). " +
         "Returns r2r_not_present when the image has no R2R header (pure managed assembly or NativeAOT binary). " +
         "Use list_r2r_runtime_functions to navigate the RuntimeFunctions section.")]
     public NativeResult<R2RHeaderResult> GetR2RHeader(
@@ -34,7 +37,11 @@ public sealed partial class NativeTools
         [Description("When true, also decode the MethodDefEntryPoints (type 103) RID -> RUNTIME_FUNCTION mapping. Default false.")]
         bool includeMethodEntryPoints = false,
         [Description("Maximum MethodDefEntryPoints entries to return (default 200, max 2000). Ignored unless includeMethodEntryPoints is true.")]
-        int methodEntryPointsLimit = 200)
+        int methodEntryPointsLimit = 200,
+        [Description("When true, also decode the AvailableTypes (type 108) section into metadata tokens. Default false.")]
+        bool includeAvailableTypes = false,
+        [Description("Maximum AvailableTypes entries to return (default 200, max 2000). Ignored unless includeAvailableTypes is true.")]
+        int availableTypesLimit = 200)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
             return NativeResult.Fail<R2RHeaderResult>(
@@ -53,6 +60,7 @@ public sealed partial class NativeTools
         var hasManifestMvids = hdr.FindSection(ReadyToRunSectionType.ManifestAssemblyMvids) is not null;
         var hasCompositeInfo = hasComponentAssemblies || hasManifestMvids;
         var hasMethodEntryPoints = hdr.FindSection(ReadyToRunSectionType.MethodDefEntryPoints) is not null;
+        var hasAvailableTypes = hdr.FindSection(ReadyToRunSectionType.AvailableTypes) is not null;
 
         var hints = new List<NextActionHint>
         {
@@ -102,6 +110,18 @@ public sealed partial class NativeTools
                 {
                     ["imageHandle"] = imageHandle,
                     ["includeMethodEntryPoints"] = true,
+                }));
+        }
+
+        if (hasAvailableTypes && !includeAvailableTypes)
+        {
+            hints.Add(new NextActionHint(
+                "get_r2r_header",
+                "Re-run with includeAvailableTypes=true to decode the AvailableTypes (type 108) metadata tokens.",
+                new Dictionary<string, object?>
+                {
+                    ["imageHandle"] = imageHandle,
+                    ["includeAvailableTypes"] = true,
                 }));
         }
 
@@ -183,6 +203,23 @@ public sealed partial class NativeTools
                     e.Rid, e.RuntimeFunctionIndex, e.HasFixups)).ToList());
         }
 
+        R2RAvailableTypesView? availableTypes = null;
+        if (includeAvailableTypes && hasAvailableTypes)
+        {
+            var limit = Math.Clamp(availableTypesLimit, 1, 2000);
+            var atResult = ReadyToRunReader.ReadAvailableTypes(image, hdr, limit);
+            if (atResult.IsError)
+                return NativeResult.Fail<R2RHeaderResult>(
+                    atResult.Error!.Kind, atResult.Error.Message, atResult.Error.Detail);
+
+            var table = atResult.Data!;
+            availableTypes = new R2RAvailableTypesView(
+                table.Types.Count,
+                table.Truncated,
+                table.Types.Select(t => new R2RAvailableTypeView(
+                    $"0x{t.MetadataToken:X8}", t.IsExportedType)).ToList());
+        }
+
         var data = new R2RHeaderResult(
             imageHandle,
             hdr.Version,
@@ -200,14 +237,16 @@ public sealed partial class NativeTools
             ownerCompositeExecutable,
             componentAssemblies,
             manifestAssemblyMvids,
-            methodEntryPoints);
+            methodEntryPoints,
+            availableTypes);
 
         var flagSummary = flagNames.Count > 0 ? $", flags [{string.Join(", ", flagNames)}]" : string.Empty;
         var importSummary = importSections is not null ? $", {importSections.Count} import sections" : string.Empty;
         var compositeSummary = componentAssemblies is not null ? $", {componentAssemblies.Count} component assemblies" : string.Empty;
         var mepSummary = methodEntryPoints is not null ? $", {methodEntryPoints.ReturnedCount} method entry points" : string.Empty;
+        var atSummary = availableTypes is not null ? $", {availableTypes.ReturnedCount} available types" : string.Empty;
         return NativeResult.Ok(
-            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}{importSummary}{compositeSummary}{mepSummary}.",
+            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}{importSummary}{compositeSummary}{mepSummary}{atSummary}.",
             data,
             hints);
     }
@@ -321,6 +360,10 @@ public sealed partial class NativeTools
 /// Decoded MethodDefEntryPoints (type 103) — the RID -> RUNTIME_FUNCTION mapping — or <c>null</c>
 /// when <c>includeMethodEntryPoints</c> was false or the image has no MethodDefEntryPoints section.
 /// </param>
+/// <param name="AvailableTypes">
+/// Decoded AvailableTypes (type 108) metadata tokens, or <c>null</c> when <c>includeAvailableTypes</c>
+/// was false or the image has no AvailableTypes section.
+/// </param>
 public sealed record R2RHeaderResult(
     string ImageHandle,
     string Version,
@@ -338,7 +381,8 @@ public sealed record R2RHeaderResult(
     string? OwnerCompositeExecutable = null,
     IReadOnlyList<R2RComponentAssemblyView>? ComponentAssemblies = null,
     IReadOnlyList<string>? ManifestAssemblyMvids = null,
-    R2RMethodEntryPointsView? MethodEntryPoints = null);
+    R2RMethodEntryPointsView? MethodEntryPoints = null,
+    R2RAvailableTypesView? AvailableTypes = null);
 
 /// <summary>Decoded MethodDefEntryPoints (type 103) table.</summary>
 /// <param name="MethodCount">
@@ -361,6 +405,26 @@ public sealed record R2RMethodEntryPointView(
     int Rid,
     int RuntimeFunctionIndex,
     bool HasFixups);
+
+/// <summary>Decoded AvailableTypes (type 108) table.</summary>
+/// <param name="ReturnedCount">Number of type tokens actually returned (after the limit).</param>
+/// <param name="Truncated"><c>true</c> when more entries existed than were returned.</param>
+/// <param name="Types">The decoded type tokens, capped at the requested limit.</param>
+public sealed record R2RAvailableTypesView(
+    int ReturnedCount,
+    bool Truncated,
+    IReadOnlyList<R2RAvailableTypeView> Types);
+
+/// <summary>One entry of the AvailableTypes (type 108) table.</summary>
+/// <param name="MetadataToken">
+/// The type's metadata token (hex): a TypeDef token (table 0x02) for a type defined in this module,
+/// or an ExportedType token (table 0x27) for a forwarded type. Hand off to dotnet-assembly-mcp's
+/// <c>get_type</c> to resolve the name and members.
+/// </param>
+/// <param name="IsExportedType"><c>true</c> when the token is an ExportedType (forwarder) token.</param>
+public sealed record R2RAvailableTypeView(
+    string MetadataToken,
+    bool IsExportedType);
 
 /// <summary>One decoded entry of the R2R ComponentAssemblies section (type 115).</summary>
 /// <param name="Index">Zero-based index in the component-assemblies table.</param>

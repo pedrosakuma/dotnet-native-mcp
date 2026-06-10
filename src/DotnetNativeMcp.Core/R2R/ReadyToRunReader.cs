@@ -691,6 +691,126 @@ public static class ReadyToRunReader
         runtimeFunctionIndex = (int)id;
     }
 
+    /// <summary>
+    /// Upper bound on the number of NativeHashtable traversal steps
+    /// <see cref="ReadAvailableTypes(NativeImage, ReadyToRunHeader, int)"/> will take
+    /// (entry yields plus empty-bucket advances). The bucket count is read from an
+    /// untrusted header (up to 2^31 buckets), so without a cap a crafted section can
+    /// force the enumerator to walk billions of empty buckets. This bound sits well
+    /// above the type count of any real assembly.
+    /// </summary>
+    internal const uint DefaultMaxAvailableTypeScan = 2_000_000;
+
+    private const uint TypeDefTokenBase = 0x02000000;
+    private const uint ExportedTypeTokenBase = 0x27000000;
+
+    /// <summary>
+    /// Reads the <c>AvailableTypes</c> section (type 108) — a NativeFormat hashtable
+    /// keyed by type hashcode whose entries are metadata RIDs — and returns the list
+    /// of available types as metadata tokens. The low bit of each entry distinguishes
+    /// an ExportedType (forwarder) RID from a TypeDef RID; the RID is widened into a
+    /// full metadata token for handoff to dotnet-assembly-mcp. Type names are not
+    /// resolved here (that needs managed metadata, which is out of scope). Returns at
+    /// most <paramref name="limit"/> tokens.
+    /// </summary>
+    public static NativeResult<ReadyToRunAvailableTypeTable> ReadAvailableTypes(
+        NativeImage image,
+        ReadyToRunHeader header,
+        int limit) =>
+        ReadAvailableTypes(image, header, limit, DefaultMaxAvailableTypeScan);
+
+    /// <summary>
+    /// Internal overload exposing the hashtable scan cap (<paramref name="maxScan"/>)
+    /// for testing. See <see cref="DefaultMaxAvailableTypeScan"/> for why the cap exists.
+    /// </summary>
+    internal static NativeResult<ReadyToRunAvailableTypeTable> ReadAvailableTypes(
+        NativeImage image,
+        ReadyToRunHeader header,
+        int limit,
+        uint maxScan)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(header);
+        if (maxScan == 0)
+            maxScan = 1;
+        if (limit <= 0)
+            limit = 1;
+
+        var section = header.FindSection(ReadyToRunSectionType.AvailableTypes);
+        if (section is null)
+            return NativeResult.Fail<ReadyToRunAvailableTypeTable>(
+                ErrorKinds.R2RSectionNotPresent,
+                "This R2R image does not contain an AvailableTypes section (type 108).");
+
+        var fileOffset = image.RvaToFileOffset(section.VirtualAddress);
+        if (fileOffset is null || fileOffset.Value < 0)
+            return NativeResult.Fail<ReadyToRunAvailableTypeTable>(
+                ErrorKinds.InvalidArgument,
+                $"AvailableTypes RVA 0x{section.VirtualAddress:X8} could not be mapped to a file offset.");
+
+        var bytes = image.RawBytes;
+        if ((long)fileOffset.Value + section.Size > bytes.Length)
+            return NativeResult.Fail<ReadyToRunAvailableTypeTable>(
+                ErrorKinds.InvalidArgument,
+                "AvailableTypes section extends beyond the end of the file.");
+
+        if (section.Size == 0)
+            return NativeResult.Ok(
+                "AvailableTypes section is empty.",
+                new ReadyToRunAvailableTypeTable(Array.Empty<ReadyToRunAvailableType>(), false));
+
+        try
+        {
+            var reader = new NativeFormat.NativeReader(bytes.Slice(fileOffset.Value, (int)section.Size));
+            var parser = new NativeFormat.NativeParser(reader, 0);
+
+            // Offsets are relative to the section slice, so the table's end is its size.
+            var table = new NativeFormat.NativeHashtable(reader, parser, (uint)section.Size);
+
+            var types = new List<ReadyToRunAvailableType>();
+            var truncated = false;
+
+            var enumerator = table.EnumerateAllEntries(maxScan);
+            for (var entry = enumerator.GetNext(); !entry.IsNull; entry = enumerator.GetNext())
+            {
+                if (types.Count >= limit)
+                {
+                    truncated = true;
+                    break;
+                }
+
+                var rid = entry.GetUnsigned();
+                var isExportedType = (rid & 1) != 0;
+                rid >>= 1;
+
+                // A metadata RID occupies the low 24 bits and must be non-zero; an
+                // out-of-range value from untrusted NativeFormat data would corrupt
+                // the table byte of the synthesised token.
+                if (rid is 0 or > 0x00FFFFFF)
+                    throw new NativeFormat.NativeFormatException(
+                        $"AvailableTypes entry has an out-of-range metadata RID 0x{rid:X}.");
+
+                var token = (isExportedType ? ExportedTypeTokenBase : TypeDefTokenBase) | rid;
+                types.Add(new ReadyToRunAvailableType((int)token, isExportedType));
+            }
+
+            if (enumerator.Truncated)
+                truncated = true;
+
+            return NativeResult.Ok(
+                $"Decoded {types.Count} available type{(types.Count == 1 ? string.Empty : "s")}" +
+                $"{(truncated ? " (truncated)" : string.Empty)}.",
+                new ReadyToRunAvailableTypeTable(types, truncated));
+        }
+        catch (NativeFormat.NativeFormatException ex)
+        {
+            return NativeResult.Fail<ReadyToRunAvailableTypeTable>(
+                ErrorKinds.InvalidArgument,
+                "AvailableTypes section is malformed and could not be decoded.",
+                ex.Message);
+        }
+    }
+
     private static RuntimeFunctionLayout? GetRuntimeFunctionLayout(NativeImage image)
     {
         if (image.Architecture == Architecture.X64)
@@ -907,3 +1027,28 @@ public sealed record ReadyToRunMethodEntryPoint(
     int Rid,
     int RuntimeFunctionIndex,
     bool HasFixups);
+
+/// <summary>Decoded <c>AvailableTypes</c> (type 108) table.</summary>
+/// <param name="Types">The decoded type tokens, capped at the requested limit.</param>
+/// <param name="Truncated">
+/// <c>true</c> when more entries existed than were returned (limit reached or the
+/// bucket-scan cap was hit on a malformed table).
+/// </param>
+public sealed record ReadyToRunAvailableTypeTable(
+    IReadOnlyList<ReadyToRunAvailableType> Types,
+    bool Truncated);
+
+/// <summary>One entry of the <c>AvailableTypes</c> (type 108) table.</summary>
+/// <param name="MetadataToken">
+/// The metadata token of the available type: a TypeDef token (table 0x02) for a
+/// type defined in this module, or an ExportedType token (table 0x27) for a
+/// type forwarded from another assembly. Hand off to dotnet-assembly-mcp's
+/// <c>get_type</c> to resolve the type's name and members.
+/// </param>
+/// <param name="IsExportedType">
+/// <c>true</c> when <see cref="MetadataToken"/> is an ExportedType (forwarder)
+/// token; <c>false</c> when it is a TypeDef token.
+/// </param>
+public sealed record ReadyToRunAvailableType(
+    int MetadataToken,
+    bool IsExportedType);

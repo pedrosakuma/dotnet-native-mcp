@@ -749,6 +749,49 @@ public class NativeToolsR2RTests
             h.SuggestedArguments.ContainsKey("includeMethodEntryPoints"));
     }
 
+    [Fact]
+    public void GetR2RHeader_IncludeAvailableTypes_DecodesTokens()
+    {
+        // Single-bucket hashtable (shift 0): TypeDef RID 5 and ExportedType RID 3.
+        // Layout: [header][start][end] then per entry [lowHash][signed delta] and a payload.
+        var blob = new byte[] { 0x00, 0x02, 0x06, 0x00, 0x06, 0x00, 0x04, 0x14, 0x0E };
+        var image = BuildSyntheticR2RWithRawSection(
+            (uint)ReadyToRunSectionType.AvailableTypes, blob, "r2r_at.dll", "aabbccddee0c");
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value, includeAvailableTypes: true);
+
+        result.IsError.Should().BeFalse();
+        var at = result.Data!.AvailableTypes;
+        at.Should().NotBeNull();
+        at!.ReturnedCount.Should().Be(2);
+        at.Truncated.Should().BeFalse();
+        at.Types.Should().HaveCount(2);
+        at.Types[0].MetadataToken.Should().Be("0x02000005");
+        at.Types[0].IsExportedType.Should().BeFalse();
+        at.Types[1].MetadataToken.Should().Be("0x27000003");
+        at.Types[1].IsExportedType.Should().BeTrue();
+        result.Summary.Should().Contain("2 available types");
+    }
+
+    [Fact]
+    public void GetR2RHeader_AvailableTypesPresent_NotIncluded_OffersHint()
+    {
+        var blob = new byte[] { 0x00, 0x02, 0x06, 0x00, 0x06, 0x00, 0x04, 0x14, 0x0E };
+        var image = BuildSyntheticR2RWithRawSection(
+            (uint)ReadyToRunSectionType.AvailableTypes, blob, "r2r_at_hint.dll", "aabbccddee0d");
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.AvailableTypes.Should().BeNull();
+        result.Hints.Should().Contain(h =>
+            h.NextTool == "get_r2r_header" &&
+            h.SuggestedArguments != null &&
+            h.SuggestedArguments.ContainsKey("includeAvailableTypes"));
+    }
+
     // -----------------------------------------------------------------------
     // ListR2RRuntimeFunctions tests
     // -----------------------------------------------------------------------
