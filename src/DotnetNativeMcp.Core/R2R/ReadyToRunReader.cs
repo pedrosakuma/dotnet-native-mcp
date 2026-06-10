@@ -26,6 +26,9 @@ public static class ReadyToRunReader
     /// <summary>Byte size of one ARM64 pdata entry (begin + unwindData/xdata RVA).</summary>
     private const int RuntimeFunctionSizeArm64 = 8;
 
+    /// <summary>Byte size of one <c>READYTORUN_IMPORT_SECTION</c> entry.</summary>
+    private const int ImportSectionEntrySize = 20; // dir(8) + flags(2) + type(1) + entrySize(1) + signatures(4) + auxData(4)
+
     private const uint Arm64PackedFlagMask = 0x3u;
     private const int Arm64PackedFunctionLengthShift = 2;
     private const uint Arm64PackedFunctionLengthMask = 0x7FFu;
@@ -311,6 +314,71 @@ public static class ReadyToRunReader
         return NativeResult.Ok(
             $"Found RuntimeFunction #{best.Index}: [0x{best.BeginAddress:X8}, 0x{best.EndAddress:X8})",
             best);
+    }
+
+    /// <summary>
+    /// Reads the <c>ImportSections</c> section (type 101) from the R2R header and decodes each
+    /// <c>READYTORUN_IMPORT_SECTION</c> entry. This is architecture-independent structural
+    /// metadata — the individual fixup signatures are not decoded.
+    /// </summary>
+    public static NativeResult<IReadOnlyList<ReadyToRunImportSection>> ReadImportSections(
+        NativeImage image,
+        ReadyToRunHeader header)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(header);
+
+        var section = header.FindSection(ReadyToRunSectionType.ImportSections);
+        if (section is null)
+            return NativeResult.Fail<IReadOnlyList<ReadyToRunImportSection>>(
+                ErrorKinds.R2RSectionNotPresent,
+                "This R2R image does not contain an ImportSections section (type 101).");
+
+        var totalEntries = (int)(section.Size / (uint)ImportSectionEntrySize);
+        if (totalEntries == 0)
+            return NativeResult.Ok(
+                "ImportSections section is empty.",
+                (IReadOnlyList<ReadyToRunImportSection>)Array.Empty<ReadyToRunImportSection>());
+
+        var fileOffset = image.RvaToFileOffset(section.VirtualAddress);
+        if (fileOffset is null)
+            return NativeResult.Fail<IReadOnlyList<ReadyToRunImportSection>>(
+                ErrorKinds.InvalidArgument,
+                $"ImportSections RVA 0x{section.VirtualAddress:X8} could not be mapped to a file offset.");
+
+        var bytes = image.RawBytes.Span;
+
+        // The section size and start offset both originate from the (untrusted) image, so validate
+        // that the entire declared table fits within the file before allocating or indexing. This
+        // rejects crafted headers whose Size would otherwise drive a huge allocation or overflow the
+        // per-entry offset arithmetic below.
+        var declaredBytes = (long)totalEntries * ImportSectionEntrySize;
+        if (fileOffset.Value < 0 || fileOffset.Value + declaredBytes > bytes.Length)
+            return NativeResult.Fail<IReadOnlyList<ReadyToRunImportSection>>(
+                ErrorKinds.InvalidArgument,
+                $"ImportSections table ({totalEntries} entries) extends beyond the end of the file.");
+
+        var entries = new List<ReadyToRunImportSection>(totalEntries);
+
+        for (var i = 0; i < totalEntries; i++)
+        {
+            var off = fileOffset.Value + i * ImportSectionEntrySize;
+
+            var secRva = BinaryPrimitives.ReadUInt32LittleEndian(bytes[off..]);
+            var secSize = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(off + 4)..]);
+            var flags = BinaryPrimitives.ReadUInt16LittleEndian(bytes[(off + 8)..]);
+            var type = bytes[off + 10];
+            var entrySize = bytes[off + 11];
+            var signatures = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(off + 12)..]);
+            var auxData = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(off + 16)..]);
+
+            entries.Add(new ReadyToRunImportSection(
+                i, secRva, secSize, flags, type, entrySize, signatures, auxData));
+        }
+
+        return NativeResult.Ok(
+            $"Decoded {entries.Count} ImportSection entr{(entries.Count == 1 ? "y" : "ies")}.",
+            (IReadOnlyList<ReadyToRunImportSection>)entries);
     }
 
     private static RuntimeFunctionLayout? GetRuntimeFunctionLayout(NativeImage image)

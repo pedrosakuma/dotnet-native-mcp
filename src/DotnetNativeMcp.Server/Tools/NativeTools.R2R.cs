@@ -13,10 +13,15 @@ public sealed partial class NativeTools
         "Reads the ReadyToRun (R2R) header from a loaded managed PE binary and returns its version, " +
         "flags (raw value plus decoded READYTORUN_FLAG_* names such as Component, Partial, EmbeddedMsil), " +
         "and the full sections table. " +
+        "When includeImportSections is true, also decodes the ImportSections section (type 101) into " +
+        "per-entry fixup-region metadata (RVA/size, decoded Type and Flags, EntrySize, Signatures and " +
+        "AuxiliaryData RVAs); individual fixup signatures are not decoded. " +
         "Returns r2r_not_present when the image has no R2R header (pure managed assembly or NativeAOT binary). " +
         "Use list_r2r_runtime_functions to navigate the RuntimeFunctions section.")]
     public NativeResult<R2RHeaderResult> GetR2RHeader(
-        [Description("ImageHandle returned by load_native_binary.")] string imageHandle)
+        [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
+        [Description("When true, also decode and return the ImportSections (type 101) entries. Default false.")]
+        bool includeImportSections = false)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
             return NativeResult.Fail<R2RHeaderResult>(
@@ -30,6 +35,7 @@ public sealed partial class NativeTools
 
         var hdr = headerResult.Data!;
         var hasRtFuncs = hdr.FindSection(ReadyToRunSectionType.RuntimeFunctions) is not null;
+        var hasImportSections = hdr.FindSection(ReadyToRunSectionType.ImportSections) is not null;
 
         var hints = new List<NextActionHint>
         {
@@ -46,11 +52,44 @@ public sealed partial class NativeTools
                 new Dictionary<string, object?> { ["imageHandle"] = imageHandle }));
         }
 
+        if (hasImportSections && !includeImportSections)
+        {
+            hints.Add(new NextActionHint(
+                "get_r2r_header",
+                "Re-run with includeImportSections=true to decode the ImportSections (type 101) entries.",
+                new Dictionary<string, object?>
+                {
+                    ["imageHandle"] = imageHandle,
+                    ["includeImportSections"] = true,
+                }));
+        }
+
         var sections = hdr.Sections
             .Select(s => new R2RSectionView(s.Type, s.TypeName, $"0x{s.VirtualAddress:X8}", s.Size))
             .ToList();
 
         var flagNames = ReadyToRunHeaderAttributesExtensions.DecodeNames(hdr.Flags);
+
+        List<R2RImportSectionView>? importSections = null;
+        if (includeImportSections && hasImportSections)
+        {
+            var importResult = ReadyToRunReader.ReadImportSections(image, hdr);
+            if (importResult.IsError)
+                return NativeResult.Fail<R2RHeaderResult>(
+                    importResult.Error!.Kind, importResult.Error.Message, importResult.Error.Detail);
+
+            importSections = importResult.Data!.Select(s => new R2RImportSectionView(
+                s.Index,
+                $"0x{s.SectionRva:X8}",
+                s.SectionSize,
+                s.Flags,
+                ReadyToRunImportSectionDecoder.DecodeFlagNames(s.Flags),
+                s.Type,
+                ReadyToRunImportSectionDecoder.TypeName(s.Type),
+                s.EntrySize,
+                $"0x{s.SignaturesRva:X8}",
+                $"0x{s.AuxiliaryDataRva:X8}")).ToList();
+        }
 
         var data = new R2RHeaderResult(
             imageHandle,
@@ -63,11 +102,13 @@ public sealed partial class NativeTools
             image.Architecture.ToString(),
             hdr.Sections.Count,
             hasRtFuncs,
-            sections);
+            sections,
+            importSections);
 
         var flagSummary = flagNames.Count > 0 ? $", flags [{string.Join(", ", flagNames)}]" : string.Empty;
+        var importSummary = importSections is not null ? $", {importSections.Count} import sections" : string.Empty;
         return NativeResult.Ok(
-            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}.",
+            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}{importSummary}.",
             data,
             hints);
     }
@@ -157,6 +198,10 @@ public sealed partial class NativeTools
 /// <param name="SectionCount">Total number of R2R sections.</param>
 /// <param name="HasRuntimeFunctions">Whether a RuntimeFunctions section (type 102) is present.</param>
 /// <param name="Sections">All section entries.</param>
+/// <param name="ImportSections">
+/// Decoded ImportSections (type 101) entries, or <c>null</c> when <c>includeImportSections</c> was
+/// false or the image has no ImportSections section.
+/// </param>
 public sealed record R2RHeaderResult(
     string ImageHandle,
     string Version,
@@ -168,7 +213,31 @@ public sealed record R2RHeaderResult(
     string Architecture,
     int SectionCount,
     bool HasRuntimeFunctions,
-    IReadOnlyList<R2RSectionView> Sections);
+    IReadOnlyList<R2RSectionView> Sections,
+    IReadOnlyList<R2RImportSectionView>? ImportSections = null);
+
+/// <summary>One decoded entry of the R2R ImportSections section (type 101).</summary>
+/// <param name="Index">Zero-based index in the import-sections table.</param>
+/// <param name="SectionRva">RVA of the fixup region this entry describes (hex).</param>
+/// <param name="SectionSize">Byte size of the fixup region.</param>
+/// <param name="Flags">Raw import-section flags value.</param>
+/// <param name="FlagNames">Decoded names of the set import-section flags (e.g. Eager, PCode).</param>
+/// <param name="Type">Raw import-section type value.</param>
+/// <param name="TypeName">Human-readable type name (e.g. StubDispatch, StringHandle).</param>
+/// <param name="EntrySize">Size, in bytes, of one fixup cell within the region.</param>
+/// <param name="SignaturesRva">RVA of the optional signature descriptors (hex; <c>0x00000000</c> when absent).</param>
+/// <param name="AuxiliaryDataRva">RVA of the optional auxiliary data (hex; <c>0x00000000</c> when absent).</param>
+public sealed record R2RImportSectionView(
+    int Index,
+    string SectionRva,
+    uint SectionSize,
+    ushort Flags,
+    IReadOnlyList<string> FlagNames,
+    byte Type,
+    string TypeName,
+    byte EntrySize,
+    string SignaturesRva,
+    string AuxiliaryDataRva);
 
 /// <summary>One section entry in the R2R header.</summary>
 /// <param name="Type">Numeric section type.</param>
