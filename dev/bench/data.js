@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781135309736,
+  "lastUpdate": 1781135310823,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -3928,6 +3928,42 @@ window.BENCHMARK_DATA = {
             "value": 12510795.9375,
             "unit": "ns",
             "range": "± 57976.572355837205"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e211b8c253b87596fc8db9f83f13ec11f4985919",
+          "message": "feat(retention): price retention paths with .mstat native byte cost (#137)\n\nexplain_retention now crosses each DGML retention node with the .mstat\nsize sidecar so a path reports the native bytes it keeps alive\n('this chain keeps ~N bytes alive via reflection').\n\n- New MstatRetentionPricer (Core): matches a node's mangled DGML label\n  to the longest mstat method/type key it ends with on a '_' boundary,\n  method keys preferred over type keys. Distinct managed identities that\n  mangle onto one key (nested-vs-dotted types, same type/method across\n  assemblies) are detected and left unpriced rather than guessed; an\n  ambiguous method match never falls back to type pricing. Overloads\n  mstat records under one name aggregate (AttributionCount>1).\n  Validated on the SampleAot fixture: 2707 nodes matched, 0 ambiguous.\n- explain_retention gains includeSizeCost (default true) + mstatPath.\n  Best-effort: degrades to a SizeCostNote when no .mstat resolves.\n- RetentionPathNodeRow gains SizeBytes/SizeMatchKind/SizeAttributionCount;\n  RetentionPathRow gains PricedBytes/PricedNodeCount (appended);\n  ExplainRetentionResult gains SizeCostNote.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T20:38:17-03:00",
+          "tree_id": "2e8b044b7c443d3941f6e41afbab6b9692f2c57c",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/e211b8c253b87596fc8db9f83f13ec11f4985919"
+        },
+        "date": 1781135310795,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 1038383.9757361779,
+            "unit": "ns",
+            "range": "± 2802.3486780645317"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 16281461.234375,
+            "unit": "ns",
+            "range": "± 17686.548170318652"
           }
         ]
       }
