@@ -11,11 +11,18 @@ namespace DotnetNativeMcp.Core.Symbols;
 /// <param name="ImageHandle">Optional image handle override for this frame.</param>
 /// <param name="BuildId">Optional producer build-id carried through from a <c>NativeFrame</c> handoff.</param>
 /// <param name="Binary">Optional producer binary path carried through from a <c>NativeFrame</c> handoff.</param>
+/// <param name="LoadBase">
+/// Optional module load base observed by the producer (<c>NativeFrame.loadBase</c>). When supplied,
+/// <see cref="Address"/> is treated as a runtime absolute VA and rebased as <c>rva = address - loadBase</c>,
+/// which is required to resolve ASLR'd position-independent (PIE) binaries whose on-disk image base is 0.
+/// When <c>null</c> the on-disk image base is used (the non-ASLR / PE default).
+/// </param>
 public sealed record NativeFrameInput(
     string Address,
     string? ImageHandle = null,
     string? BuildId = null,
-    string? Binary = null);
+    string? Binary = null,
+    ulong? LoadBase = null);
 
 /// <summary>
 /// One row returned by batch address resolution via <c>resolve_symbols</c>.
@@ -82,9 +89,18 @@ public static class StackSymbolicator
     /// Per-address failures (bad parse, symbol not found) are reported inline; the
     /// top-level result only errors when the image itself is <c>null</c>.
     /// </summary>
+    /// <param name="image">The loaded native image to resolve against.</param>
+    /// <param name="addresses">The address strings to resolve.</param>
+    /// <param name="loadBase">
+    /// Optional producer-observed module load base (<c>NativeFrame.loadBase</c>). When supplied each
+    /// address is treated as a runtime absolute VA and rebased as <c>rva = address - loadBase</c>;
+    /// this is required for ASLR'd PIE binaries whose on-disk image base is 0. When <c>null</c> the
+    /// image's on-disk base is used.
+    /// </param>
     public static NativeResult<IReadOnlyList<ResolvedAddress>> ResolveAddresses(
         NativeImage image,
-        IReadOnlyList<string>? addresses)
+        IReadOnlyList<string>? addresses,
+        ulong? loadBase = null)
     {
         ArgumentNullException.ThrowIfNull(image);
 
@@ -102,7 +118,7 @@ public static class StackSymbolicator
 
         foreach (var raw in addresses)
         {
-            var row = ResolveAddress(image, raw, out var resolvedFunction);
+            var row = ResolveAddress(image, raw, loadBase, out var resolvedFunction);
             rows.Add(row);
             if (!row.IsError)
                 resolvedCount++;
@@ -137,11 +153,12 @@ public static class StackSymbolicator
     private static ResolvedAddress ResolveAddress(
         NativeImage image,
         string raw,
+        ulong? loadBase,
         out (string AddressHex, string SymbolName)? resolvedFunction)
     {
         resolvedFunction = null;
 
-        if (!TryParseAddress(raw, out var virtualAddress, out var normalizedHex))
+        if (!TryParseAddress(raw, out var virtualAddress, out _))
         {
             return new ResolvedAddress(
                 raw,
@@ -149,7 +166,19 @@ public static class StackSymbolicator
                 new NativeError(ErrorKinds.InvalidArgument, $"Cannot parse address '{raw}' as a hex or decimal value."));
         }
 
-        var rva = SymbolResolution.VaToRva(virtualAddress, image.ImageBase);
+        // When the producer supplied an explicit loadBase the address is a runtime absolute VA, so
+        // an address below the load base cannot map into the image — reject it rather than letting
+        // VaToRva's "below base ⇒ already an RVA" fallback resolve a bogus nearest symbol.
+        if (loadBase is { } lb && virtualAddress < lb)
+        {
+            return new ResolvedAddress(
+                raw,
+                null, null, null, null, null,
+                new NativeError(ErrorKinds.AddressOutOfRange,
+                    $"Address 0x{virtualAddress:x} is below the supplied loadBase 0x{lb:x}."));
+        }
+
+        var rva = SymbolResolution.VaToRva(virtualAddress, loadBase ?? image.ImageBase);
         var resolvedRvaHex = rva.ToString("x16", CultureInfo.InvariantCulture);
         var section = image.FindSection(rva);
         var symbol = SymbolResolution.FindByRva(image.Symbols, rva);
@@ -178,8 +207,13 @@ public static class StackSymbolicator
             : symbol.DemangledName;
         var displacement = rva - symbol.Rva;
 
+        // The disassemble hint must point at an address disassemble can rebase on its own (it only
+        // knows image.ImageBase, never loadBase). Hand it the on-disk VA of the function start.
         if (symbol.IsFunction)
-            resolvedFunction = (normalizedHex, symbol.Name);
+        {
+            var onDiskVaHex = (image.ImageBase + symbol.Rva).ToString("x16", CultureInfo.InvariantCulture);
+            resolvedFunction = (onDiskVaHex, symbol.Name);
+        }
 
         return new ResolvedAddress(raw, resolvedRvaHex, symbol.Name, demangledName, sectionName, displacement);
     }
@@ -341,7 +375,19 @@ public static class StackSymbolicator
                 $"Cannot parse address '{frame.Address}' as a hex value.");
         }
 
-        var rva = SymbolResolution.VaToRva(virtualAddress, image.ImageBase);
+        if (frame.LoadBase is { } lb && virtualAddress < lb)
+        {
+            return ErrorRow(
+                index,
+                normalizedAddressHex,
+                selectedImageHandle,
+                null,
+                null,
+                ErrorKinds.AddressOutOfRange,
+                $"Address 0x{virtualAddress:x} is below the supplied loadBase 0x{lb:x}.");
+        }
+
+        var rva = SymbolResolution.VaToRva(virtualAddress, frame.LoadBase ?? image.ImageBase);
         var resolvedRvaHex = rva.ToString("x16", CultureInfo.InvariantCulture);
         var section = image.FindSection(rva);
         var symbol = SymbolResolution.FindByRva(image.Symbols, rva);
@@ -376,9 +422,12 @@ public static class StackSymbolicator
             : symbol.DemangledName;
         var offsetFromSymbolStart = rva - symbol.Rva;
 
+        // Hand disassemble the on-disk VA of the function start; it rebases against image.ImageBase
+        // only and has no knowledge of the producer's loadBase.
         if (symbol.IsFunction)
         {
-            resolvedFunction = (selectedImageHandle, normalizedAddressHex, symbol.Name);
+            var onDiskVaHex = (image.ImageBase + symbol.Rva).ToString("x16", CultureInfo.InvariantCulture);
+            resolvedFunction = (selectedImageHandle, onDiskVaHex, symbol.Name);
         }
 
         return new SymbolicatedFrame(
@@ -418,7 +467,13 @@ public static class StackSymbolicator
             : candidate;
     }
 
-    private static bool TryParseHexAddress(string? address, out ulong value, out string normalizedHex)
+    /// <summary>
+    /// Attempts to parse <paramref name="address"/> as a hex address. Accepts an optional
+    /// <c>0x</c> prefix and bare hex digits. Unlike <see cref="TryParseAddress"/> this never
+    /// interprets the value as decimal, matching the handoff contract's hex transport format
+    /// for addresses and load bases.
+    /// </summary>
+    public static bool TryParseHexAddress(string? address, out ulong value, out string normalizedHex)
     {
         value = 0;
         normalizedHex = string.Empty;
