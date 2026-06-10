@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781133060230,
+  "lastUpdate": 1781133061520,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -2750,6 +2750,42 @@ window.BENCHMARK_DATA = {
             "value": 44.87916361434119,
             "unit": "ns",
             "range": "± 0.42301051279386653"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5fa74a55004c10260f737ba887b2981ea2f98966",
+          "message": "feat(retention): classify retention edges and verdict paths reflection-driven vs structural (#136)\n\nexplain_retention now classifies each DGML retention edge into a\nRetentionReasonKind (Reflection/Generics/VirtualDispatch/DirectCode/\nStructural/Unknown) and gives each path a verdict: reflection-driven\n(potentially trimmable) when any edge is reflection/metadata-driven,\notherwise structural. Uses the ILC edge reasons unblocked by PR1.\n\n- New RetentionReasonClassifier (Core): keyword-based, fixed precedence.\n- RetentionPathRow gains Classification + ReflectionDriven; node rows\n  gain EdgeKind; summary appends verdict counts.\n- Additive only — no new tool, no new params.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T20:00:52-03:00",
+          "tree_id": "c174d2ea016510bd06613616be3c0c5e188d723b",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/5fa74a55004c10260f737ba887b2981ea2f98966"
+        },
+        "date": 1781133061499,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 5934902.690104167,
+            "unit": "ns",
+            "range": "± 54670.806514093376"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 66.0435216108958,
+            "unit": "ns",
+            "range": "± 0.9849162711680287"
           }
         ]
       }
