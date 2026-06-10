@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781131282897,
+  "lastUpdate": 1781133060230,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1680,6 +1680,66 @@ window.BENCHMARK_DATA = {
             "value": 11.533922703220295,
             "unit": "ns",
             "range": "± 0.027754746321089065"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5fa74a55004c10260f737ba887b2981ea2f98966",
+          "message": "feat(retention): classify retention edges and verdict paths reflection-driven vs structural (#136)\n\nexplain_retention now classifies each DGML retention edge into a\nRetentionReasonKind (Reflection/Generics/VirtualDispatch/DirectCode/\nStructural/Unknown) and gives each path a verdict: reflection-driven\n(potentially trimmable) when any edge is reflection/metadata-driven,\notherwise structural. Uses the ILC edge reasons unblocked by PR1.\n\n- New RetentionReasonClassifier (Core): keyword-based, fixed precedence.\n- RetentionPathRow gains Classification + ReflectionDriven; node rows\n  gain EdgeKind; summary appends verdict counts.\n- Additive only — no new tool, no new params.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T20:00:52-03:00",
+          "tree_id": "c174d2ea016510bd06613616be3c0c5e188d723b",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/5fa74a55004c10260f737ba887b2981ea2f98966"
+        },
+        "date": 1781133060206,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 10401751720.416666,
+            "unit": "ns",
+            "range": "± 30825360.2189418"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 22177923.5625,
+            "unit": "ns",
+            "range": "± 207807.81519129928"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 24.757146099439034,
+            "unit": "ns",
+            "range": "± 0.012914121054560518"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 1288520.5367103494,
+            "unit": "ns",
+            "range": "± 632552.2372681458"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 17427.594273158484,
+            "unit": "ns",
+            "range": "± 29.37943143968087"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 17.268724166921206,
+            "unit": "ns",
+            "range": "± 0.018762536050432682"
           }
         ]
       }
