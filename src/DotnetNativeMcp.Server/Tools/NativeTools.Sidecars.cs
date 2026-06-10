@@ -13,11 +13,13 @@ public sealed partial class NativeTools
 {
     [McpServerTool(Name = "get_size_breakdown")]
     [Description(
-        "Reads the NativeAOT .mstat sidecar paired with a loaded binary and returns aggregated native size by assembly, namespace, type, or method. " +
+        "Reads the NativeAOT .mstat sidecar paired with a loaded binary and returns aggregated native size by assembly, namespace, type, method, or category. " +
+        "Counts the whole binary — method bodies (code + GC + EH info), EETypes/types, and the Blobs catch-all table (dehydrated data, runtime metadata, frozen-object regions, RVA static-field data, manifest resources) — so the totals account for far more than just code. " +
+        "The result also reports the mstat format version, a per-category size summary, and the count of deduplicated (folded) method bodies. " +
         "Defaults to method grouping and the top 25 rows. Max topN: 500.")]
     public NativeResult<GetSizeBreakdownResult> GetSizeBreakdown(
         [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
-        [Description("Grouping: assembly, namespace, type, or method. Default: method.")] string groupBy = "method",
+        [Description("Grouping: assembly, namespace, type, method, or category. Default: method.")] string groupBy = "method",
         [Description("Maximum rows to return. Default 25, capped at 500.")] int topN = MstatReader.DefaultTopN,
         [Description("Optional absolute path override for the .mstat sidecar. Defaults to a sibling file next to the loaded binary.")] string? mstatPath = null)
     {
@@ -29,7 +31,7 @@ public sealed partial class NativeTools
         if (!TryParseGroupBy(groupBy, out var grouping))
             return NativeResult.Fail<GetSizeBreakdownResult>(
                 ErrorKinds.InvalidArgument,
-                $"groupBy must be one of: assembly, namespace, type, method. Actual: '{groupBy}'.");
+                $"groupBy must be one of: assembly, namespace, type, method, category. Actual: '{groupBy}'.");
 
         var mstatCandidate = !string.IsNullOrWhiteSpace(mstatPath)
             ? mstatPath
@@ -54,6 +56,10 @@ public sealed partial class NativeTools
                 row.AttributionCount))
             .ToList();
 
+        var categoryTotals = mstat.Data.CategoryTotals
+            .Select(c => new SizeCategoryTotalRow(c.Category, c.TotalSize, c.AttributionCount))
+            .ToList();
+
         var hints = new List<NextActionHint>();
         if (grouping != MstatGroupBy.Method)
         {
@@ -69,11 +75,14 @@ public sealed partial class NativeTools
         }
 
         return NativeResult.Ok(
-            $"Returned {rows.Count} {grouping.ToString().ToLowerInvariant()} size bucket(s) from '{Path.GetFileName(resolvedMstatPath)}'.",
+            $"Returned {rows.Count} {grouping.ToString().ToLowerInvariant()} size bucket(s) from '{Path.GetFileName(resolvedMstatPath)}' (mstat {mstat.Data.FormatVersion}, {mstat.Data.TotalSize} total bytes).",
             new GetSizeBreakdownResult(
                 grouping.ToString().ToLowerInvariant(),
                 resolvedMstatPath,
+                mstat.Data.FormatVersion,
                 mstat.Data.TotalSize,
+                mstat.Data.DeduplicatedMethodCount,
+                categoryTotals,
                 rows),
             hints);
     }
@@ -152,10 +161,11 @@ public sealed partial class NativeTools
             "namespace" => MstatGroupBy.Namespace,
             "type" => MstatGroupBy.Type,
             "method" => MstatGroupBy.Method,
+            "category" => MstatGroupBy.Category,
             _ => default,
         };
 
-        return normalized is "assembly" or "namespace" or "type" or "method";
+        return normalized is "assembly" or "namespace" or "type" or "method" or "category";
     }
 
     [McpServerTool(Name = "compare_native_binaries")]
@@ -250,8 +260,17 @@ public sealed partial class NativeTools
 public sealed record GetSizeBreakdownResult(
     string GroupBy,
     string MstatPath,
+    string FormatVersion,
     long TotalAttributedBytes,
+    int DeduplicatedMethodCount,
+    IReadOnlyList<SizeCategoryTotalRow> CategoryTotals,
     IReadOnlyList<SizeBreakdownRow> Rows);
+
+/// <summary>One per-category size total returned by <c>get_size_breakdown</c>.</summary>
+public sealed record SizeCategoryTotalRow(
+    string Category,
+    long TotalSize,
+    int AttributionCount);
 
 /// <summary>One aggregated row returned by <c>get_size_breakdown</c>.</summary>
 public sealed record SizeBreakdownRow(

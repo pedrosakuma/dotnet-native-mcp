@@ -95,4 +95,46 @@ public class GetSizeBreakdownToolTests
         load.Hints.Should().ContainSingle(hint => hint.NextTool == "get_size_breakdown");
         result.Hints.Should().ContainSingle(hint => hint.NextTool == "get_size_breakdown");
     }
+
+    [Fact]
+    public void GetSizeBreakdown_SampleAot_GroupByCategory_ReturnsCategorySummary()
+    {
+        var fixturePath = FixturePaths.SampleAot;
+        var mstatPath = FixturePaths.SampleAotMstat;
+        if (fixturePath is null || mstatPath is null || !File.Exists(fixturePath) || !File.Exists(mstatPath))
+            return;
+
+        var registry = new NativeBinaryRegistry();
+        var load = registry.Load(fixturePath);
+        load.IsError.Should().BeFalse();
+
+        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
+        var result = tool.GetSizeBreakdown(load.Data!.Handle.Value, groupBy: "category", topN: 10);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.GroupBy.Should().Be("category");
+        result.Data.FormatVersion.Should().MatchRegex(@"^\d+\.\d+$");
+        result.Data.CategoryTotals.Should().NotBeEmpty();
+        result.Data.CategoryTotals.Sum(c => c.TotalSize).Should().Be(result.Data.TotalAttributedBytes);
+        result.Data.Rows.Should().NotBeEmpty();
+        result.Data.Rows.Select(row => row.TotalSize).Should().BeInDescendingOrder();
+    }
+
+    [Fact]
+    public void GetSizeBreakdown_InvalidGroupBy_ReturnsInvalidArgument()
+    {
+        var fixturePath = FixturePaths.SampleAot;
+        if (fixturePath is null || !File.Exists(fixturePath))
+            return;
+
+        var registry = new NativeBinaryRegistry();
+        var load = registry.Load(fixturePath);
+        load.IsError.Should().BeFalse();
+
+        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
+        var result = tool.GetSizeBreakdown(load.Data!.Handle.Value, groupBy: "nonsense");
+
+        result.IsError.Should().BeTrue();
+        result.Error!.Kind.Should().Be(ErrorKinds.InvalidArgument);
+    }
 }
