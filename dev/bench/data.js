@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781096552035,
+  "lastUpdate": 1781098511684,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -780,6 +780,66 @@ window.BENCHMARK_DATA = {
             "value": 22.296212399235138,
             "unit": "ns",
             "range": "± 0.02246174739050758"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "61c0bace78e1d4f4481cedcee73192eeeb75a120",
+          "message": "feat(r2r): decode ReadyToRun header flags in get_r2r_header (#119)\n\nThe get_r2r_header tool previously surfaced only the raw uint Flags value.\nThis adds decoding of the set bits into their READYTORUN_FLAG_* names so\ncallers can tell at a glance whether an image is a composite Component,\nPartial, EmbeddedMsil, has StrippedIlBodies, etc. — without manually\ndecoding the bitmask.\n\n- ReadyToRunHeaderAttributes: new [Flags] enum mirroring ReadyToRunFlag in\n  coreclr/inc/readytorun.h (12 flags, 0x1..0x800). Named with the BCL flags-\n  enum convention (cf. TypeAttributes) to satisfy CA1711.\n- DecodeNames(uint): decodes set bits to names; any bit not covered by a\n  known flag is reported as a single Unknown(0x...) entry so information is\n  never silently dropped.\n- R2RHeaderResult gains FlagsHex (e.g. \"0x00000003\") and FlagNames; the tool\n  summary lists the decoded names. Raw Flags is retained for back-compat.\n- Tests: Core decode unit tests (single/multiple/all-known/unknown-residue),\n  a real-image round-trip regression (decoded names must re-OR back to the\n  raw flags), plus a synthetic server-tool assertion.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T10:25:24-03:00",
+          "tree_id": "8e9351180348ab1179bc6370ff3600978fc2af67",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/61c0bace78e1d4f4481cedcee73192eeeb75a120"
+        },
+        "date": 1781098511657,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 13311188843.642857,
+            "unit": "ns",
+            "range": "± 45034921.47125282"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 27955104.5125,
+            "unit": "ns",
+            "range": "± 249306.28564376294"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 32.320960712432864,
+            "unit": "ns",
+            "range": "± 0.13183088098374293"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 446631.8107910156,
+            "unit": "ns",
+            "range": "± 11203.165131415693"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 22633.49169108073,
+            "unit": "ns",
+            "range": "± 121.18486412787733"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 22.43360763149602,
+            "unit": "ns",
+            "range": "± 0.13674195754132235"
           }
         ]
       }
