@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781133062934,
+  "lastUpdate": 1781135308676,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1740,6 +1740,66 @@ window.BENCHMARK_DATA = {
             "value": 17.268724166921206,
             "unit": "ns",
             "range": "± 0.018762536050432682"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e211b8c253b87596fc8db9f83f13ec11f4985919",
+          "message": "feat(retention): price retention paths with .mstat native byte cost (#137)\n\nexplain_retention now crosses each DGML retention node with the .mstat\nsize sidecar so a path reports the native bytes it keeps alive\n('this chain keeps ~N bytes alive via reflection').\n\n- New MstatRetentionPricer (Core): matches a node's mangled DGML label\n  to the longest mstat method/type key it ends with on a '_' boundary,\n  method keys preferred over type keys. Distinct managed identities that\n  mangle onto one key (nested-vs-dotted types, same type/method across\n  assemblies) are detected and left unpriced rather than guessed; an\n  ambiguous method match never falls back to type pricing. Overloads\n  mstat records under one name aggregate (AttributionCount>1).\n  Validated on the SampleAot fixture: 2707 nodes matched, 0 ambiguous.\n- explain_retention gains includeSizeCost (default true) + mstatPath.\n  Best-effort: degrades to a SizeCostNote when no .mstat resolves.\n- RetentionPathNodeRow gains SizeBytes/SizeMatchKind/SizeAttributionCount;\n  RetentionPathRow gains PricedBytes/PricedNodeCount (appended);\n  ExplainRetentionResult gains SizeCostNote.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T20:38:17-03:00",
+          "tree_id": "2e8b044b7c443d3941f6e41afbab6b9692f2c57c",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/e211b8c253b87596fc8db9f83f13ec11f4985919"
+        },
+        "date": 1781135308644,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 13105685115.692308,
+            "unit": "ns",
+            "range": "± 9460469.686215712"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 27852771.328125,
+            "unit": "ns",
+            "range": "± 212657.4781129913"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 31.65287748208413,
+            "unit": "ns",
+            "range": "± 0.052377452217364465"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 373503.15837751114,
+            "unit": "ns",
+            "range": "± 4390.582372464663"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 22482.85391671317,
+            "unit": "ns",
+            "range": "± 66.9435927304945"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 22.789466851032696,
+            "unit": "ns",
+            "range": "± 0.03572092142698617"
           }
         ]
       }
