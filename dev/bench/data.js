@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781115163887,
+  "lastUpdate": 1781115165171,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -2608,6 +2608,42 @@ window.BENCHMARK_DATA = {
             "value": 16042154.104166666,
             "unit": "ns",
             "range": "± 17665.855791119295"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "1c0c9d2b9308893af9deaeabbab6c40a006b0ab2",
+          "message": "Decode R2R AvailableTypes (type 108) via NativeFormat hashtable (#126)\n\nPR3 of the NativeFormat-reader epic. Adds a safe, span-based port of the\nruntime's Internal.NativeFormat.NativeHashtable and wires it to decode the\nReadyToRun AvailableTypes section (type 108).\n\nEach hashtable entry yields a metadata RID whose low bit flags ExportedType\n(table 0x27) vs TypeDef (table 0x02); the RID is widened into a full metadata\ntoken for handoff to dotnet-assembly-mcp's get_type. Type names are not\nresolved here (that needs managed ECMA metadata, out of scope).\n\nRides additively on get_r2r_header via includeAvailableTypes /\navailableTypesLimit (no new tool — tool budget hard cap of 10). The bucket\ncount comes from untrusted header bytes, so the traversal is bounded by a\nmaxScan step cap that flags Truncated rather than spinning on a crafted huge\nbucket count. Out-of-range RIDs (0 or > 0x00FFFFFF) fail as InvalidArgument\ninstead of corrupting the synthesised token.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T15:01:55-03:00",
+          "tree_id": "3b6f0110ef066b5490b8f4e8fd3137b2ebcfc8e8",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/1c0c9d2b9308893af9deaeabbab6c40a006b0ab2"
+        },
+        "date": 1781115165149,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 1084009.205078125,
+            "unit": "ns",
+            "range": "± 2456.4400038800627"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 16485412.047916668,
+            "unit": "ns",
+            "range": "± 49677.488130476806"
           }
         ]
       }
