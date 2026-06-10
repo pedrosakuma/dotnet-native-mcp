@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781117891319,
+  "lastUpdate": 1781118555742,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1320,6 +1320,66 @@ window.BENCHMARK_DATA = {
             "value": 22.254019044912777,
             "unit": "ns",
             "range": "± 0.08667627080145117"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bd8e9a0aca3c41bf757e0be8bc9a05b5ca5df912",
+          "message": "feat(r2r): decode HotColdMap (type 120) hot/cold pairs (#129)\n\nAdds ReadyToRunReader.ReadHotColdMap which decodes the HotColdMap section\ninto (cold, hot) RUNTIME_FUNCTION index pairs (flat uint[], pairCount =\nsize/8). Wired additively into get_r2r_header via includeHotColdMap + a\nnullable R2RHotColdMapView result field; capped by infoMapsLimit. Never\nthrows to the tool layer (InvalidArgument on non-pair-aligned/empty\nsections, R2RSectionNotPresent when absent).\n\nAdds 5 Core + 2 Server tests (synthetic-only — SPC has no HotColdMap).\nUpdates README coverage table + tool description; removes HotColdMap from\nthe out-of-scope list.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T15:59:35-03:00",
+          "tree_id": "c8d3c9165c14df8dc0b37bec3c8f6e69008da649",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/bd8e9a0aca3c41bf757e0be8bc9a05b5ca5df912"
+        },
+        "date": 1781118555722,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 13072802069.333334,
+            "unit": "ns",
+            "range": "± 36505675.3645878"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 28764641.51785714,
+            "unit": "ns",
+            "range": "± 243530.58401635883"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 30.78323651277102,
+            "unit": "ns",
+            "range": "± 0.06623762938383015"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 340455.4959960937,
+            "unit": "ns",
+            "range": "± 7377.776798542753"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 9863.552230834961,
+            "unit": "ns",
+            "range": "± 61.06771133810872"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 22.97657973567645,
+            "unit": "ns",
+            "range": "± 0.06139689747717536"
           }
         ]
       }
