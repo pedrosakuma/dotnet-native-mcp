@@ -106,4 +106,116 @@ public class RetentionPathFinderTests
         path.Select(segment => segment.NodeId).Should().Equal("root", "a", "b", "target");
         path[^1].IncomingEdgeLabel.Should().Be("Keeps");
     }
+
+    [Fact]
+    public void FindRetentionPaths_MultipleRoots_ReturnsOneShortestPathPerRoot()
+    {
+        var graph = new DgmlGraph(
+            "synthetic.dgml",
+            [
+                new DgmlNode("slow-root", "Slow root", "Root"),
+                new DgmlNode("fast-root", "Fast root", "Root"),
+                new DgmlNode("middle", "Middle", null),
+                new DgmlNode("target", "Target Type", null),
+            ],
+            [
+                new DgmlEdge("slow-root", "middle", "Uses"),
+                new DgmlEdge("middle", "target", "Reflects"),
+                new DgmlEdge("fast-root", "target", "call"),
+            ]);
+
+        var paths = RetentionPathFinder.FindRetentionPaths(graph, "Target Type", maxDepth: 6, maxPaths: 5);
+
+        paths.Should().HaveCount(2);
+        // Shortest-first: the single-hop fast-root path ranks ahead of the two-hop slow-root path.
+        paths[0].RootId.Should().Be("fast-root");
+        paths[0].Depth.Should().Be(1);
+        paths[0].Segments.Select(s => s.NodeId).Should().Equal("fast-root", "target");
+        paths[0].Segments[^1].IncomingEdgeLabel.Should().Be("call");
+
+        paths[1].RootId.Should().Be("slow-root");
+        paths[1].Depth.Should().Be(2);
+        paths[1].Segments.Select(s => s.NodeId).Should().Equal("slow-root", "middle", "target");
+        paths[1].Segments[^1].IncomingEdgeLabel.Should().Be("Reflects");
+    }
+
+    [Fact]
+    public void FindRetentionPaths_MaxPathsOne_ReturnsOnlyShortest()
+    {
+        var graph = new DgmlGraph(
+            "synthetic.dgml",
+            [
+                new DgmlNode("slow-root", "Slow root", "Root"),
+                new DgmlNode("fast-root", "Fast root", "Root"),
+                new DgmlNode("middle", "Middle", null),
+                new DgmlNode("target", "Target Type", null),
+            ],
+            [
+                new DgmlEdge("slow-root", "middle", null),
+                new DgmlEdge("middle", "target", null),
+                new DgmlEdge("fast-root", "target", null),
+            ]);
+
+        var paths = RetentionPathFinder.FindRetentionPaths(graph, "Target Type", maxDepth: 6, maxPaths: 1);
+
+        paths.Should().HaveCount(1);
+        paths[0].RootId.Should().Be("fast-root");
+    }
+
+    [Fact]
+    public void FindTargets_AmbiguousQuery_ReturnsAllMatchesCapped()
+    {
+        var graph = new DgmlGraph(
+            "synthetic.dgml",
+            [
+                new DgmlNode("0", "List<int>", null),
+                new DgmlNode("1", "List<string> backing", null),
+                new DgmlNode("2", "Unrelated", null),
+            ],
+            []);
+
+        var targets = RetentionPathFinder.FindTargets(graph, "List", maxResults: 25);
+
+        targets.Select(t => t.NodeId).Should().Equal("0", "1");
+    }
+
+    [Fact]
+    public void FindTargets_ExactIdMatch_TakesPrecedenceOverLabelSubstring()
+    {
+        var graph = new DgmlGraph(
+            "synthetic.dgml",
+            [
+                new DgmlNode("MyType", "alpha", null),
+                new DgmlNode("other", "MyType reference", null),
+            ],
+            []);
+
+        var targets = RetentionPathFinder.FindTargets(graph, "MyType", maxResults: 25);
+
+        targets.Should().HaveCount(1);
+        targets[0].NodeId.Should().Be("MyType");
+    }
+
+    [Fact]
+    public void FindRetentionPaths_TargetIsAlsoRoot_PrefersZeroHopPath()
+    {
+        // Target is itself a Root but also reached by another root via an incoming edge.
+        // The canonical shortest retention path is the zero-hop [target].
+        var graph = new DgmlGraph(
+            "synthetic.dgml",
+            [
+                new DgmlNode("other-root", "Other root", "Root"),
+                new DgmlNode("target", "Target Type", "Root"),
+            ],
+            [
+                new DgmlEdge("other-root", "target", "call"),
+            ]);
+
+        var paths = RetentionPathFinder.FindRetentionPaths(graph, "Target Type", maxDepth: 6, maxPaths: 1);
+
+        paths.Should().HaveCount(1);
+        paths[0].RootId.Should().Be("target");
+        paths[0].Depth.Should().Be(0);
+        paths[0].Segments.Select(s => s.NodeId).Should().Equal("target");
+    }
 }

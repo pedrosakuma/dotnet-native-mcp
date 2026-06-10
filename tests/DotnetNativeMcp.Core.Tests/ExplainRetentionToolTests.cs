@@ -122,6 +122,99 @@ public class ExplainRetentionToolTests
         result.Data.Path[0].EdgeLabelFromPrevious.Should().BeNull();
     }
 
+    [Fact]
+    public void ExplainRetention_MultipleRoots_ReturnsRankedPathsAndCandidates()
+    {
+        var dgmlPath = WriteScratchFile("multi.dgml", """
+            <DirectedGraph xmlns="http://schemas.microsoft.com/vs/2009/dgml">
+              <Nodes>
+                <Node Id="entry" Label="Program.Main" Category="Root" />
+                <Node Id="refl" Label="ReflectionRoot" Category="Root" />
+                <Node Id="mid" Label="Middle" />
+                <Node Id="target" Label="MyDbContext" />
+              </Nodes>
+              <Links>
+                <Link Source="entry" Target="target" Reason="call" />
+                <Link Source="refl" Target="mid" Reason="Reflectable type" />
+                <Link Source="mid" Target="target" Reason="Field written outside initializer" />
+              </Links>
+            </DirectedGraph>
+            """);
+
+        try
+        {
+            var registry = new FakeRegistry();
+            registry.Add(CreateImage("/workspace/app.bin"));
+            var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
+
+            var result = tool.ExplainRetention(registry.ImageHandle!, "MyDbContext", dgmlPath: dgmlPath, maxDepth: 6, maxPaths: 5);
+
+            result.IsError.Should().BeFalse();
+            result.Data!.MatchedNodeId.Should().Be("target");
+            result.Data.Paths.Should().HaveCount(2);
+            result.Data.Paths[0].RootId.Should().Be("entry");
+            result.Data.Paths[0].Depth.Should().Be(1);
+            result.Data.Paths[0].Nodes[^1].EdgeLabelFromPrevious.Should().Be("call");
+            result.Data.Paths[1].RootId.Should().Be("refl");
+            result.Data.Paths[1].Nodes[1].EdgeLabelFromPrevious.Should().Be("Reflectable type");
+            // Path mirrors the shortest path (Paths[0]).
+            result.Data.Path.Select(n => n.Id).Should().Equal("entry", "target");
+        }
+        finally
+        {
+            File.Delete(dgmlPath);
+        }
+    }
+
+    [Fact]
+    public void ExplainRetention_AmbiguousQuery_SurfacesCandidates()
+    {
+        var dgmlPath = WriteScratchFile("ambiguous.dgml", """
+            <DirectedGraph xmlns="http://schemas.microsoft.com/vs/2009/dgml">
+              <Nodes>
+                <Node Id="root" Label="App root" Category="Root" />
+                <Node Id="a" Label="System.Collections.Generic.List`1[int]" />
+                <Node Id="b" Label="System.Collections.Generic.List`1[string]" />
+              </Nodes>
+              <Links>
+                <Link Source="root" Target="a" Reason="call" />
+                <Link Source="root" Target="b" Reason="call" />
+              </Links>
+            </DirectedGraph>
+            """);
+
+        try
+        {
+            var registry = new FakeRegistry();
+            registry.Add(CreateImage("/workspace/app.bin"));
+            var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
+
+            var result = tool.ExplainRetention(registry.ImageHandle!, "List`1", dgmlPath: dgmlPath, maxDepth: 4);
+
+            result.IsError.Should().BeFalse();
+            result.Data!.TargetMatchCount.Should().Be(2);
+            result.Data.Candidates.Select(c => c.Id).Should().Equal("a", "b");
+            result.Data.MatchedNodeId.Should().Be("a");
+        }
+        finally
+        {
+            File.Delete(dgmlPath);
+        }
+    }
+
+    [Fact]
+    public void ExplainRetention_BadMaxPaths_ReturnsInvalidArgument()
+    {
+        var registry = new FakeRegistry();
+        registry.Add(CreateImage("/workspace/app.bin"));
+        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
+
+        var result = tool.ExplainRetention(registry.ImageHandle!, "MyDbContext", maxPaths: 0);
+
+        result.IsError.Should().BeTrue();
+        result.Error!.Kind.Should().Be(ErrorKinds.InvalidArgument);
+    }
+
     private static string WriteScratchFile(string fileName, string content)
     {
         var directory = Path.Combine(Path.GetDirectoryName(typeof(ExplainRetentionToolTests).Assembly.Location)!, "scratch");
