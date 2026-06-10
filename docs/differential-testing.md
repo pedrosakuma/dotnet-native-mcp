@@ -23,6 +23,7 @@ the real comparison runs (see [CI](#ci)).
 | `PeNativeReader` sections | LLVM `llvm-readobj --sections` | per-name virtual address, virtual size, file offset, and file size | `tests/DotnetNativeMcp.Core.Tests/PeSectionDifferentialTests.cs` |
 | `MachOReader` sections (x86_64 + arm64) | LLVM `llvm-readobj --sections` | per-`Segment,Name` virtual address, virtual size (`section_64.size`), and file offset | `tests/DotnetNativeMcp.Core.Tests/MachOSectionDifferentialTests.cs` |
 | `MachOReader` symbols (x86_64 + arm64) | LLVM `llvm-readobj --syms` | the defined-symbol set as a multiset of (name, n_value) — STAB/undefined excluded, leading `_` stripped | `tests/DotnetNativeMcp.Core.Tests/MachOSymbolDifferentialTests.cs` |
+| `ReadyToRunReader` RuntimeFunctions (type 102) | LLVM `llvm-readobj --file-headers` (location) + in-process `System.Reflection.PortableExecutable.PEReader` (x64 entries) | RuntimeFunctions-section RVA/size vs the PE exception data directory; first 32 x64 `RUNTIME_FUNCTION` rows (begin/end/unwindInfo) vs an independent PEReader-located decode | `tests/DotnetNativeMcp.Core.Tests/R2RRuntimeFunctionsDifferentialTests.cs` |
 
 The reference oracle is the shared `ReadelfOracle` helper
 (`tests/DotnetNativeMcp.Core.Tests/ReadelfOracle.cs`), which shells out to `readelf` and
@@ -38,6 +39,16 @@ disassembly oracle (`ObjdumpOracle`) shells out to `objdump`, and the PE and Mac
 > dylibs/executables, so a `.o` is the smallest real Mach-O that round-trips through the reader.
 > `MachOReader` composes each section's display name as `{Segment},{Name}` (e.g. `__TEXT,__text`);
 > the oracle recombines `llvm-readobj`'s separate `Segment:` and `Name:` fields to match.
+
+> The ReadyToRun harness leans on a structural coincidence: in a crossgen2 R2R image the
+> RuntimeFunctions section (type 102) **is** the PE exception data directory (`.pdata`) — identical
+> RVA and size. `ReadyToRunReader` reaches that table through the CLR managed-native header → R2R
+> signature → section table, while the oracle reaches it through the optional-header data
+> directories (`llvm-readobj --file-headers`, decoded regardless of the CoreCLR per-OS machine
+> override such as `0xFD1D` for linux-x64). The two independent paths must agree, which is exactly
+> the invariant the section-type enum bug (RuntimeFunctions mis-mapped to type 5) violated. x64
+> entry bytes are additionally cross-checked against an in-process `PEReader`-based decode that
+> never touches the R2R section table.
 
 #### Disassembly
 
