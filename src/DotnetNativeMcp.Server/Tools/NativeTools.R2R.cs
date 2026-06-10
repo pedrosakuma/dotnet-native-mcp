@@ -11,7 +11,8 @@ public sealed partial class NativeTools
     [McpServerTool(Name = "get_r2r_header")]
     [Description(
         "Reads the ReadyToRun (R2R) header from a loaded managed PE binary and returns its version, " +
-        "flags, and the full sections table. " +
+        "flags (raw value plus decoded READYTORUN_FLAG_* names such as Component, Partial, EmbeddedMsil), " +
+        "and the full sections table. " +
         "Returns r2r_not_present when the image has no R2R header (pure managed assembly or NativeAOT binary). " +
         "Use list_r2r_runtime_functions to navigate the RuntimeFunctions section.")]
     public NativeResult<R2RHeaderResult> GetR2RHeader(
@@ -49,19 +50,24 @@ public sealed partial class NativeTools
             .Select(s => new R2RSectionView(s.Type, s.TypeName, $"0x{s.VirtualAddress:X8}", s.Size))
             .ToList();
 
+        var flagNames = ReadyToRunHeaderAttributesExtensions.DecodeNames(hdr.Flags);
+
         var data = new R2RHeaderResult(
             imageHandle,
             hdr.Version,
             hdr.MajorVersion,
             hdr.MinorVersion,
             hdr.Flags,
+            $"0x{hdr.Flags:X8}",
+            flagNames,
             image.Architecture.ToString(),
             hdr.Sections.Count,
             hasRtFuncs,
             sections);
 
+        var flagSummary = flagNames.Count > 0 ? $", flags [{string.Join(", ", flagNames)}]" : string.Empty;
         return NativeResult.Ok(
-            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}.",
+            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}.",
             data,
             hints);
     }
@@ -144,7 +150,9 @@ public sealed partial class NativeTools
 /// <param name="Version">Human-readable version string (e.g. <c>"16.0"</c>).</param>
 /// <param name="MajorVersion">R2R major version number.</param>
 /// <param name="MinorVersion">R2R minor version number.</param>
-/// <param name="Flags">Raw R2R header flags (hex).</param>
+/// <param name="Flags">Raw R2R header flags value.</param>
+/// <param name="FlagsHex">Raw R2R header flags as a hex string (e.g. <c>"0x00000003"</c>).</param>
+/// <param name="FlagNames">Decoded names of the set header flags (<c>READYTORUN_FLAG_*</c>).</param>
 /// <param name="Architecture">CPU architecture of the image.</param>
 /// <param name="SectionCount">Total number of R2R sections.</param>
 /// <param name="HasRuntimeFunctions">Whether a RuntimeFunctions section (type 102) is present.</param>
@@ -155,6 +163,8 @@ public sealed record R2RHeaderResult(
     ushort MajorVersion,
     ushort MinorVersion,
     uint Flags,
+    string FlagsHex,
+    IReadOnlyList<string> FlagNames,
     string Architecture,
     int SectionCount,
     bool HasRuntimeFunctions,
