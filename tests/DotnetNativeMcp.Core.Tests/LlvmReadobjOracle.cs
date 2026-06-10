@@ -155,6 +155,43 @@ internal static partial class LlvmReadobjOracle
             ? ulong.Parse(value.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture)
             : ulong.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture);
 
+    /// <summary>The PE exception data directory (RVA + size) from the optional header.</summary>
+    public readonly record struct PeExceptionDirectory(ulong Rva, ulong Size);
+
+    [GeneratedRegex(@"^\s*ExceptionTableRVA:\s+(?<v>\S+)")]
+    private static partial Regex ExceptionTableRvaRegex();
+
+    [GeneratedRegex(@"^\s*ExceptionTableSize:\s+(?<v>\S+)")]
+    private static partial Regex ExceptionTableSizeRegex();
+
+    /// <summary>
+    /// Returns the PE exception data directory (directory index 3) parsed from
+    /// <c>llvm-readobj --file-headers</c>. In a crossgen2 ReadyToRun image this directory is the
+    /// RuntimeFunctions table, so it doubles as an independent oracle for
+    /// <see cref="DotnetNativeMcp.Core.R2R.ReadyToRunReader"/>'s section-102 lookup. The data
+    /// directory lives in the optional header and is decoded regardless of the CoreCLR per-OS
+    /// machine override (e.g. 0xFD1D for linux-x64), so no machine patching is needed. Returns
+    /// <c>null</c> when <c>llvm-readobj</c> is unavailable or the directory is absent/empty.
+    /// </summary>
+    public static PeExceptionDirectory? TryReadPeExceptionDirectory(string path)
+    {
+        var output = OracleProcess.Run("llvm-readobj", "--file-headers", path);
+        if (output is null) return null;
+
+        ulong? rva = null, size = null;
+        foreach (var rawLine in output.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+            if (ExceptionTableRvaRegex().Match(line) is { Success: true } r) rva = ParseNum(r.Groups["v"].Value);
+            else if (ExceptionTableSizeRegex().Match(line) is { Success: true } s) size = ParseNum(s.Groups["v"].Value);
+        }
+
+        if (rva is null || size is null || rva.Value == 0 || size.Value == 0)
+            return null;
+
+        return new PeExceptionDirectory(rva.Value, size.Value);
+    }
+
     /// <summary>One defined Mach-O nlist symbol (<c>llvm-readobj --syms</c>).</summary>
     public readonly record struct MachOSymbol(string Name, ulong Value);
 
