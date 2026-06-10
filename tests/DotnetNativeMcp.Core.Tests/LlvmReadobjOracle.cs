@@ -154,4 +154,79 @@ internal static partial class LlvmReadobjOracle
         value.StartsWith("0x", StringComparison.OrdinalIgnoreCase)
             ? ulong.Parse(value.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture)
             : ulong.Parse(value, NumberStyles.Integer, CultureInfo.InvariantCulture);
+
+    /// <summary>One defined Mach-O nlist symbol (<c>llvm-readobj --syms</c>).</summary>
+    public readonly record struct MachOSymbol(string Name, ulong Value);
+
+    // Symbol-specific name parse: capture the whole name (which may legitimately contain spaces)
+    // and strip only the trailing " (N)" string-table-index gloss llvm-readobj appends.
+    [GeneratedRegex(@"^\s*Name:\s+(?<name>.*?)(?:\s+\(\d+\))?\s*$")]
+    private static partial Regex SymbolNameRegex();
+
+    [GeneratedRegex(@"^\s*Type:\s+(?<t>\S+)")]
+    private static partial Regex SymbolTypeRegex();
+
+    [GeneratedRegex(@"^\s*Value:\s+(?<v>\S+)")]
+    private static partial Regex SymbolValueRegex();
+
+    /// <summary>
+    /// Returns the <em>defined</em> Mach-O symbols as a multiset, mirroring
+    /// <see cref="DotnetNativeMcp.Core.Imaging.MachOReader"/>'s symbol emission: STAB/debug and
+    /// undefined (<c>N_UNDF</c>, shown by llvm-readobj as <c>Type: Undef</c>) entries are excluded,
+    /// and the macOS leading <c>_</c> is stripped from each name so the two readers' names line up.
+    /// The accepted types — <c>Section</c> (<c>N_SECT</c>), <c>Absolute</c> (<c>N_ABS</c>) and
+    /// <c>Indirect</c> (<c>N_INDR</c>) — are exactly the non-STAB, non-<c>N_UNDF</c> nlist classes
+    /// MachOReader emits (its only type-dimension skip is <c>N_UNDF</c>). Returns <c>null</c> when
+    /// <c>llvm-readobj</c> is unavailable.
+    /// </summary>
+    public static IReadOnlyList<MachOSymbol>? TryReadMachOSymbols(string path)
+    {
+        var output = OracleProcess.Run("llvm-readobj", "--syms", path);
+        if (output is null) return null;
+
+        var symbols = new List<MachOSymbol>();
+
+        string? name = null, type = null;
+        ulong? value = null;
+
+        void Flush()
+        {
+            // Mirror MachOReader: emit only defined symbols (Section / Absolute / Indirect),
+            // never undefined (imported) or STAB/debug entries, and strip the leading macOS '_'.
+            if (name is null || value is null || type is null)
+                return;
+            if (!type.StartsWith("Section", StringComparison.Ordinal) &&
+                !type.StartsWith("Absolute", StringComparison.Ordinal) &&
+                !type.StartsWith("Indirect", StringComparison.Ordinal))
+                return;
+
+            var normalized = name.StartsWith('_') ? name[1..] : name;
+            if (normalized.Length == 0)
+                return;
+
+            symbols.Add(new MachOSymbol(normalized, value.Value));
+        }
+
+        foreach (var rawLine in output.Split('\n'))
+        {
+            var line = rawLine.TrimEnd('\r');
+
+            var nameMatch = SymbolNameRegex().Match(line);
+            if (nameMatch.Success)
+            {
+                Flush(); // emit the previous symbol block before starting a new one
+                name = nameMatch.Groups["name"].Value;
+                type = null;
+                value = null;
+                continue;
+            }
+
+            if (SymbolTypeRegex().Match(line) is { Success: true } ty) type = ty.Groups["t"].Value;
+            else if (SymbolValueRegex().Match(line) is { Success: true } vl) value = ParseNum(vl.Groups["v"].Value);
+        }
+
+        Flush(); // last block
+
+        return symbols;
+    }
 }
