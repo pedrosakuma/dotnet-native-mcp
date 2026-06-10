@@ -95,13 +95,17 @@ public sealed partial class NativeTools
         "and each path gets a verdict: 'reflection-driven' when any edge is reflection/metadata (potentially trimmable by removing " +
         "reflection roots) else 'structural'. With maxPaths>1 returns the shortest chain from each distinct root " +
         "that retains the target — the independent reasons it stays in the binary. Target matches an exact DGML node " +
-        "id or a case-insensitive substring on node label; ambiguous matches are surfaced under Candidates.")]
+        "id or a case-insensitive substring on node label; ambiguous matches are surfaced under Candidates. " +
+        "When includeSizeCost is set (default) and a .mstat sidecar is present, each node is priced with the " +
+        "native bytes mstat attributes to it and each path carries the total bytes it keeps alive.")]
     public NativeResult<ExplainRetentionResult> ExplainRetention(
         [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
         [Description("Target DGML node query. Matches exact node id or a case-insensitive substring on the node label.")] string target,
         [Description("Optional absolute path override for the .dgml sidecar. Defaults to a sibling file next to the loaded binary.")] string? dgmlPath = null,
         [Description("Maximum edge depth to search from any root. Default 12, valid range 1..64.")] int maxDepth = RetentionPathFinder.DefaultMaxDepth,
-        [Description("Maximum number of retention paths to return — the shortest chain from each distinct root that retains the target, ranked shortest-first. Default 1, valid range 1..64.")] int maxPaths = RetentionPathFinder.DefaultMaxPaths)
+        [Description("Maximum number of retention paths to return — the shortest chain from each distinct root that retains the target, ranked shortest-first. Default 1, valid range 1..64.")] int maxPaths = RetentionPathFinder.DefaultMaxPaths,
+        [Description("When true (default), price each node with the native bytes the .mstat sidecar attributes to it. Best-effort: silently degrades when no .mstat is present.")] bool includeSizeCost = true,
+        [Description("Optional absolute path override for the .mstat sidecar used for size pricing. Defaults to a sibling file next to the loaded binary.")] string? mstatPath = null)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
             return NativeResult.Fail<ExplainRetentionResult>(
@@ -145,8 +149,19 @@ public sealed partial class NativeTools
             .ToList();
         var targetMatchCount = RetentionPathFinder.CountTargetMatches(graph, target);
 
+        MstatRetentionPricer? pricer = null;
+        string? sizeCostNote = null;
+        if (includeSizeCost)
+        {
+            var (mstatDoc, note) = TryReadMstatForImage(image, mstatPath, "retention size-cost");
+            if (mstatDoc is not null)
+                pricer = MstatRetentionPricer.Build(mstatDoc);
+            else
+                sizeCostNote = note;
+        }
+
         var paths = RetentionPathFinder.FindRetentionPaths(graph, target, maxDepth, maxPaths)
-            .Select(ToPathRow)
+            .Select(path => ToPathRow(path, pricer))
             .ToList();
 
         var primaryPath = paths.Count > 0 ? paths[0].Nodes : (IReadOnlyList<RetentionPathNodeRow>)[];
@@ -162,9 +177,19 @@ public sealed partial class NativeTools
             var verdict = reflectionDrivenCount > 0
                 ? $" {reflectionDrivenCount} of {paths.Count} path(s) are reflection-driven (potentially trimmable)."
                 : $" All {paths.Count} path(s) are structural (direct code / vtable / generics).";
+            var sizeCost = string.Empty;
+            if (pricer is not null && paths.Count > 0)
+            {
+                var shortest = paths[0];
+                sizeCost = $" Shortest path keeps ~{shortest.PricedBytes.ToString(CultureInfo.InvariantCulture)} byte(s) alive ({shortest.PricedNodeCount.ToString(CultureInfo.InvariantCulture)} of {shortest.Nodes.Count.ToString(CultureInfo.InvariantCulture)} node(s) priced from .mstat).";
+            }
+            else if (sizeCostNote is not null)
+            {
+                sizeCost = $" Size cost unavailable: {sizeCostNote}";
+            }
             summary = paths.Count == 1
-                ? $"Found a retention path with {primaryPath.Count} node(s) to '{matchedNode!.Label}' from '{Path.GetFileName(resolvedDgmlPath)}'.{ambiguity}{verdict}"
-                : $"Found {paths.Count} retention path(s) to '{matchedNode!.Label}' (shortest has {primaryPath.Count} node(s)) from '{Path.GetFileName(resolvedDgmlPath)}'.{ambiguity}{verdict}";
+                ? $"Found a retention path with {primaryPath.Count} node(s) to '{matchedNode!.Label}' from '{Path.GetFileName(resolvedDgmlPath)}'.{ambiguity}{verdict}{sizeCost}"
+                : $"Found {paths.Count} retention path(s) to '{matchedNode!.Label}' (shortest has {primaryPath.Count} node(s)) from '{Path.GetFileName(resolvedDgmlPath)}'.{ambiguity}{verdict}{sizeCost}";
         }
         else
         {
@@ -184,13 +209,25 @@ public sealed partial class NativeTools
                 matchedNode?.Category,
                 primaryPath,
                 candidates,
-                paths));
+                paths,
+                sizeCostNote));
     }
 
-    private static RetentionPathRow ToPathRow(RetentionPath path)
+    private static RetentionPathRow ToPathRow(RetentionPath path, MstatRetentionPricer? pricer)
     {
         var classification = RetentionReasonClassifier.ClassifyPath(path);
-        var nodes = path.Segments.Select(ToNodeRow).ToList();
+        var nodes = path.Segments.Select(segment => ToNodeRow(segment, pricer)).ToList();
+        long pricedBytes = 0;
+        var pricedNodeCount = 0;
+        foreach (var node in nodes)
+        {
+            if (node.SizeBytes is { } size)
+            {
+                pricedBytes += size;
+                pricedNodeCount++;
+            }
+        }
+
         return new RetentionPathRow(
             path.RootId,
             path.RootLabel,
@@ -198,16 +235,33 @@ public sealed partial class NativeTools
             path.Depth,
             classification.Verdict,
             classification.ReflectionDriven,
-            nodes);
+            nodes,
+            pricedBytes,
+            pricedNodeCount);
     }
 
-    private static RetentionPathNodeRow ToNodeRow(RetentionPathSegment segment) =>
-        new(
+    private static RetentionPathNodeRow ToNodeRow(RetentionPathSegment segment, MstatRetentionPricer? pricer)
+    {
+        long? sizeBytes = null;
+        string? sizeMatchKind = null;
+        var sizeAttributionCount = 0;
+        if (pricer is not null && pricer.TryPrice(segment.Label, out var cost))
+        {
+            sizeBytes = cost.SizeBytes;
+            sizeMatchKind = cost.MatchKind;
+            sizeAttributionCount = cost.AttributionCount;
+        }
+
+        return new RetentionPathNodeRow(
             segment.NodeId,
             segment.Label,
             segment.Category,
             segment.IncomingEdgeLabel,
-            segment.IncomingEdgeLabel is null ? null : RetentionReasonClassifier.Classify(segment.IncomingEdgeLabel).ToString());
+            segment.IncomingEdgeLabel is null ? null : RetentionReasonClassifier.Classify(segment.IncomingEdgeLabel).ToString(),
+            sizeBytes,
+            sizeMatchKind,
+            sizeAttributionCount);
+    }
 
     private static bool TryParseGroupBy(string? value, out MstatGroupBy groupBy)
     {
@@ -445,7 +499,8 @@ public sealed record ExplainRetentionResult(
     string? MatchedNodeCategory,
     IReadOnlyList<RetentionPathNodeRow> Path,
     IReadOnlyList<RetentionTargetCandidateRow> Candidates,
-    IReadOnlyList<RetentionPathRow> Paths);
+    IReadOnlyList<RetentionPathRow> Paths,
+    string? SizeCostNote);
 
 /// <summary>A node the target query matched, surfaced to disambiguate an ambiguous query.</summary>
 public sealed record RetentionTargetCandidateRow(
@@ -453,7 +508,7 @@ public sealed record RetentionTargetCandidateRow(
     string Label,
     string? Category);
 
-/// <summary>One retention path: a root-to-target chain plus the root that anchors it, its edge depth, and a trim-relevance verdict.</summary>
+/// <summary>One retention path: a root-to-target chain plus the root that anchors it, its edge depth, a trim-relevance verdict, and the native bytes it keeps alive.</summary>
 public sealed record RetentionPathRow(
     string RootId,
     string RootLabel,
@@ -461,15 +516,20 @@ public sealed record RetentionPathRow(
     int Depth,
     string Classification,
     bool ReflectionDriven,
-    IReadOnlyList<RetentionPathNodeRow> Nodes);
+    IReadOnlyList<RetentionPathNodeRow> Nodes,
+    long PricedBytes,
+    int PricedNodeCount);
 
-/// <summary>One node in a DGML retention path.</summary>
+/// <summary>One node in a DGML retention path, optionally priced with the native bytes mstat attributes to it.</summary>
 public sealed record RetentionPathNodeRow(
     string Id,
     string Label,
     string? Category,
     string? EdgeLabelFromPrevious,
-    string? EdgeKind);
+    string? EdgeKind,
+    long? SizeBytes,
+    string? SizeMatchKind,
+    int SizeAttributionCount);
 
 /// <summary>Simple baseline/current delta payload.</summary>
 public sealed record ValueDeltaResult(

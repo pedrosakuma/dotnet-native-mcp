@@ -289,6 +289,77 @@ public class ExplainRetentionToolTests
         }
     }
 
+    [Fact]
+    public void ExplainRetention_SampleAot_PricesNodesFromSiblingMstat()
+    {
+        var fixturePath = FixturePaths.SampleAot;
+        var dgmlPath = FixturePaths.SampleAotDgml;
+        var mstatPath = FixturePaths.SampleAotMstat;
+        if (fixturePath is null || dgmlPath is null || mstatPath is null
+            || !File.Exists(fixturePath) || !File.Exists(dgmlPath) || !File.Exists(mstatPath))
+            return;
+
+        var registry = new NativeBinaryRegistry();
+        var load = registry.Load(fixturePath);
+        load.IsError.Should().BeFalse();
+
+        var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
+        var result = tool.ExplainRetention(load.Data!.Handle.Value, "OnFirstChanceException", maxDepth: 32);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.SizeCostNote.Should().BeNull("the sibling .mstat sidecar should resolve and price nodes");
+
+        if (result.Data.Paths.Count == 0)
+            return;
+
+        var path = result.Data.Paths[0];
+        path.PricedNodeCount.Should().BeLessThanOrEqualTo(path.Nodes.Count);
+        path.PricedBytes.Should().Be(path.Nodes.Where(n => n.SizeBytes.HasValue).Sum(n => n.SizeBytes!.Value));
+
+        // The target node is the last on the path; it is a CoreLib method mstat prices.
+        var target = path.Nodes[^1];
+        target.Label.Should().EndWith("AppContext__OnFirstChanceException");
+        target.SizeBytes.Should().NotBeNull();
+        target.SizeMatchKind.Should().Be("method");
+        target.SizeBytes.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void ExplainRetention_SizeCostDisabled_LeavesNodesUnpriced()
+    {
+        var dgmlPath = WriteScratchFile("nosize.dgml", """
+            <DirectedGraph xmlns="http://schemas.microsoft.com/vs/2009/dgml">
+              <Nodes>
+                <Node Id="root" Label="Program.Main" Category="Root" />
+                <Node Id="target" Label="MyService" />
+              </Nodes>
+              <Links>
+                <Link Source="root" Target="target" Reason="call" />
+              </Links>
+            </DirectedGraph>
+            """);
+
+        try
+        {
+            var registry = new FakeRegistry();
+            registry.Add(CreateImage("/workspace/app.bin"));
+            var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
+
+            var result = tool.ExplainRetention(registry.ImageHandle!, "MyService", dgmlPath: dgmlPath, maxDepth: 6, includeSizeCost: false);
+
+            result.IsError.Should().BeFalse();
+            result.Data!.SizeCostNote.Should().BeNull();
+            result.Data.Paths.Should().HaveCount(1);
+            result.Data.Paths[0].PricedBytes.Should().Be(0);
+            result.Data.Paths[0].PricedNodeCount.Should().Be(0);
+            result.Data.Paths[0].Nodes.Should().OnlyContain(n => n.SizeBytes == null);
+        }
+        finally
+        {
+            File.Delete(dgmlPath);
+        }
+    }
+
     private static string WriteScratchFile(string fileName, string content)
     {
         var directory = Path.Combine(Path.GetDirectoryName(typeof(ExplainRetentionToolTests).Assembly.Location)!, "scratch");
