@@ -1130,6 +1130,56 @@ public static class ReadyToRunReader
     }
 
     /// <summary>
+    /// Reads the <c>HotColdMap</c> section (type 120) — a flat array of <c>uint</c>
+    /// values logically grouped into pairs, mapping the cold partition of a split
+    /// method back to its hot partition. Each pair is
+    /// <c>[coldRuntimeFunctionIndex, hotRuntimeFunctionIndex]</c> (the even slot is the
+    /// cold index, the odd slot the hot index). The decoded pairs are returned, capped
+    /// at <paramref name="limit"/>.
+    /// </summary>
+    public static NativeResult<ReadyToRunHotColdMapTable> ReadHotColdMap(
+        NativeImage image,
+        ReadyToRunHeader header,
+        int limit)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(header);
+        if (limit <= 0)
+            limit = 1;
+
+        var slice = MapSectionBytes(
+            image, header, ReadyToRunSectionType.HotColdMap, "HotColdMap (type 120)", out var error);
+        if (error is not null)
+            return NativeResult.Fail<ReadyToRunHotColdMapTable>(error.Kind, error.Message, error.Detail);
+
+        if (slice.Length % 8 != 0)
+            return NativeResult.Fail<ReadyToRunHotColdMapTable>(
+                ErrorKinds.InvalidArgument,
+                $"HotColdMap section length {slice.Length} is not a whole number of (cold, hot) uint pairs.");
+
+        var pairCount = slice.Length / 8;
+        var pairs = new List<ReadyToRunHotColdPair>();
+        var truncated = false;
+        for (var i = 0; i < pairCount; i++)
+        {
+            if (pairs.Count >= limit)
+            {
+                truncated = true;
+                break;
+            }
+
+            var cold = BinaryPrimitives.ReadUInt32LittleEndian(slice.Slice(i * 8, 4));
+            var hot = BinaryPrimitives.ReadUInt32LittleEndian(slice.Slice(i * 8 + 4, 4));
+            pairs.Add(new ReadyToRunHotColdPair(cold, hot));
+        }
+
+        return NativeResult.Ok(
+            $"Decoded HotColdMap: {pairCount} hot/cold pair{(pairCount == 1 ? string.Empty : "s")}" +
+            $"{(truncated ? " (truncated)" : string.Empty)}.",
+            new ReadyToRunHotColdMapTable(pairCount, pairs, truncated));
+    }
+
+    /// <summary>
     /// Resolves the file-offset slice for a fixed-width R2R map section, applying the
     /// shared section-absent / unmappable-RVA / out-of-bounds validation. On success
     /// returns the section's bytes and sets <paramref name="error"/> to <c>null</c>;
@@ -1493,3 +1543,19 @@ public sealed record ReadyToRunMetadataStreamHeader(
     string Name,
     uint Offset,
     uint Size);
+
+/// <summary>Decoded <c>HotColdMap</c> (type 120) table.</summary>
+/// <param name="PairCount">Total number of hot/cold pairs in the section.</param>
+/// <param name="Pairs">The decoded (cold, hot) RUNTIME_FUNCTION index pairs, capped at the requested limit.</param>
+/// <param name="Truncated"><c>true</c> when more pairs existed than the limit returned.</param>
+public sealed record ReadyToRunHotColdMapTable(
+    int PairCount,
+    IReadOnlyList<ReadyToRunHotColdPair> Pairs,
+    bool Truncated);
+
+/// <summary>One hot/cold mapping from the <c>HotColdMap</c> (type 120).</summary>
+/// <param name="ColdRuntimeFunctionIndex">RUNTIME_FUNCTION index of the cold (split-out) partition.</param>
+/// <param name="HotRuntimeFunctionIndex">RUNTIME_FUNCTION index of the hot (primary) partition.</param>
+public sealed record ReadyToRunHotColdPair(
+    uint ColdRuntimeFunctionIndex,
+    uint HotRuntimeFunctionIndex);

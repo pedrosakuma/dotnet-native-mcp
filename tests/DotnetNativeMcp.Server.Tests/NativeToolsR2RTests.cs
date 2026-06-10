@@ -911,6 +911,56 @@ public class NativeToolsR2RTests
             h.SuggestedArguments.ContainsKey("includeManifestMetadata"));
     }
 
+    [Fact]
+    public void GetR2RHeader_IncludeHotColdMap_DecodesPairs()
+    {
+        var blob = BuildHotColdMap((5u, 4u), (9u, 7u));
+        var image = BuildSyntheticR2RWithRawSection(
+            (uint)ReadyToRunSectionType.HotColdMap, blob, "r2r_hcm.dll", "aabbccddee15");
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value, includeHotColdMap: true);
+
+        result.IsError.Should().BeFalse();
+        var hcm = result.Data!.HotColdMap;
+        hcm.Should().NotBeNull();
+        hcm!.PairCount.Should().Be(2);
+        hcm.Truncated.Should().BeFalse();
+        hcm.Pairs.Should().HaveCount(2);
+        hcm.Pairs[0].ColdRuntimeFunctionIndex.Should().Be(5u);
+        hcm.Pairs[0].HotRuntimeFunctionIndex.Should().Be(4u);
+        result.Summary.Should().Contain("2 hot/cold pairs");
+    }
+
+    [Fact]
+    public void GetR2RHeader_HotColdMapPresent_NotIncluded_OffersHint()
+    {
+        var blob = BuildHotColdMap((5u, 4u));
+        var image = BuildSyntheticR2RWithRawSection(
+            (uint)ReadyToRunSectionType.HotColdMap, blob, "r2r_hcm_hint.dll", "aabbccddee16");
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.HotColdMap.Should().BeNull();
+        result.Hints.Should().Contain(h =>
+            h.NextTool == "get_r2r_header" &&
+            h.SuggestedArguments != null &&
+            h.SuggestedArguments.ContainsKey("includeHotColdMap"));
+    }
+
+    private static byte[] BuildHotColdMap(params (uint Cold, uint Hot)[] pairs)
+    {
+        var blob = new byte[pairs.Length * 8];
+        for (var i = 0; i < pairs.Length; i++)
+        {
+            BinaryPrimitives.WriteUInt32LittleEndian(blob.AsSpan(i * 8), pairs[i].Cold);
+            BinaryPrimitives.WriteUInt32LittleEndian(blob.AsSpan(i * 8 + 4), pairs[i].Hot);
+        }
+        return blob;
+    }
+
     private static byte[] BuildEcmaMetadataRoot(string version, params (string Name, uint Offset, uint Size)[] streams)
     {
         var versionBytes = System.Text.Encoding.UTF8.GetBytes(version);
