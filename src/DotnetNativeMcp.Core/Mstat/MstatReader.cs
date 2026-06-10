@@ -14,6 +14,17 @@ public enum MstatGroupBy
     Namespace,
     Type,
     Method,
+    Category,
+}
+
+/// <summary>Native-size attribution categories emitted by the NativeAOT mstat dumper (MSTAT 2.x).</summary>
+public static class MstatCategory
+{
+    public const string Method = "method";
+    public const string Type = "type";
+    public const string Blob = "blob";
+
+    public const string NativeAssembly = "(native)";
 }
 
 public sealed record MstatAttribution(
@@ -22,14 +33,20 @@ public sealed record MstatAttribution(
     string TypeName,
     string? MethodName,
     int TotalSize,
-    string Source);
+    string Source,
+    string? SymbolName = null);
+
+public sealed record MstatCategoryTotal(string Category, long TotalSize, int AttributionCount);
 
 public sealed record MstatDocument(
     string FilePath,
     IReadOnlyList<MstatAttribution> Attributions,
     int MethodCount,
     int TypeCount,
-    long TotalSize);
+    long TotalSize,
+    string FormatVersion,
+    IReadOnlyList<MstatCategoryTotal> CategoryTotals,
+    int DeduplicatedMethodCount);
 
 public sealed record MstatBreakdown(
     string Key,
@@ -89,41 +106,77 @@ public static class MstatReader
                     $"'{Path.GetFileName(fullPath)}' does not expose the expected NativeAOT mstat tables.");
             }
 
+            var version = metadataReader.IsAssembly
+                ? metadataReader.GetAssemblyDefinition().Version
+                : new Version(0, 0);
+            var formatVersion = $"{version.Major}.{version.Minor}";
+
+            var names = ReadNamesSection(peReader);
             var resolver = new MetadataNameResolver(metadataReader);
             var attributions = new List<MstatAttribution>();
-            foreach (var attribution in ReadMethodAttributions(peReader, metadataReader, resolver, methodsMethod))
+
+            // Methods + Types are present in every mstat version. The Blobs table is the catch-all
+            // that captures every other native node (dehydrated data, runtime metadata, frozen-object
+            // regions, RVA static-field data, manifest resources, …) — without it a size breakdown
+            // silently undercounts the binary. In MSTAT 2.x the RvaFields / FrozenObjects /
+            // ManifestResources tables are a finer-grained view of bytes that are *also* reported in
+            // Blobs (the dumper falls through to `reportAsBlob` for VersionMajor==2), so counting them
+            // here would double-count; Methods + Types + Blobs is the authoritative, non-overlapping
+            // partition. DeduplicatedMethods carries no new bytes (folded bodies alias an existing one)
+            // — it is reported as a count only.
+            bool overflow = false;
+            bool AddAll(IEnumerable<MstatAttribution> source)
             {
-                if (attributions.Count >= ResourceLimits.MaxMstatAttributions)
+                foreach (var attribution in source)
                 {
-                    return NativeResult.Fail<MstatDocument>(
-                        ErrorKinds.FileTooLarge,
-                        $"Mstat sidecar '{Path.GetFileName(fullPath)}' exceeds the maximum of {ResourceLimits.MaxMstatAttributions} attributions.");
+                    if (attributions.Count >= ResourceLimits.MaxMstatAttributions)
+                    {
+                        overflow = true;
+                        return false;
+                    }
+                    attributions.Add(attribution);
                 }
-                attributions.Add(attribution);
+                return true;
             }
-            foreach (var attribution in ReadTypeAttributions(peReader, metadataReader, resolver, typesMethod))
+
+            if (AddAll(ReadMethodAttributions(peReader, metadataReader, resolver, names, methodsMethod))
+                && AddAll(ReadTypeAttributions(peReader, metadataReader, resolver, names, typesMethod))
+                && AddAll(ReadBlobAttributions(peReader, metadataReader)))
             {
-                if (attributions.Count >= ResourceLimits.MaxMstatAttributions)
-                {
-                    return NativeResult.Fail<MstatDocument>(
-                        ErrorKinds.FileTooLarge,
-                        $"Mstat sidecar '{Path.GetFileName(fullPath)}' exceeds the maximum of {ResourceLimits.MaxMstatAttributions} attributions.");
-                }
-                attributions.Add(attribution);
+                // All size-contributing tables read without hitting the attribution cap.
             }
+
+            if (overflow)
+            {
+                return NativeResult.Fail<MstatDocument>(
+                    ErrorKinds.FileTooLarge,
+                    $"Mstat sidecar '{Path.GetFileName(fullPath)}' exceeds the maximum of {ResourceLimits.MaxMstatAttributions} attributions.");
+            }
+
+            var deduplicatedMethodCount = CountDeduplicatedMethods(peReader, metadataReader);
 
             long totalSize = 0;
             foreach (var attribution in attributions)
                 totalSize += attribution.TotalSize;
 
+            var categoryTotals = attributions
+                .GroupBy(a => a.Source, StringComparer.Ordinal)
+                .Select(g => new MstatCategoryTotal(g.Key, g.Sum(a => (long)a.TotalSize), g.Count()))
+                .OrderByDescending(c => c.TotalSize)
+                .ThenBy(c => c.Category, StringComparer.Ordinal)
+                .ToList();
+
             return NativeResult.Ok(
-                $"Read {attributions.Count} attribution(s) from '{Path.GetFileName(fullPath)}'.",
+                $"Read {attributions.Count} attribution(s) from '{Path.GetFileName(fullPath)}' (mstat {formatVersion}).",
                 new MstatDocument(
                     fullPath,
                     new ReadOnlyCollection<MstatAttribution>(attributions),
-                    attributions.Count(a => a.MethodName is not null),
-                    attributions.Count(a => a.MethodName is null),
-                    totalSize));
+                    attributions.Count(a => a.Source == MstatCategory.Method),
+                    attributions.Count(a => a.Source == MstatCategory.Type),
+                    totalSize,
+                    formatVersion,
+                    new ReadOnlyCollection<MstatCategoryTotal>(categoryTotals),
+                    deduplicatedMethodCount));
         }
         catch (BadImageFormatException ex)
         {
@@ -168,9 +221,9 @@ public static class MstatReader
                 var first = group.First();
                 return new MstatBreakdown(
                     group.Key,
-                    first.AssemblyName,
-                    first.NamespaceName,
-                    first.TypeName,
+                    groupBy == MstatGroupBy.Category ? MstatCategory.NativeAssembly : first.AssemblyName,
+                    groupBy == MstatGroupBy.Category ? string.Empty : first.NamespaceName,
+                    groupBy == MstatGroupBy.Category ? first.Source : first.TypeName,
                     groupBy == MstatGroupBy.Method ? first.MethodName : null,
                     group.Sum(a => (long)a.TotalSize),
                     group.Count());
@@ -193,6 +246,7 @@ public static class MstatReader
         MstatGroupBy.Namespace => $"{attribution.AssemblyName}:{attribution.NamespaceName}",
         MstatGroupBy.Type => $"{attribution.AssemblyName}:{attribution.TypeName}",
         MstatGroupBy.Method => $"{attribution.AssemblyName}:{attribution.TypeName}.{attribution.MethodName}",
+        MstatGroupBy.Category => attribution.Source,
         _ => throw new ArgumentOutOfRangeException(nameof(groupBy), groupBy, null),
     };
 
@@ -200,6 +254,7 @@ public static class MstatReader
         PEReader peReader,
         MetadataReader metadataReader,
         MetadataNameResolver resolver,
+        NamesSection names,
         MethodDefinitionHandle methodHandle)
     {
         var body = GetMethodBody(peReader, metadataReader, methodHandle, "Methods");
@@ -214,7 +269,7 @@ public static class MstatReader
             var codeSize = ReadLdcI4(ref reader);
             var gcInfoSize = ReadLdcI4(ref reader);
             var ehInfoSize = ReadLdcI4(ref reader);
-            _ = ReadLdcI4(ref reader);
+            var nameIndex = ReadLdcI4(ref reader);
 
             var resolvedMethod = resolver.ResolveMethod(tokenHandle);
             yield return new MstatAttribution(
@@ -223,7 +278,8 @@ public static class MstatReader
                 resolvedMethod.TypeName,
                 resolvedMethod.MethodName,
                 checked(codeSize + gcInfoSize + ehInfoSize),
-                "method");
+                MstatCategory.Method,
+                names.Resolve(nameIndex));
         }
     }
 
@@ -231,6 +287,7 @@ public static class MstatReader
         PEReader peReader,
         MetadataReader metadataReader,
         MetadataNameResolver resolver,
+        NamesSection names,
         MethodDefinitionHandle methodHandle)
     {
         var body = GetMethodBody(peReader, metadataReader, methodHandle, "Types");
@@ -243,7 +300,7 @@ public static class MstatReader
 
             var tokenHandle = ReadLdToken(ref reader);
             var size = ReadLdcI4(ref reader);
-            _ = ReadLdcI4(ref reader);
+            var nameIndex = ReadLdcI4(ref reader);
 
             var resolvedType = resolver.ResolveType(tokenHandle);
             yield return new MstatAttribution(
@@ -252,8 +309,73 @@ public static class MstatReader
                 resolvedType.TypeName,
                 null,
                 size,
-                "type");
+                MstatCategory.Type,
+                names.Resolve(nameIndex));
         }
+    }
+
+    // Blobs: ldstr(nodeName), ldc(size). The node name is the only identity (no managed token).
+    private static IEnumerable<MstatAttribution> ReadBlobAttributions(PEReader peReader, MetadataReader metadataReader)
+    {
+        var handle = FindGlobalMethod(metadataReader, "Blobs");
+        if (handle.IsNil)
+            yield break;
+
+        var body = GetMethodBody(peReader, metadataReader, handle, "Blobs");
+        var reader = body.GetILReader();
+
+        while (reader.RemainingBytes > 0)
+        {
+            if (TryReadRet(ref reader))
+                break;
+
+            var name = ReadLdStr(ref reader, metadataReader);
+            var size = ReadLdcI4(ref reader);
+
+            yield return new MstatAttribution(
+                MstatCategory.NativeAssembly,
+                string.Empty,
+                name,
+                null,
+                size,
+                MstatCategory.Blob,
+                name);
+        }
+    }
+
+    // RvaFields / FrozenObjects / ManifestResources tables are intentionally not summed: in
+    // MSTAT 2.x their bytes are also reported in the Blobs table (the dumper falls through to
+    // `reportAsBlob`), so they would double-count. Blobs is the authoritative catch-all.
+
+    // DeduplicatedMethods: ldtoken(method), ldc(count), then count * (ldtoken(target), ldc(nameIndex)).
+    // Folded bodies alias an existing method body, so they contribute no new native bytes — we only
+    // count how many methods were deduplicated.
+    private static int CountDeduplicatedMethods(PEReader peReader, MetadataReader metadataReader)
+    {
+        var handle = FindGlobalMethod(metadataReader, "DeduplicatedMethods");
+        if (handle.IsNil)
+            return 0;
+
+        var body = GetMethodBody(peReader, metadataReader, handle, "DeduplicatedMethods");
+        var reader = body.GetILReader();
+
+        var count = 0;
+        while (reader.RemainingBytes > 0)
+        {
+            if (TryReadRet(ref reader))
+                break;
+
+            _ = ReadLdToken(ref reader);
+            var folded = ReadLdcI4(ref reader);
+            count++;
+            for (var i = 0; i < folded; i++)
+            {
+                _ = ReadLdToken(ref reader);
+                _ = ReadLdcI4(ref reader);
+            }
+        }
+
+        return count;
     }
 
     private static MethodBodyBlock GetMethodBody(
@@ -328,6 +450,79 @@ public static class MstatReader
             0x20 => reader.ReadInt32(),
             _ => throw new InvalidDataException($"Expected ldc.i4 opcode, found 0x{opcode:x2}."),
         };
+    }
+
+    private static string ReadLdStr(ref BlobReader reader, MetadataReader metadataReader)
+    {
+        var opcode = reader.ReadByte();
+        if (opcode != 0x72)
+            throw new InvalidDataException($"Expected ldstr (0x72), found 0x{opcode:x2}.");
+
+        var token = reader.ReadInt32();
+        var handle = MetadataTokens.Handle(token);
+        if (handle.Kind != HandleKind.UserString)
+            throw new InvalidDataException($"Expected a user-string token in ldstr, found 0x{token:x8}.");
+
+        return metadataReader.GetUserString((UserStringHandle)handle);
+    }
+
+    /// <summary>
+    /// Reads the <c>.names</c> custom PE section that the mstat dumper appends. The size tables
+    /// store an integer index into this section; the bytes there are length-prefixed serialized
+    /// strings (the native mangled symbol names).
+    /// </summary>
+    private static NamesSection ReadNamesSection(PEReader peReader)
+    {
+        foreach (var section in peReader.PEHeaders.SectionHeaders)
+        {
+            if (!string.Equals(section.Name, ".names", StringComparison.Ordinal))
+                continue;
+
+            try
+            {
+                return NamesSection.From(peReader.GetSectionData(".names"));
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or BadImageFormatException)
+            {
+                break;
+            }
+        }
+
+        return NamesSection.Empty;
+    }
+
+    private sealed class NamesSection
+    {
+        public static readonly NamesSection Empty = new(default, hasData: false);
+
+        private readonly PEMemoryBlock _block;
+        private readonly int _length;
+        private readonly bool _hasData;
+
+        private NamesSection(PEMemoryBlock block, bool hasData)
+        {
+            _block = block;
+            _length = hasData ? block.Length : 0;
+            _hasData = hasData && block.Length > 0;
+        }
+
+        public static NamesSection From(PEMemoryBlock block) => new(block, hasData: true);
+
+        public string? Resolve(int index)
+        {
+            if (!_hasData || index < 0 || index >= _length)
+                return null;
+
+            try
+            {
+                var reader = _block.GetReader(index, _length - index);
+                return reader.ReadSerializedString();
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or ArgumentOutOfRangeException)
+            {
+                return null;
+            }
+        }
     }
 
     private readonly record struct ResolvedType(string AssemblyName, string NamespaceName, string TypeName);
