@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781129149904,
+  "lastUpdate": 1781129151055,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -3532,6 +3532,42 @@ window.BENCHMARK_DATA = {
             "value": 16214604.1125,
             "unit": "ns",
             "range": "± 81156.97358806331"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "50f74ec09f5b5841ed0ce52dd9e1eca0cb658f4a",
+          "message": "feat(handoff): consume NativeFrame loadBase to resolve ASLR'd PIE frames (#134)\n\nNativeAOT binaries are position-independent (PIE), so their on-disk image\nbase is 0 while the runtime loader places them at a random base. A producer\n(dotnet-diagnostics-mcp) that observes an absolute runtime VA could not have\nthat frame resolved: resolve_symbols rebased against the on-disk base (0),\nlanding outside every section (or, with sparse symbol sizing, on a bogus\nnearest symbol). The contract documented a loadBase field for exactly this,\nbut nothing consumed it.\n\nThread an optional loadBase through resolve_symbols (additive param, no new\ntool) and the Core StackSymbolicator paths: rva = address - loadBase, with\neffectiveBase = loadBase ?? image.ImageBase. loadBase is parsed as hex (bare\nor 0x-prefixed) to match the contract's transport format. When an explicit\nloadBase is supplied, an address below it is rejected per-row as\naddress_out_of_range rather than silently falling back. The disassemble\nnext-action hint now carries the on-disk VA of the function start so it\nrebases correctly downstream.\n\nAdds an end-to-end round-trip test against the real PIE SampleAot fixture\nproving an ASLR'd frame resolves only when loadBase is honored, plus tool\nand Core unit coverage. Contract doc and README updated; the doc now also\ndocuments that passing the producer's module-relative rva is the preferred,\nASLR-safe handoff path.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T18:55:41-03:00",
+          "tree_id": "f2d795b856b07f7f12d96053e49b5a8c47b17c7a",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/50f74ec09f5b5841ed0ce52dd9e1eca0cb658f4a"
+        },
+        "date": 1781129151028,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 948711.4535435268,
+            "unit": "ns",
+            "range": "± 2180.0754229136924"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 13704333.637620192,
+            "unit": "ns",
+            "range": "± 14293.308550453125"
           }
         ]
       }
