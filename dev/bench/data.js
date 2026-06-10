@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781110940709,
+  "lastUpdate": 1781110942072,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -2344,6 +2344,42 @@ window.BENCHMARK_DATA = {
             "value": 15893685.96205357,
             "unit": "ns",
             "range": "± 68891.95633047658"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e172fd7aae7ba7e6e0a7fae77f6c0518297417f6",
+          "message": "feat(r2r): NativeFormat reader primitives (foundation) (#124)\n\nSafe, span-based port of the runtime's Internal.NativeFormat\nvariable-length integer reader — the foundation for decoding the\nNativeFormat-encoded R2R sections that are currently out-of-scope\n(MethodDefEntryPoints, AvailableTypes, ...).\n\nNew (internal) types under src/DotnetNativeMcp.Core/R2R/NativeFormat/:\n- NativePrimitiveDecoder: faithful port of DecodeUnsigned/Signed/\n  UnsignedLong/SignedLong/SkipInteger + fixed-width ReadUInt8/16/32/64,\n  re-expressed over ReadOnlySpan<byte> + a ref-uint cursor. Stricter than\n  the runtime: it bounds-checks the 5/9-byte raw forms, and the fixed-width\n  reads use non-overflowing (end - offset < N) checks so a near-uint.MaxValue\n  offset is rejected as NativeFormatException rather than wrapping.\n- NativeReader: bounds-checked random-access wrapper over a section blob.\n- NativeParser: forward cursor.\n- NativeFormatException: internal sentinel; tool-facing readers (PR2/PR3)\n  will catch it -> Fail(InvalidArgument) so tools never throw.\n\nNo tool wiring yet (foundation only). Comprehensive round-trip, 5000-iter\nfuzz, encoding-width, fixed-width-LE, truncation/OOB and wrapped-offset\nhardening tests (114 NativeFormat tests).\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T13:51:53-03:00",
+          "tree_id": "b040a7f6d9882f96b1d78b625931fa2395d7b78c",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/e172fd7aae7ba7e6e0a7fae77f6c0518297417f6"
+        },
+        "date": 1781110942053,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 1092604.8545572916,
+            "unit": "ns",
+            "range": "± 1777.808247526445"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 16281967.214583334,
+            "unit": "ns",
+            "range": "± 99801.55331546393"
           }
         ]
       }
