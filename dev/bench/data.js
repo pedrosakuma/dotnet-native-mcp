@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781115165171,
+  "lastUpdate": 1781116727395,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1200,6 +1200,66 @@ window.BENCHMARK_DATA = {
             "value": 23.730182268222173,
             "unit": "ns",
             "range": "± 0.11669480333404243"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3ac70dc7cc049c69cb93f7b52226e64a4d85318",
+          "message": "feat(r2r): decode V9 RID-indexed info maps (121/122/123) (#127)\n\nDecode the three .NET 9 (R2R v9.0) info-map sections, riding additively on\nget_r2r_header via a single includeInfoMaps flag (capped by infoMapsLimit):\n\n- EnclosingTypeMap (122): u16 count + u16[] enclosing RIDs; emit nested→\n  enclosing TypeDef token pairs (skip top-level / RID 0).\n- MethodIsGenericMap (121): i32 count + ceil(count/8) MSB-first bit array;\n  emit MethodDef tokens for set bits; count all generic methods past the\n  limit and flag truncation.\n- TypeGenericInfoMap (123): u32 count + ceil(count/2) nibbles (even index in\n  the high nibble); emit per-type generic arity / variance / constraints for\n  generic types only.\n\nAll three are fixed-width, little-endian, dependency-free decodes over a\nbounds-validated section slice (shared MapSectionBytes helper). Counts are\nread from untrusted bytes and validated against the section size before the\ndecode loop (overflow-safe widened arithmetic), so malformed input surfaces\nas InvalidArgument rather than throwing. Tokens are emitted for handoff to\ndotnet-assembly-mcp; names are not resolved.\n\nTests: 12 Core (incl. real-image SPC regression + int.MaxValue overflow\nguard) + 4 Server. README coverage table updated.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T15:28:36-03:00",
+          "tree_id": "41674796a8344bfa5fd559b6b992b685c3dd0670",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/f3ac70dc7cc049c69cb93f7b52226e64a4d85318"
+        },
+        "date": 1781116727368,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 13072218232.333334,
+            "unit": "ns",
+            "range": "± 23237723.08767736"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 26304149.114583332,
+            "unit": "ns",
+            "range": "± 91549.33219206608"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 31.133968170483907,
+            "unit": "ns",
+            "range": "± 0.06457530482768652"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 363958.39404296875,
+            "unit": "ns",
+            "range": "± 6285.59120888375"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 22153.621810913086,
+            "unit": "ns",
+            "range": "± 26.26264754303433"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 22.379363824214256,
+            "unit": "ns",
+            "range": "± 0.03971142321524758"
           }
         ]
       }
