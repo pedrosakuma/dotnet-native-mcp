@@ -204,4 +204,110 @@ public class MstatReaderTests
         result[0].MethodName.Should().Be("Method0");
         result[0].TotalSize.Should().Be(600);
     }
+
+    private static MstatDocument Doc(params MstatAttribution[] attributions) => new(
+        "/tmp/synthetic.mstat",
+        attributions,
+        attributions.Count(a => a.Source == MstatCategory.Method),
+        attributions.Count(a => a.Source == MstatCategory.Type),
+        attributions.Sum(a => (long)a.TotalSize),
+        "2.2",
+        Array.Empty<MstatCategoryTotal>(),
+        0);
+
+    [Fact]
+    public void Diff_GroupByType_ClassifiesGrewShrankAddedRemoved()
+    {
+        var baseline = Doc(
+            new MstatAttribution("App", "MyApp", "MyApp.Grows", "M", 100, MstatCategory.Method),
+            new MstatAttribution("App", "MyApp", "MyApp.Shrinks", "M", 200, MstatCategory.Method),
+            new MstatAttribution("App", "MyApp", "MyApp.Gone", "M", 50, MstatCategory.Method),
+            new MstatAttribution("App", "MyApp", "MyApp.Stable", "M", 30, MstatCategory.Method));
+        var current = Doc(
+            new MstatAttribution("App", "MyApp", "MyApp.Grows", "M", 175, MstatCategory.Method),
+            new MstatAttribution("App", "MyApp", "MyApp.Shrinks", "M", 120, MstatCategory.Method),
+            new MstatAttribution("App", "MyApp", "MyApp.New", "M", 90, MstatCategory.Method),
+            new MstatAttribution("App", "MyApp", "MyApp.Stable", "M", 30, MstatCategory.Method));
+
+        var diff = MstatReader.Diff(baseline, current, MstatGroupBy.Type, 25);
+
+        diff.GroupBy.Should().Be("type");
+        diff.BaselineTotalSize.Should().Be(380);
+        diff.CurrentTotalSize.Should().Be(415);
+        diff.TotalSizeDelta.Should().Be(35);
+
+        diff.AddedBucketCount.Should().Be(1);    // MyApp.New
+        diff.RemovedBucketCount.Should().Be(1);  // MyApp.Gone
+        diff.ChangedBucketCount.Should().Be(2);  // Grows + Shrinks (Stable unchanged)
+
+        // Largest growth first; added bucket counts as growth from zero.
+        diff.TopGrew.Should().HaveCount(2);
+        diff.TopGrew[0].TypeName.Should().Be("MyApp.New");
+        diff.TopGrew[0].SizeDelta.Should().Be(90);
+        diff.TopGrew[0].BaselineSize.Should().Be(0);
+        diff.TopGrew[1].TypeName.Should().Be("MyApp.Grows");
+        diff.TopGrew[1].SizeDelta.Should().Be(75);
+
+        // Most negative first; removed bucket counts as a shrink to zero.
+        diff.TopShrank.Should().HaveCount(2);
+        diff.TopShrank[0].TypeName.Should().Be("MyApp.Shrinks");
+        diff.TopShrank[0].SizeDelta.Should().Be(-80);
+        diff.TopShrank[1].TypeName.Should().Be("MyApp.Gone");
+        diff.TopShrank[1].SizeDelta.Should().Be(-50);
+        diff.TopShrank[1].CurrentSize.Should().Be(0);
+    }
+
+    [Fact]
+    public void Diff_SameDocument_ReportsNoDeltas()
+    {
+        var doc = Doc(
+            new MstatAttribution("App", "MyApp", "MyApp.A", "M", 100, MstatCategory.Method),
+            new MstatAttribution("App", "MyApp", "MyApp.A", null, 40, MstatCategory.Type),
+            new MstatAttribution("(native)", "", "Metadata", null, 500, MstatCategory.Blob));
+
+        var diff = MstatReader.Diff(doc, doc, MstatGroupBy.Category, 25);
+
+        diff.TotalSizeDelta.Should().Be(0);
+        diff.AddedBucketCount.Should().Be(0);
+        diff.RemovedBucketCount.Should().Be(0);
+        diff.ChangedBucketCount.Should().Be(0);
+        diff.TopGrew.Should().BeEmpty();
+        diff.TopShrank.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Diff_GroupByCategory_AggregatesAcrossSources()
+    {
+        var baseline = Doc(
+            new MstatAttribution("App", "MyApp", "MyApp.A", "M", 100, MstatCategory.Method),
+            new MstatAttribution("(native)", "", "Metadata", null, 500, MstatCategory.Blob));
+        var current = Doc(
+            new MstatAttribution("App", "MyApp", "MyApp.A", "M", 140, MstatCategory.Method),
+            new MstatAttribution("App", "MyApp", "MyApp.B", "M", 60, MstatCategory.Method),
+            new MstatAttribution("(native)", "", "Metadata", null, 450, MstatCategory.Blob));
+
+        var diff = MstatReader.Diff(baseline, current, MstatGroupBy.Category, 25);
+
+        diff.TopGrew.Should().ContainSingle(r => r.Key == MstatCategory.Method && r.SizeDelta == 100);
+        diff.TopShrank.Should().ContainSingle(r => r.Key == MstatCategory.Blob && r.SizeDelta == -50);
+    }
+
+    [Fact]
+    public void Diff_GroupByMethod_ExcludesTypeOnlyBuckets()
+    {
+        var baseline = Doc(
+            new MstatAttribution("App", "MyApp", "MyApp.A", "M", 100, MstatCategory.Method),
+            new MstatAttribution("App", "MyApp", "MyApp.A", null, 999, MstatCategory.Type));
+        var current = Doc(
+            new MstatAttribution("App", "MyApp", "MyApp.A", "M", 130, MstatCategory.Method),
+            new MstatAttribution("App", "MyApp", "MyApp.A", null, 1, MstatCategory.Type));
+
+        var diff = MstatReader.Diff(baseline, current, MstatGroupBy.Method, 25);
+
+        // Type-only rows must not appear as method buckets even though their size changed.
+        diff.TopGrew.Should().ContainSingle();
+        diff.TopGrew[0].MethodName.Should().Be("M");
+        diff.TopGrew[0].SizeDelta.Should().Be(30);
+        diff.TopShrank.Should().BeEmpty();
+    }
 }
