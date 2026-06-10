@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781103989565,
+  "lastUpdate": 1781103991511,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -2212,6 +2212,42 @@ window.BENCHMARK_DATA = {
             "value": 14556495.496875,
             "unit": "ns",
             "range": "± 21860.425516152507"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "5ca7a6b34ad4172dfa23f49514b852fc176925f8",
+          "message": "Add R2R composite-image metadata decoding (ComponentAssemblies + ManifestAssemblyMvids) (#122)\n\nDecode the composite ReadyToRun structural sections behind a new\nincludeCompositeInfo parameter on get_r2r_header:\n\n- ComponentAssemblies (type 115): array of 16-byte entries\n  {CorHeaderRVA, CorHeaderSize, AssemblyHeaderRVA, AssemblyHeaderSize}.\n- ManifestAssemblyMvids (type 118): array of 16-byte module-version GUIDs.\n\nBoth readers validate the full declared table against the file length up\nfront (long arithmetic) before allocating or indexing, mirroring the\nReadImportSections hardening. Section-absent -> Fail(R2RSectionNotPresent);\nempty -> Ok(empty); oversized -> Fail(InvalidArgument).\n\nSurfaced as two additive nullable fields on R2RHeaderResult plus a new\nR2RComponentAssemblyView record; a NextActionHint is offered when the\nsections are present but not included. No new MCP tool.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T11:55:31-03:00",
+          "tree_id": "d02b4df6c640100450361c6b7fb8196d3aaf7a47",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/5ca7a6b34ad4172dfa23f49514b852fc176925f8"
+        },
+        "date": 1781103991486,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 1027285.8039362981,
+            "unit": "ns",
+            "range": "± 1353.5951990903047"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 15893685.96205357,
+            "unit": "ns",
+            "range": "± 68891.95633047658"
           }
         ]
       }
