@@ -88,7 +88,7 @@ public class NativeToolsR2RTests
         if (includeRuntimeFunctions)
         {
             int secEntOff = r2rOff + 16;
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 0), 5u);
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 0), (uint)ReadyToRunSectionType.RuntimeFunctions);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 4), rtFuncTableVA);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 8), (uint)rtFuncTableSize);
 
@@ -178,7 +178,7 @@ public class NativeToolsR2RTests
         if (runtimeFunctions.Length > 0)
         {
             int secEntOff = r2rOff + 16;
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 0), 5u);
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 0), (uint)ReadyToRunSectionType.RuntimeFunctions);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 4), rtFuncTableVA);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 8), (uint)rtFuncTableSize);
 

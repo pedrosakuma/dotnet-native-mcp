@@ -68,11 +68,10 @@ public sealed partial class NativeTools
 
     [McpServerTool(Name = "list_r2r_runtime_functions")]
     [Description(
-        "Returns paginated RUNTIME_FUNCTION entries from the R2R RuntimeFunctions section (type 5), " +
+        "Returns paginated RUNTIME_FUNCTION entries from the R2R RuntimeFunctions section (type 102), " +
         "or — when rva is supplied — performs a binary-search lookup and returns the single covering entry. " +
         "x64 and ARM64 images are supported; other architectures return r2r_arch_unsupported. " +
-        "Returns r2r_section_not_present when the image uses a newer R2R format that replaced RuntimeFunctions " +
-        "with MethodHeaderAndCodeInfo (type 105).")]
+        "Returns r2r_section_not_present when the image has no RuntimeFunctions section.")]
     public NativeResult<R2RRuntimeFunctionsResult> ListR2RRuntimeFunctions(
         [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
         [Description("Optional RVA (hex, e.g. '1a2b3c') to find the single covering RuntimeFunction (binary search). " +
@@ -148,7 +147,7 @@ public sealed partial class NativeTools
 /// <param name="Flags">Raw R2R header flags (hex).</param>
 /// <param name="Architecture">CPU architecture of the image.</param>
 /// <param name="SectionCount">Total number of R2R sections.</param>
-/// <param name="HasRuntimeFunctions">Whether a RuntimeFunctions section (type 5) is present.</param>
+/// <param name="HasRuntimeFunctions">Whether a RuntimeFunctions section (type 102) is present.</param>
 /// <param name="Sections">All section entries.</param>
 public sealed record R2RHeaderResult(
     string ImageHandle,

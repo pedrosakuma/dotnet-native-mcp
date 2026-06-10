@@ -195,8 +195,7 @@ public static class ReadyToRunReader
         if (rtSection is null)
             return NativeResult.Fail<ReadyToRunRuntimeFunctionsPage>(
                 ErrorKinds.R2RSectionNotPresent,
-                "This R2R image does not contain a RuntimeFunctions section (type 5). " +
-                "Newer R2R versions (>= 14) use MethodHeaderAndCodeInfo (type 105) instead.");
+                "This R2R image does not contain a RuntimeFunctions section (type 102).");
 
         var entrySize = GetRuntimeFunctionEntrySize(layout.Value);
         var totalEntries = (int)(rtSection.Size / (uint)entrySize);
@@ -265,7 +264,7 @@ public static class ReadyToRunReader
         if (rtSection is null)
             return NativeResult.Fail<RuntimeFunction>(
                 ErrorKinds.R2RSectionNotPresent,
-                "This R2R image does not contain a RuntimeFunctions section (type 5).");
+                "This R2R image does not contain a RuntimeFunctions section (type 102).");
 
         var fileOffset = image.RvaToFileOffset(rtSection.VirtualAddress);
         if (fileOffset is null)
