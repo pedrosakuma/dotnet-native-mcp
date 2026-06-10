@@ -187,6 +187,80 @@ public class NativeToolsR2RTests
             [clrSec], [], new ReadOnlyMemory<byte>(bytes), 0x40000);
     }
 
+    // Synthetic x64 R2R PE carrying a single string-payload section (zero-terminated UTF-8).
+    private static NativeImage BuildSyntheticR2RWithStringSection(uint sectionType, string value)
+    {
+        const uint FileAlignment = 0x200;
+        const uint ClrSectionVA = 0x2000;
+        const uint ClrSectionRaw = 0x400;
+        const uint R2RHeaderVA = ClrSectionVA + 72;
+
+        int r2rHeaderSize = 16 + 12;  // header + 1 section entry
+        uint payloadVA = R2RHeaderVA + (uint)r2rHeaderSize;
+        byte[] payload = [.. System.Text.Encoding.UTF8.GetBytes(value), 0];
+        int payloadSize = payload.Length;
+
+        int clrSectionDataSize = 72 + r2rHeaderSize + payloadSize;
+        int clrSectionFileSize = Align(clrSectionDataSize, (int)FileAlignment);
+        int totalSize = (int)ClrSectionRaw + clrSectionFileSize;
+        var bytes = new byte[totalSize];
+
+        bytes[0] = 0x4D; bytes[1] = 0x5A;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(0x3C), 0x80);
+        int peOff = 0x80;
+        bytes[peOff] = (byte)'P'; bytes[peOff + 1] = (byte)'E';
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(peOff + 4), 0x8664);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(peOff + 6), 1);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(peOff + 20), 0xF0);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(peOff + 22), 0x2022);
+
+        int optOff = peOff + 24;
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(optOff), 0x20B);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(optOff + 56), 0x40000);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(optOff + 60), 0x1000);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(optOff + 64), FileAlignment);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(optOff + 40), 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(optOff + 92), 16);
+
+        int ddBase = optOff + 112;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(ddBase + 14 * 8), ClrSectionVA);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(ddBase + 14 * 8 + 4), 72);
+
+        int secTableOff = peOff + 24 + 0xF0;
+        bytes[secTableOff] = (byte)'.'; bytes[secTableOff + 1] = (byte)'c';
+        bytes[secTableOff + 2] = (byte)'l'; bytes[secTableOff + 3] = (byte)'r';
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secTableOff + 8), (uint)clrSectionDataSize);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secTableOff + 12), ClrSectionVA);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secTableOff + 16), (uint)clrSectionFileSize);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secTableOff + 20), ClrSectionRaw);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secTableOff + 36), 0x40000040u);
+
+        int clrOff = (int)ClrSectionRaw;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(clrOff + 0), 72);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(clrOff + 64), R2RHeaderVA);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(clrOff + 68), (uint)r2rHeaderSize);
+
+        int r2rOff = clrOff + 72;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(r2rOff + 0), 0x00525452u);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(r2rOff + 4), 6);
+        BinaryPrimitives.WriteUInt16LittleEndian(bytes.AsSpan(r2rOff + 6), 0);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(r2rOff + 8), 0x00000003u);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(r2rOff + 12), 1u);
+
+        int secEntOff = r2rOff + 16;
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 0), sectionType);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 4), payloadVA);
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 8), (uint)payloadSize);
+
+        int tableOff = r2rOff + r2rHeaderSize;
+        payload.CopyTo(bytes.AsSpan(tableOff));
+
+        var handle = ImageHandle.From("aabbccddee03", "r2r_idstr.dll");
+        var clrSec = new NativeSection(".clr", ClrSectionVA, (ulong)clrSectionDataSize, ClrSectionRaw, (ulong)clrSectionFileSize);
+        return new NativeImage(handle, "r2r_idstr.dll", BinaryFormat.Pe, Architecture.X64,
+            [clrSec], [], new ReadOnlyMemory<byte>(bytes), 0x40000);
+    }
+
     private static NativeImage BuildSyntheticArm64R2RImage(params Arm64RuntimeFunctionEntry[] runtimeFunctions)
     {
         const uint ClrSectionVA = 0x2000;
@@ -441,6 +515,49 @@ public class NativeToolsR2RTests
             h.NextTool == "get_r2r_header" &&
             h.SuggestedArguments != null &&
             h.SuggestedArguments.ContainsKey("includeImportSections"));
+    }
+
+    [Fact]
+    public void GetR2RHeader_RuntimeFunctionsOnly_IdentificationStringsNull()
+    {
+        var image = BuildSyntheticR2RImage();  // only a RuntimeFunctions section
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.CompilerIdentifier.Should().BeNull();
+        result.Data.OwnerCompositeExecutable.Should().BeNull();
+    }
+
+    [Fact]
+    public void GetR2RHeader_CompilerIdentifierSection_DecodesString()
+    {
+        const string identifier = "Crossgen2 synthetic compiler";
+        var image = BuildSyntheticR2RWithStringSection(
+            (uint)ReadyToRunSectionType.CompilerIdentifier, identifier);
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.CompilerIdentifier.Should().Be(identifier);
+        result.Data.OwnerCompositeExecutable.Should().BeNull();
+    }
+
+    [Fact]
+    public void GetR2RHeader_OwnerCompositeExecutableSection_DecodesString()
+    {
+        const string owner = "composite.r2r.dll";
+        var image = BuildSyntheticR2RWithStringSection(
+            (uint)ReadyToRunSectionType.OwnerCompositeExecutable, owner);
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.OwnerCompositeExecutable.Should().Be(owner);
+        result.Data.CompilerIdentifier.Should().BeNull();
     }
 
     // -----------------------------------------------------------------------
