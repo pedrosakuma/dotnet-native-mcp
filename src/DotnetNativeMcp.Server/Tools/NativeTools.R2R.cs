@@ -20,6 +20,9 @@ public sealed partial class NativeTools
         "AuxiliaryData RVAs); individual fixup signatures are not decoded. " +
         "When includeCompositeInfo is true, also decodes the composite-image ComponentAssemblies " +
         "(type 115) entries and ManifestAssemblyMvids (type 118) GUIDs when present. " +
+        "When includeMethodEntryPoints is true, also decodes the MethodDefEntryPoints section (type 103) — " +
+        "a NativeFormat array mapping each MethodDef RID to its entry-point RUNTIME_FUNCTION index and a " +
+        "has-fixups flag (capped by methodEntryPointsLimit). " +
         "Returns r2r_not_present when the image has no R2R header (pure managed assembly or NativeAOT binary). " +
         "Use list_r2r_runtime_functions to navigate the RuntimeFunctions section.")]
     public NativeResult<R2RHeaderResult> GetR2RHeader(
@@ -27,7 +30,11 @@ public sealed partial class NativeTools
         [Description("When true, also decode and return the ImportSections (type 101) entries. Default false.")]
         bool includeImportSections = false,
         [Description("When true, also decode the composite-image ComponentAssemblies (type 115) and ManifestAssemblyMvids (type 118). Default false.")]
-        bool includeCompositeInfo = false)
+        bool includeCompositeInfo = false,
+        [Description("When true, also decode the MethodDefEntryPoints (type 103) RID -> RUNTIME_FUNCTION mapping. Default false.")]
+        bool includeMethodEntryPoints = false,
+        [Description("Maximum MethodDefEntryPoints entries to return (default 200, max 2000). Ignored unless includeMethodEntryPoints is true.")]
+        int methodEntryPointsLimit = 200)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
             return NativeResult.Fail<R2RHeaderResult>(
@@ -45,6 +52,7 @@ public sealed partial class NativeTools
         var hasComponentAssemblies = hdr.FindSection(ReadyToRunSectionType.ComponentAssemblies) is not null;
         var hasManifestMvids = hdr.FindSection(ReadyToRunSectionType.ManifestAssemblyMvids) is not null;
         var hasCompositeInfo = hasComponentAssemblies || hasManifestMvids;
+        var hasMethodEntryPoints = hdr.FindSection(ReadyToRunSectionType.MethodDefEntryPoints) is not null;
 
         var hints = new List<NextActionHint>
         {
@@ -82,6 +90,18 @@ public sealed partial class NativeTools
                 {
                     ["imageHandle"] = imageHandle,
                     ["includeCompositeInfo"] = true,
+                }));
+        }
+
+        if (hasMethodEntryPoints && !includeMethodEntryPoints)
+        {
+            hints.Add(new NextActionHint(
+                "get_r2r_header",
+                "Re-run with includeMethodEntryPoints=true to decode the MethodDefEntryPoints (type 103) RID -> RUNTIME_FUNCTION mapping.",
+                new Dictionary<string, object?>
+                {
+                    ["imageHandle"] = imageHandle,
+                    ["includeMethodEntryPoints"] = true,
                 }));
         }
 
@@ -145,6 +165,24 @@ public sealed partial class NativeTools
             }
         }
 
+        R2RMethodEntryPointsView? methodEntryPoints = null;
+        if (includeMethodEntryPoints && hasMethodEntryPoints)
+        {
+            var limit = Math.Clamp(methodEntryPointsLimit, 1, 2000);
+            var mepResult = ReadyToRunReader.ReadMethodDefEntryPoints(image, hdr, limit);
+            if (mepResult.IsError)
+                return NativeResult.Fail<R2RHeaderResult>(
+                    mepResult.Error!.Kind, mepResult.Error.Message, mepResult.Error.Detail);
+
+            var table = mepResult.Data!;
+            methodEntryPoints = new R2RMethodEntryPointsView(
+                table.MethodCount,
+                table.Entries.Count,
+                table.Truncated,
+                table.Entries.Select(e => new R2RMethodEntryPointView(
+                    e.Rid, e.RuntimeFunctionIndex, e.HasFixups)).ToList());
+        }
+
         var data = new R2RHeaderResult(
             imageHandle,
             hdr.Version,
@@ -161,13 +199,15 @@ public sealed partial class NativeTools
             compilerIdentifier,
             ownerCompositeExecutable,
             componentAssemblies,
-            manifestAssemblyMvids);
+            manifestAssemblyMvids,
+            methodEntryPoints);
 
         var flagSummary = flagNames.Count > 0 ? $", flags [{string.Join(", ", flagNames)}]" : string.Empty;
         var importSummary = importSections is not null ? $", {importSections.Count} import sections" : string.Empty;
         var compositeSummary = componentAssemblies is not null ? $", {componentAssemblies.Count} component assemblies" : string.Empty;
+        var mepSummary = methodEntryPoints is not null ? $", {methodEntryPoints.ReturnedCount} method entry points" : string.Empty;
         return NativeResult.Ok(
-            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}{importSummary}{compositeSummary}.",
+            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}{importSummary}{compositeSummary}{mepSummary}.",
             data,
             hints);
     }
@@ -277,6 +317,10 @@ public sealed partial class NativeTools
 /// The ManifestAssemblyMvids (type 118) GUIDs (in "D" format), one per manifest assembly, or
 /// <c>null</c> when <c>includeCompositeInfo</c> was false or the section is absent.
 /// </param>
+/// <param name="MethodEntryPoints">
+/// Decoded MethodDefEntryPoints (type 103) — the RID -> RUNTIME_FUNCTION mapping — or <c>null</c>
+/// when <c>includeMethodEntryPoints</c> was false or the image has no MethodDefEntryPoints section.
+/// </param>
 public sealed record R2RHeaderResult(
     string ImageHandle,
     string Version,
@@ -293,7 +337,30 @@ public sealed record R2RHeaderResult(
     string? CompilerIdentifier = null,
     string? OwnerCompositeExecutable = null,
     IReadOnlyList<R2RComponentAssemblyView>? ComponentAssemblies = null,
-    IReadOnlyList<string>? ManifestAssemblyMvids = null);
+    IReadOnlyList<string>? ManifestAssemblyMvids = null,
+    R2RMethodEntryPointsView? MethodEntryPoints = null);
+
+/// <summary>Decoded MethodDefEntryPoints (type 103) table.</summary>
+/// <param name="MethodCount">
+/// Number of MethodDef RID slots the table is sized for (not all are present).
+/// </param>
+/// <param name="ReturnedCount">Number of present entries actually returned (after the limit).</param>
+/// <param name="Truncated"><c>true</c> when more present entries existed than were returned.</param>
+/// <param name="Entries">The present entries, capped at the requested limit.</param>
+public sealed record R2RMethodEntryPointsView(
+    uint MethodCount,
+    int ReturnedCount,
+    bool Truncated,
+    IReadOnlyList<R2RMethodEntryPointView> Entries);
+
+/// <summary>One present entry of the MethodDefEntryPoints (type 103) table.</summary>
+/// <param name="Rid">The 1-based MethodDef metadata RID this entry maps.</param>
+/// <param name="RuntimeFunctionIndex">Index of the method's entry-point <c>RUNTIME_FUNCTION</c>.</param>
+/// <param name="HasFixups"><c>true</c> when the entry carries import fixups to run before first call.</param>
+public sealed record R2RMethodEntryPointView(
+    int Rid,
+    int RuntimeFunctionIndex,
+    bool HasFixups);
 
 /// <summary>One decoded entry of the R2R ComponentAssemblies section (type 115).</summary>
 /// <param name="Index">Zero-based index in the component-assemblies table.</param>

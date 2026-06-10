@@ -706,6 +706,49 @@ public class NativeToolsR2RTests
             .Which.Should().Be(g.ToString("D"));
     }
 
+    [Fact]
+    public void GetR2RHeader_IncludeMethodEntryPoints_DecodesMapping()
+    {
+        // Hand-encoded single-element NativeArray: nElements=1, entryIndexSize=0,
+        // one block whose leaf payload is id = 3 << 1 = 6 (runtime function 3, no fixups).
+        var blob = new byte[] { 0x08, 0x01, 0x00, 0x0C };
+        var image = BuildSyntheticR2RWithRawSection(
+            (uint)ReadyToRunSectionType.MethodDefEntryPoints, blob, "r2r_mep.dll", "aabbccddee0a");
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value, includeMethodEntryPoints: true);
+
+        result.IsError.Should().BeFalse();
+        var mep = result.Data!.MethodEntryPoints;
+        mep.Should().NotBeNull();
+        mep!.MethodCount.Should().Be(1u);
+        mep.ReturnedCount.Should().Be(1);
+        mep.Truncated.Should().BeFalse();
+        mep.Entries.Should().ContainSingle();
+        mep.Entries[0].Rid.Should().Be(1);
+        mep.Entries[0].RuntimeFunctionIndex.Should().Be(3);
+        mep.Entries[0].HasFixups.Should().BeFalse();
+        result.Summary.Should().Contain("1 method entry points");
+    }
+
+    [Fact]
+    public void GetR2RHeader_MethodEntryPointsPresent_NotIncluded_OffersHint()
+    {
+        var blob = new byte[] { 0x08, 0x01, 0x00, 0x0C };
+        var image = BuildSyntheticR2RWithRawSection(
+            (uint)ReadyToRunSectionType.MethodDefEntryPoints, blob, "r2r_mep_hint.dll", "aabbccddee0b");
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.MethodEntryPoints.Should().BeNull();
+        result.Hints.Should().Contain(h =>
+            h.NextTool == "get_r2r_header" &&
+            h.SuggestedArguments != null &&
+            h.SuggestedArguments.ContainsKey("includeMethodEntryPoints"));
+    }
+
     // -----------------------------------------------------------------------
     // ListR2RRuntimeFunctions tests
     // -----------------------------------------------------------------------

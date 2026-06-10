@@ -542,6 +542,155 @@ public static class ReadyToRunReader
             (IReadOnlyList<Guid>)mvids);
     }
 
+    /// <summary>
+    /// Upper bound on the number of RID slots
+    /// <see cref="ReadMethodDefEntryPoints(NativeImage, ReadyToRunHeader, int)"/>
+    /// will probe. The slot count is read from an untrusted NativeArray header, so
+    /// a crafted section can advertise a huge <c>Count</c> backed by an in-bounds
+    /// all-absent index and force the decode loop to spin for hundreds of millions
+    /// of iterations. This cap bounds that work; it sits comfortably above the
+    /// MethodDef count of any real assembly (the ECMA MethodDef table tops out at
+    /// 2^24 rows, and real assemblies are orders of magnitude smaller).
+    /// </summary>
+    internal const uint DefaultMaxMethodEntryPointScan = 2_000_000;
+
+    /// <summary>
+    /// Reads the <c>MethodDefEntryPoints</c> section (type 103) — a NativeFormat
+    /// <c>NativeArray</c> indexed by (MethodDef RID − 1) — and recovers, for each
+    /// present method, the index of its entry-point <c>RUNTIME_FUNCTION</c> and
+    /// whether the entry carries import fixups. Absent slots (methods with no
+    /// compiled code) are skipped. Only present entries are returned, capped at
+    /// <paramref name="limit"/>.
+    /// </summary>
+    public static NativeResult<ReadyToRunMethodEntryPointTable> ReadMethodDefEntryPoints(
+        NativeImage image,
+        ReadyToRunHeader header,
+        int limit) =>
+        ReadMethodDefEntryPoints(image, header, limit, DefaultMaxMethodEntryPointScan);
+
+    /// <summary>
+    /// Internal overload exposing the slot-scan cap (<paramref name="maxScan"/>) for
+    /// testing. See <see cref="DefaultMaxMethodEntryPointScan"/> for why the cap exists.
+    /// </summary>
+    internal static NativeResult<ReadyToRunMethodEntryPointTable> ReadMethodDefEntryPoints(
+        NativeImage image,
+        ReadyToRunHeader header,
+        int limit,
+        uint maxScan)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(header);
+        if (maxScan == 0)
+            maxScan = 1;
+        if (limit <= 0)
+            limit = 1;
+
+        var section = header.FindSection(ReadyToRunSectionType.MethodDefEntryPoints);
+        if (section is null)
+            return NativeResult.Fail<ReadyToRunMethodEntryPointTable>(
+                ErrorKinds.R2RSectionNotPresent,
+                "This R2R image does not contain a MethodDefEntryPoints section (type 103).");
+
+        var fileOffset = image.RvaToFileOffset(section.VirtualAddress);
+        if (fileOffset is null || fileOffset.Value < 0)
+            return NativeResult.Fail<ReadyToRunMethodEntryPointTable>(
+                ErrorKinds.InvalidArgument,
+                $"MethodDefEntryPoints RVA 0x{section.VirtualAddress:X8} could not be mapped to a file offset.");
+
+        var bytes = image.RawBytes;
+        if ((long)fileOffset.Value + section.Size > bytes.Length)
+            return NativeResult.Fail<ReadyToRunMethodEntryPointTable>(
+                ErrorKinds.InvalidArgument,
+                "MethodDefEntryPoints section extends beyond the end of the file.");
+
+        if (section.Size == 0)
+            return NativeResult.Ok(
+                "MethodDefEntryPoints section is empty.",
+                new ReadyToRunMethodEntryPointTable(
+                    0, Array.Empty<ReadyToRunMethodEntryPoint>(), false));
+
+        try
+        {
+            var reader = new NativeFormat.NativeReader(bytes.Slice(fileOffset.Value, (int)section.Size));
+            var array = new NativeFormat.NativeArray(reader, 0);
+            var methodCount = array.Count;
+
+            var entries = new List<ReadyToRunMethodEntryPoint>();
+            var truncated = false;
+
+            // The slot count is untrusted: bound the number of probed slots so a
+            // crafted huge Count with an all-absent index cannot spin unbounded.
+            var scanCeiling = Math.Min(methodCount, maxScan);
+
+            for (uint rid = 1; rid <= scanCeiling; rid++)
+            {
+                if (!array.TryGetAt(rid - 1, out var entryOffset))
+                    continue;
+
+                if (entries.Count >= limit)
+                {
+                    truncated = true;
+                    break;
+                }
+
+                DecodeMethodEntryPoint(reader, entryOffset, out var runtimeFunctionIndex, out var hasFixups);
+                entries.Add(new ReadyToRunMethodEntryPoint((int)rid, runtimeFunctionIndex, hasFixups));
+            }
+
+            // If we stopped short of the advertised count, present entries beyond
+            // the scanned range may exist — report the result as truncated.
+            if (scanCeiling < methodCount)
+                truncated = true;
+
+            return NativeResult.Ok(
+                $"Decoded {entries.Count} of {methodCount} MethodDefEntryPoint slot{(methodCount == 1 ? string.Empty : "s")}" +
+                $"{(truncated ? " (truncated)" : string.Empty)}.",
+                new ReadyToRunMethodEntryPointTable(methodCount, entries, truncated));
+        }
+        catch (NativeFormat.NativeFormatException ex)
+        {
+            return NativeResult.Fail<ReadyToRunMethodEntryPointTable>(
+                ErrorKinds.InvalidArgument,
+                "MethodDefEntryPoints section is malformed and could not be decoded.",
+                ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Decodes a single MethodDefEntryPoints payload. Mirrors the runtime's
+    /// <c>GetRuntimeFunctionIndexFromOffset</c>: the low bit of the decoded id
+    /// signals fixups; when set, the next-lowest bit indicates a trailing
+    /// delta-encoded fixup offset which we consume (to validate the encoding) but
+    /// do not surface. The runtime-function index is the id with those low marker
+    /// bits shifted off.
+    /// </summary>
+    private static void DecodeMethodEntryPoint(
+        NativeFormat.NativeReader reader,
+        uint offset,
+        out int runtimeFunctionIndex,
+        out bool hasFixups)
+    {
+        var afterId = reader.DecodeUnsigned(offset, out var id);
+        hasFixups = (id & 1) != 0;
+        if (hasFixups)
+        {
+            // A set bit 1 means a trailing delta-encoded fixup offset follows the
+            // id. We do not need its value, but decoding it ensures a truncated or
+            // malformed entry raises NativeFormatException rather than being
+            // silently accepted.
+            if ((id & 2) != 0)
+                reader.DecodeUnsigned(afterId, out _);
+
+            id >>= 2;
+        }
+        else
+        {
+            id >>= 1;
+        }
+
+        runtimeFunctionIndex = (int)id;
+    }
+
     private static RuntimeFunctionLayout? GetRuntimeFunctionLayout(NativeImage image)
     {
         if (image.Architecture == Architecture.X64)
@@ -736,3 +885,25 @@ public sealed record ReadyToRunRuntimeFunctionsPage(
     int Cursor,
     int TotalCount,
     int? NextCursor);
+
+/// <summary>Decoded <c>MethodDefEntryPoints</c> (type 103) table.</summary>
+/// <param name="MethodCount">
+/// Number of element slots in the NativeArray — i.e. the MethodDef RID count
+/// the table is sized for. Not every slot is present (abstract methods and
+/// methods with no compiled code are absent).
+/// </param>
+/// <param name="Entries">The present entries, capped at the requested limit.</param>
+/// <param name="Truncated"><c>true</c> when more present entries existed than the limit returned.</param>
+public sealed record ReadyToRunMethodEntryPointTable(
+    uint MethodCount,
+    IReadOnlyList<ReadyToRunMethodEntryPoint> Entries,
+    bool Truncated);
+
+/// <summary>One present entry of the <c>MethodDefEntryPoints</c> table.</summary>
+/// <param name="Rid">The 1-based MethodDef metadata RID this entry maps.</param>
+/// <param name="RuntimeFunctionIndex">Index of the method's entry-point <c>RUNTIME_FUNCTION</c>.</param>
+/// <param name="HasFixups"><c>true</c> when the entry carries import fixups to run before first call.</param>
+public sealed record ReadyToRunMethodEntryPoint(
+    int Rid,
+    int RuntimeFunctionIndex,
+    bool HasFixups);
