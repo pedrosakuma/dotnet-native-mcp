@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781116727395,
+  "lastUpdate": 1781116728628,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1982,6 +1982,42 @@ window.BENCHMARK_DATA = {
             "value": 86.07605045182365,
             "unit": "ns",
             "range": "± 1.0520243520714019"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f3ac70dc7cc049c69cb93f7b52226e64a4d85318",
+          "message": "feat(r2r): decode V9 RID-indexed info maps (121/122/123) (#127)\n\nDecode the three .NET 9 (R2R v9.0) info-map sections, riding additively on\nget_r2r_header via a single includeInfoMaps flag (capped by infoMapsLimit):\n\n- EnclosingTypeMap (122): u16 count + u16[] enclosing RIDs; emit nested→\n  enclosing TypeDef token pairs (skip top-level / RID 0).\n- MethodIsGenericMap (121): i32 count + ceil(count/8) MSB-first bit array;\n  emit MethodDef tokens for set bits; count all generic methods past the\n  limit and flag truncation.\n- TypeGenericInfoMap (123): u32 count + ceil(count/2) nibbles (even index in\n  the high nibble); emit per-type generic arity / variance / constraints for\n  generic types only.\n\nAll three are fixed-width, little-endian, dependency-free decodes over a\nbounds-validated section slice (shared MapSectionBytes helper). Counts are\nread from untrusted bytes and validated against the section size before the\ndecode loop (overflow-safe widened arithmetic), so malformed input surfaces\nas InvalidArgument rather than throwing. Tokens are emitted for handoff to\ndotnet-assembly-mcp; names are not resolved.\n\nTests: 12 Core (incl. real-image SPC regression + int.MaxValue overflow\nguard) + 4 Server. README coverage table updated.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T15:28:36-03:00",
+          "tree_id": "41674796a8344bfa5fd559b6b992b685c3dd0670",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/f3ac70dc7cc049c69cb93f7b52226e64a4d85318"
+        },
+        "date": 1781116728599,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 7475989.940290178,
+            "unit": "ns",
+            "range": "± 76326.02776688524"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 85.7839641491572,
+            "unit": "ns",
+            "range": "± 0.3008163274240552"
           }
         ]
       }
