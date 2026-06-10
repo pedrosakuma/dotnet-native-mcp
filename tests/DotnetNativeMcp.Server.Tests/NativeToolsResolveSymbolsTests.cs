@@ -284,6 +284,116 @@ public class NativeToolsResolveSymbolsTests
     }
 
     // ---------------------------------------------------------------------------
+    // loadBase (ASLR rebasing) — the NativeFrame handoff path
+    // ---------------------------------------------------------------------------
+
+    [Fact]
+    public void ResolveSymbols_AslrAddressWithoutLoadBase_ReturnsAddressOutOfRange()
+    {
+        var image = CreateImage("aabb", "aslr.so",
+            new NativeSymbol(0, "S_P_MyApp_Program__Main", "MyApp.Program.Main", 0x1010, 0x20, ".text", true));
+        var tools = MakeTools(image);
+
+        // Producer observed the PIE binary loaded at an ASLR base; the absolute VA is far past
+        // every section once rebased against the on-disk base (0).
+        var result = tools.ResolveSymbols(image.Handle.Value, ["0x7f0000001010"]);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.Resolutions.Should().ContainSingle();
+        result.Data.Resolutions[0].Error!.Kind.Should().Be(ErrorKinds.AddressOutOfRange);
+    }
+
+    [Fact]
+    public void ResolveSymbols_AslrAddressWithLoadBase_ResolvesSymbol()
+    {
+        var image = CreateImage("aabb", "aslr.so",
+            new NativeSymbol(0, "S_P_MyApp_Program__Main", "MyApp.Program.Main", 0x1010, 0x20, ".text", true));
+        var tools = MakeTools(image);
+
+        var result = tools.ResolveSymbols(
+            image.Handle.Value,
+            ["0x7f0000001015"],
+            loadBase: "0x7f0000000000");
+
+        result.IsError.Should().BeFalse();
+        var row = result.Data!.Resolutions.Should().ContainSingle().Subject;
+        row.Error.Should().BeNull();
+        row.MangledName.Should().Be("S_P_MyApp_Program__Main");
+        row.Displacement.Should().Be(5);
+        row.ResolvedRvaHex.Should().Be(0x1015UL.ToString("x16"));
+    }
+
+    [Fact]
+    public void ResolveSymbols_LoadBaseAcceptsPrefixedAndBareHex()
+    {
+        var image = CreateImage("aabb", "aslr.so",
+            new NativeSymbol(0, "S_P_MyApp_Program__Main", "MyApp.Program.Main", 0x1010, 0x20, ".text", true));
+        var tools = MakeTools(image);
+
+        const ulong loadBase = 0x7f0000000000UL;
+        var address = (loadBase + 0x1010).ToString("x16");
+
+        var prefixed = tools.ResolveSymbols(image.Handle.Value, [address], loadBase: "0x7f0000000000");
+        var bare = tools.ResolveSymbols(image.Handle.Value, [address], loadBase: "7f0000000000");
+
+        prefixed.IsError.Should().BeFalse();
+        bare.IsError.Should().BeFalse();
+        prefixed.Data!.Resolutions[0].MangledName.Should().Be("S_P_MyApp_Program__Main");
+        bare.Data!.Resolutions[0].MangledName.Should().Be("S_P_MyApp_Program__Main");
+        prefixed.Data.Resolutions[0].ResolvedRvaHex.Should().Be(bare.Data.Resolutions[0].ResolvedRvaHex);
+    }
+
+    [Fact]
+    public void ResolveSymbols_AllDigitHexLoadBase_IsNotMisreadAsDecimal()
+    {
+        // 0x1000000 is all decimal digits ("16777216"); as bare hex it must be read as 0x1000000,
+        // not as decimal. address = loadBase + 0x1010 must rebase to RVA 0x1010.
+        const ulong loadBase = 0x1000000UL;
+        var image = CreateImage("aabb", "digits.so",
+            new NativeSymbol(0, "S_P_Digits_Method", "Digits.Method", 0x1010, 0x20, ".text", true));
+        var tools = MakeTools(image);
+
+        var address = "0x" + (loadBase + 0x1010).ToString("x");
+        var result = tools.ResolveSymbols(image.Handle.Value, [address], loadBase: "1000000");
+
+        result.IsError.Should().BeFalse();
+        var row = result.Data!.Resolutions.Should().ContainSingle().Subject;
+        row.Error.Should().BeNull();
+        row.MangledName.Should().Be("S_P_Digits_Method");
+        row.ResolvedRvaHex.Should().Be(0x1010UL.ToString("x16"));
+    }
+
+    [Fact]
+    public void ResolveSymbols_AddressBelowLoadBase_ReturnsPerRowAddressOutOfRange()
+    {
+        var image = CreateImage("aabb", "aslr.so",
+            new NativeSymbol(0, "S_P_MyApp_Program__Main", "MyApp.Program.Main", 0x1010, 0x20, ".text", true));
+        var tools = MakeTools(image);
+
+        // An address below the supplied loadBase cannot map into the image; it must NOT silently
+        // resolve via the RVA fallback to the symbol at 0x1010.
+        var result = tools.ResolveSymbols(image.Handle.Value, ["0x1010"], loadBase: "0x7f0000000000");
+
+        result.IsError.Should().BeFalse();
+        var row = result.Data!.Resolutions.Should().ContainSingle().Subject;
+        row.Error!.Kind.Should().Be(ErrorKinds.AddressOutOfRange);
+        row.MangledName.Should().BeNull();
+    }
+
+    [Fact]
+    public void ResolveSymbols_InvalidLoadBase_ReturnsTopLevelInvalidArgument_DoesNotThrow()
+    {
+        var image = CreateImage("aabb", "aslr.so",
+            new NativeSymbol(0, "S_P_MyApp_Program__Main", "MyApp.Program.Main", 0x1010, 0x20, ".text", true));
+        var tools = MakeTools(image);
+
+        var result = tools.ResolveSymbols(image.Handle.Value, ["0x1010"], loadBase: "not-a-number");
+
+        result.IsError.Should().BeTrue();
+        result.Error!.Kind.Should().Be(ErrorKinds.InvalidArgument);
+    }
+
+    // ---------------------------------------------------------------------------
     // Test registry
     // ---------------------------------------------------------------------------
 

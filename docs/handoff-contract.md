@@ -34,11 +34,22 @@ authority — open an issue here and update the contract.
 
   // Optional but recommended. Virtual address of the instruction the producer
   // is pointing at. Hex string, no 0x prefix in transport. When present the
-  // consumer SHOULD center its disassembly window here.
+  // consumer SHOULD center its disassembly window here. For position-independent
+  // (PIE / ASLR) binaries this is a *runtime* VA and is only resolvable when
+  // paired with `loadBase` (or use `rva` below, which sidesteps ASLR entirely).
   "address": "00000000004012a0",
 
+  // Optional, module-relative offset of the instruction (address - moduleBase).
+  // The producer's CoreCLR attach path already computes this (ManagedStackFrame.Rva),
+  // so it is the PREFERRED handoff value: an RVA resolves correctly regardless of
+  // ASLR because the consumer's on-disk image base for a PIE binary is 0. Pass it
+  // verbatim as the `resolve_symbols` address.
+  "rva": "00000000000012a0",
+
   // Optional. Module load base when the producer observed the frame. Lets the
-  // consumer rebase absolute addresses if the binary was loaded with ASLR.
+  // consumer rebase the absolute `address` if the binary was loaded with ASLR
+  // (rva = address - loadBase). Pass it to `resolve_symbols` via the `loadBase`
+  // parameter. Equivalent to `address - rva` when both are present.
   "loadBase": "0000000000400000",
 
   // Optional. Build-id (ELF) / PDB GUID-Age (PE) so the consumer can refuse
@@ -54,13 +65,30 @@ authority — open an issue here and update the contract.
 NativeFrame
   ├─ load_native_binary(binary)                  -> ImageHandle
   ├─ import_native_manifest(entries[], mode?)    -> per-entry outcomes (bulk handshake)
-  ├─ resolve_symbols(image, [address, ...])       -> [{ demangled, section, displacement }]
+  ├─ resolve_symbols(image, [address, ...], loadBase?) -> [{ demangled, section, displacement }]
   ├─ find_native_callers(image, target)          -> [{ callSite, mnemonic, source? }]
   └─ disassemble(image, address, n)              -> List<NativeInstruction>
 ```
 
 `resolve_symbols` is the batch variant: pass up to 200 hex or decimal address strings in a
 single call. Per-address failures are reported inline without aborting the whole batch.
+
+### Resolving ASLR / position-independent frames
+
+NativeAOT binaries are position-independent (PIE) by default, so their on-disk image base is
+`0` while the runtime loader places them at a random base. There are two correct ways to feed
+such a frame into `resolve_symbols`:
+
+1. **Preferred — pass the producer's `rva`.** The producer already rebases each native frame to
+   a module-relative offset (`ManagedStackFrame.Rva`). An RVA resolves correctly against the
+   on-disk base of `0`, so no extra parameter is needed and ASLR is a non-issue.
+2. **Absolute VA + `loadBase`.** If only the absolute runtime `address` is available, pass the
+   module load base via the `loadBase` parameter; the consumer rebases as `rva = address - loadBase`.
+   `loadBase` equals `address - rva` for any frame where the producer emitted both.
+
+Without one of these, an absolute PIE VA is rebased against `0` and lands outside every section
+(or, with sparse symbol sizing, against a bogus nearest symbol) — i.e. it does **not** resolve to
+the intended symbol.
 
 When `dotnet-diagnostics-mcp` emits a manifest of all native images it saw in a process,
 use `import_native_manifest` (not `load_native_binary`) to register them in bulk. Lazy mode
@@ -247,6 +275,17 @@ Set `resolveSource=false` when scanning large binaries where PDB reads are slow.
 // Step 3 — optional: disassemble a hot symbol
 // Tool: disassemble
 { "imageHandle": "i:d8f3a4b1c2e5f607:3e9c", "address": "4012a0", "maxInstructions": 32 }
+
+// Step 2 (ASLR variant) — the producer only had absolute runtime VAs for a PIE binary.
+// Pass the observed module load base so the consumer can rebase address - loadBase.
+// Tool: resolve_symbols
+{
+  "imageHandle": "i:d8f3a4b1c2e5f607:3e9c",
+  "addresses": ["0x7f3c1a4012a0"],
+  "loadBase": "0x7f3c1a000000"
+}
+// -> resolves identically to RVA 0x12a0 (System.String.Concat). Omitting loadBase here would
+//    rebase against the on-disk base 0 and fail to resolve to the intended symbol.
 ```
 
 The consumer MUST NOT trust the path verbatim across container boundaries —

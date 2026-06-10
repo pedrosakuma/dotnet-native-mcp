@@ -154,7 +154,8 @@ public sealed partial class NativeTools
     public NativeResult<ResolveSymbolsResult> ResolveSymbols(
         [Description("ImageHandle returned by load_native_binary.")] string imageHandle,
         [Description("Addresses to resolve (hex with optional 0x prefix, or decimal). Up to 200 entries.")] IReadOnlyList<string> addresses,
-        [Description("When true (default), annotates each resolved address with file:line from DWARF/PDB debug info. Set false to skip debug-info I/O.")] bool resolveSource = true)
+        [Description("When true (default), annotates each resolved address with file:line from DWARF/PDB debug info. Set false to skip debug-info I/O.")] bool resolveSource = true,
+        [Description("Optional producer-observed module load base from the NativeFrame handoff (hex, with or without a '0x' prefix — matching the contract's transport format). When supplied, each address is treated as a runtime absolute VA and rebased as 'rva = address - loadBase'. Required to resolve ASLR'd position-independent (PIE) binaries whose on-disk image base is 0. Omit for non-ASLR binaries.")] string? loadBase = null)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
             return NativeResult.Fail<ResolveSymbolsResult>(
@@ -166,7 +167,20 @@ public sealed partial class NativeTools
                 ErrorKinds.InvalidArgument,
                 $"Address count {addresses.Count} exceeds the maximum of {StackSymbolicator.MaxFrameCount}.");
 
-        var inner = StackSymbolicator.ResolveAddresses(image, addresses);
+        ulong? parsedLoadBase = null;
+        if (!string.IsNullOrWhiteSpace(loadBase))
+        {
+            // loadBase is an address and is transported as hex (bare or 0x-prefixed); parse it as
+            // hex rather than via the decimal-first address parser so all-digit hex values like
+            // "0000000000400000" are not misread as decimal.
+            if (!StackSymbolicator.TryParseHexAddress(loadBase, out var lb, out _))
+                return NativeResult.Fail<ResolveSymbolsResult>(
+                    ErrorKinds.InvalidArgument,
+                    $"Cannot parse loadBase '{loadBase}' as a hex value.");
+            parsedLoadBase = lb;
+        }
+
+        var inner = StackSymbolicator.ResolveAddresses(image, addresses, parsedLoadBase);
         var rows = inner.Data!.Select(r =>
         {
             SourceLocation? src = null;
