@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781110942072,
+  "lastUpdate": 1781113184492,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1080,6 +1080,66 @@ window.BENCHMARK_DATA = {
             "value": 22.663659818967183,
             "unit": "ns",
             "range": "± 0.06961868340083914"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "0750b47dbb57b21278a053b9d42c056b1086c715",
+          "message": "Add NativeArray + MethodDefEntryPoints (type 103) R2R decode (#125)\n\nPR2 of the NativeFormat reader epic. Ports the runtime's sparse\nindex-addressable NativeArray (16-element-block bit-tree) and decodes the\nMethodDefEntryPoints section, mapping each present MethodDef RID to its\nentry-point RUNTIME_FUNCTION index and hasFixups flag. Rides on the existing\nget_r2r_header tool via additive includeMethodEntryPoints /\nmethodEntryPointsLimit params and a nullable result field (no new tool).\n\nHardening:\n- Bound the decode loop with a 2,000,000-slot scan cap so a crafted section\n  advertising a huge untrusted Count backed by an in-bounds all-absent index\n  cannot spin unbounded; over-cap results are flagged Truncated.\n- DecodeMethodEntryPoint now consumes the trailing delta-encoded fixup offset\n  when the id marks it (id & 2), faithfully mirroring the runtime's\n  GetRuntimeFunctionIndexFromOffset so truncated fixup entries fail with\n  InvalidArgument instead of being silently accepted.\n\nTests: synthetic end-to-end decode, limit/truncation, fixup-delta consume and\ntruncated-delta failure, bounded-scan regression, and a real\nSystem.Private.CoreLib regression cross-checking every entry against the\nRuntimeFunctions bound.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T14:29:56-03:00",
+          "tree_id": "8ac0bfc4ba2e6c6a2f223606e6363f25fe77e0a5",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/0750b47dbb57b21278a053b9d42c056b1086c715"
+        },
+        "date": 1781113184466,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 13243129469.266666,
+            "unit": "ns",
+            "range": "± 19422099.404040515"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 26260446.908653848,
+            "unit": "ns",
+            "range": "± 200702.93289029485"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 30.928715910230363,
+            "unit": "ns",
+            "range": "± 0.03653395590905127"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 368182.25419921876,
+            "unit": "ns",
+            "range": "± 4636.242434881507"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 22162.63275349935,
+            "unit": "ns",
+            "range": "± 61.16004937076116"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 23.41044707596302,
+            "unit": "ns",
+            "range": "± 0.02613676352154744"
           }
         ]
       }
