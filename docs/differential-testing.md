@@ -22,6 +22,7 @@ the real comparison runs (see [CI](#ci)).
 | `ElfReader.ReadImportedFunctions` | GNU `readelf -sW` | the multiset of undefined (`UND`) `.dynsym` symbol names | `tests/DotnetNativeMcp.Core.Tests/ElfImportDifferentialTests.cs` |
 | `PeNativeReader` sections | LLVM `llvm-readobj --sections` | per-name virtual address, virtual size, file offset, and file size | `tests/DotnetNativeMcp.Core.Tests/PeSectionDifferentialTests.cs` |
 | `MachOReader` sections (x86_64 + arm64) | LLVM `llvm-readobj --sections` | per-`Segment,Name` virtual address, virtual size (`section_64.size`), and file offset | `tests/DotnetNativeMcp.Core.Tests/MachOSectionDifferentialTests.cs` |
+| `MachOReader` symbols (x86_64 + arm64) | LLVM `llvm-readobj --syms` | the defined-symbol set as a multiset of (name, n_value) — STAB/undefined excluded, leading `_` stripped | `tests/DotnetNativeMcp.Core.Tests/MachOSymbolDifferentialTests.cs` |
 
 The reference oracle is the shared `ReadelfOracle` helper
 (`tests/DotnetNativeMcp.Core.Tests/ReadelfOracle.cs`), which shells out to `readelf` and
@@ -71,6 +72,12 @@ pins it independently of this LLVM-dependent harness.
   sections the `FileSize` is not checked (they occupy no file bytes, so readelf's `sh_size`
   is not a meaningful file-size oracle); duplicate section names fall back to a
   geometry-existence match.
+- **Mach-O symbols** — multiset-equivalent comparison of the defined-symbol set keyed on
+  (name, `n_value`). The Mach-O nlist index is non-contiguous (`MachOReader` skips STAB and
+  undefined entries), so there is no shared index to key on as the ELF symbol harness does;
+  name+value is the stable identity. The leading macOS `_` is stripped on both sides, and
+  size / function flag are not compared (`MachOReader` reports size 0 and `IsFunction = true`
+  uniformly, as nlist carries neither reliably).
 - **Imports** — multiset-equivalent (order-independent, duplicate-aware) comparison of the
   `DT_NEEDED` library set and of the undefined `.dynsym` symbol names.
 - **Disassembly** — per-address boundary + raw-byte equality (hard). Mnemonics are compared
@@ -102,7 +109,7 @@ pins it independently of this LLVM-dependent harness.
 | `/usr/bin/cat` | Stock, usually-stripped system binary — exercises the `.dynsym` fallback and the `@GLIBC_x.y` version-suffix normalization. |
 | `DotnetNativeMcp.Core.dll` | The Core assembly itself — a managed PE always present beside the test binary, so the PE section comparison runs everywhere instead of skipping on a missing fixture. |
 | `System.Private.CoreLib.dll` (ReadyToRun PE) | Published alongside `SampleAot`; a real R2R PE — the actual asm-mcp → native-mcp handoff target — exercising the PE section reader on a non-trivial binary. |
-| `macho-x64.o` / `macho-arm64.o` (Mach-O objects) | Tiny committed relocatable objects under `tests/fixtures/MachO/` — real, multi-section Mach-O binaries that round-trip through `MachOReader` (no chained fixups) and cover both the x86_64 and arm64 code paths. |
+| `macho-x64.o` / `macho-arm64.o` (Mach-O objects) | Tiny committed relocatable objects under `tests/fixtures/MachO/` — real, multi-section Mach-O binaries that round-trip through `MachOReader` (no chained fixups) and cover both the x86_64 and arm64 code paths for the section **and** nlist-symbol comparisons. |
 | `arm64rich.o` (Mach-O arm64 object) | Committed relocatable object with a diverse instruction mix (arithmetic, logical, moves, shifts, compares, loads/stores, bitfield, branches) — the decode-correctness fixture for the ARM64 disassembly oracle. |
 
 ### Normalization notes
