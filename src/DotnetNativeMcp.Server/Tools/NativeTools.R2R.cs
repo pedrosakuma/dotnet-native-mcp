@@ -30,6 +30,9 @@ public sealed partial class NativeTools
         "EnclosingTypeMap (type 122, nested-type -> enclosing-type), MethodIsGenericMap (type 121, generic methods) " +
         "and TypeGenericInfoMap (type 123, per-type generic arity/variance/constraints), emitting metadata tokens " +
         "for handoff (capped by infoMapsLimit). " +
+        "When includeManifestMetadata is true, also surfaces the ManifestMetadata section (type 112) — " +
+        "the embedded ECMA-335 metadata blob — as a handoff descriptor (file offset, RVA, size, version " +
+        "string and stream directory); the managed metadata itself is not decoded (hand off to dotnet-assembly-mcp). " +
         "Returns r2r_not_present when the image has no R2R header (pure managed assembly or NativeAOT binary). " +
         "Use list_r2r_runtime_functions to navigate the RuntimeFunctions section.")]
     public NativeResult<R2RHeaderResult> GetR2RHeader(
@@ -49,7 +52,9 @@ public sealed partial class NativeTools
         [Description("When true, also decode the V9 info maps (EnclosingTypeMap 122, MethodIsGenericMap 121, TypeGenericInfoMap 123) when present. Default false.")]
         bool includeInfoMaps = false,
         [Description("Maximum entries to return per info map (default 200, max 2000). Ignored unless includeInfoMaps is true.")]
-        int infoMapsLimit = 200)
+        int infoMapsLimit = 200,
+        [Description("When true, also surface the ManifestMetadata (type 112) embedded ECMA blob as a handoff descriptor. Default false.")]
+        bool includeManifestMetadata = false)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
             return NativeResult.Fail<R2RHeaderResult>(
@@ -73,6 +78,7 @@ public sealed partial class NativeTools
         var hasMethodIsGenericMap = hdr.FindSection(ReadyToRunSectionType.MethodIsGenericMap) is not null;
         var hasTypeGenericInfoMap = hdr.FindSection(ReadyToRunSectionType.TypeGenericInfoMap) is not null;
         var hasInfoMaps = hasEnclosingTypeMap || hasMethodIsGenericMap || hasTypeGenericInfoMap;
+        var hasManifestMetadata = hdr.FindSection(ReadyToRunSectionType.ManifestMetadata) is not null;
 
         var hints = new List<NextActionHint>
         {
@@ -146,6 +152,18 @@ public sealed partial class NativeTools
                 {
                     ["imageHandle"] = imageHandle,
                     ["includeInfoMaps"] = true,
+                }));
+        }
+
+        if (hasManifestMetadata && !includeManifestMetadata)
+        {
+            hints.Add(new NextActionHint(
+                "get_r2r_header",
+                "Re-run with includeManifestMetadata=true to surface the ManifestMetadata (type 112) embedded ECMA blob descriptor.",
+                new Dictionary<string, object?>
+                {
+                    ["imageHandle"] = imageHandle,
+                    ["includeManifestMetadata"] = true,
                 }));
         }
 
@@ -290,6 +308,23 @@ public sealed partial class NativeTools
             infoMaps = new R2RInfoMapsView(enclosingMap, methodGenericMap, typeGenericMap);
         }
 
+        R2RManifestMetadataView? manifestMetadata = null;
+        if (includeManifestMetadata && hasManifestMetadata)
+        {
+            var r = ReadyToRunReader.ReadManifestMetadata(image, hdr);
+            if (r.IsError)
+                return NativeResult.Fail<R2RHeaderResult>(r.Error!.Kind, r.Error.Message, r.Error.Detail);
+            var m = r.Data!;
+            manifestMetadata = new R2RManifestMetadataView(
+                $"0x{m.FileOffset:X8}",
+                $"0x{m.Rva:X8}",
+                m.Size,
+                m.MajorVersion,
+                m.MinorVersion,
+                m.Version,
+                m.Streams.Select(s => new R2RMetadataStreamView(s.Name, $"0x{s.Offset:X8}", s.Size)).ToList());
+        }
+
         var data = new R2RHeaderResult(
             imageHandle,
             hdr.Version,
@@ -309,7 +344,8 @@ public sealed partial class NativeTools
             manifestAssemblyMvids,
             methodEntryPoints,
             availableTypes,
-            infoMaps);
+            infoMaps,
+            manifestMetadata);
 
         var flagSummary = flagNames.Count > 0 ? $", flags [{string.Join(", ", flagNames)}]" : string.Empty;
         var importSummary = importSections is not null ? $", {importSections.Count} import sections" : string.Empty;
@@ -317,8 +353,9 @@ public sealed partial class NativeTools
         var mepSummary = methodEntryPoints is not null ? $", {methodEntryPoints.ReturnedCount} method entry points" : string.Empty;
         var atSummary = availableTypes is not null ? $", {availableTypes.ReturnedCount} available types" : string.Empty;
         var infoMapsSummary = infoMaps is not null ? ", info maps decoded" : string.Empty;
+        var manifestSummary = manifestMetadata is not null ? ", manifest metadata located" : string.Empty;
         return NativeResult.Ok(
-            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}{importSummary}{compositeSummary}{mepSummary}{atSummary}{infoMapsSummary}.",
+            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}{importSummary}{compositeSummary}{mepSummary}{atSummary}{infoMapsSummary}{manifestSummary}.",
             data,
             hints);
     }
@@ -440,6 +477,10 @@ public sealed partial class NativeTools
 /// Decoded V9 RID-indexed info maps (EnclosingTypeMap 122, MethodIsGenericMap 121, TypeGenericInfoMap 123),
 /// or <c>null</c> when <c>includeInfoMaps</c> was false or the image has none of those sections.
 /// </param>
+/// <param name="ManifestMetadata">
+/// Handoff descriptor for the ManifestMetadata (type 112) embedded ECMA blob, or <c>null</c> when
+/// <c>includeManifestMetadata</c> was false or the image has no ManifestMetadata section.
+/// </param>
 public sealed record R2RHeaderResult(
     string ImageHandle,
     string Version,
@@ -459,7 +500,8 @@ public sealed record R2RHeaderResult(
     IReadOnlyList<string>? ManifestAssemblyMvids = null,
     R2RMethodEntryPointsView? MethodEntryPoints = null,
     R2RAvailableTypesView? AvailableTypes = null,
-    R2RInfoMapsView? InfoMaps = null);
+    R2RInfoMapsView? InfoMaps = null,
+    R2RManifestMetadataView? ManifestMetadata = null);
 
 /// <summary>Decoded MethodDefEntryPoints (type 103) table.</summary>
 /// <param name="MethodCount">
@@ -562,6 +604,32 @@ public sealed record R2RTypeGenericInfoView(
     int GenericArgCount,
     bool HasVariance,
     bool HasConstraints);
+
+/// <summary>Handoff descriptor for the ManifestMetadata (type 112) embedded ECMA-335 metadata blob.</summary>
+/// <param name="FileOffset">Byte offset of the blob within the PE file (hex). Hand off to dotnet-assembly-mcp.</param>
+/// <param name="Rva">Relative virtual address of the blob within the image (hex).</param>
+/// <param name="Size">Byte size of the blob.</param>
+/// <param name="MajorVersion">Metadata-root major version (ECMA-335 II.24.2.1).</param>
+/// <param name="MinorVersion">Metadata-root minor version.</param>
+/// <param name="Version">Runtime version string (e.g. <c>v4.0.30319</c>).</param>
+/// <param name="Streams">The metadata stream directory (<c>#~</c>, <c>#Strings</c>, <c>#US</c>, <c>#GUID</c>, <c>#Blob</c>).</param>
+public sealed record R2RManifestMetadataView(
+    string FileOffset,
+    string Rva,
+    uint Size,
+    ushort MajorVersion,
+    ushort MinorVersion,
+    string Version,
+    IReadOnlyList<R2RMetadataStreamView> Streams);
+
+/// <summary>One stream header from the embedded ECMA metadata root.</summary>
+/// <param name="Name">Stream name (e.g. <c>#~</c>, <c>#Strings</c>).</param>
+/// <param name="Offset">Stream offset relative to the metadata-root start (hex).</param>
+/// <param name="Size">Stream byte size.</param>
+public sealed record R2RMetadataStreamView(
+    string Name,
+    string Offset,
+    uint Size);
 
 /// <summary>One decoded entry of the R2R ComponentAssemblies section (type 115).</summary>
 /// <param name="Index">Zero-based index in the component-assemblies table.</param>

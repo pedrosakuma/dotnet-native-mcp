@@ -813,6 +813,8 @@ public static class ReadyToRunReader
 
     private const uint MethodDefTokenBase = 0x06000000;
 
+    private const uint EcmaMetadataSignature = 0x424A5342; // "BSJB"
+
     /// <summary>
     /// Reads the <c>EnclosingTypeMap</c> section (type 122) — a fixed-width map,
     /// indexed by (TypeDef RID − 1), of the enclosing (declaring) type's RID for
@@ -1010,6 +1012,121 @@ public static class ReadyToRunReader
             $"Decoded TypeGenericInfoMap: {genericCount} generic type{(genericCount == 1 ? string.Empty : "s")} of {count}" +
             $"{(truncated ? " (returned list truncated)" : string.Empty)}.",
             new ReadyToRunTypeGenericInfoMapTable(count, genericCount, generic, truncated));
+    }
+
+    /// <summary>
+    /// Reads the <c>ManifestMetadata</c> section (type 112) — an embedded ECMA-335
+    /// metadata blob (the R2R manifest of referenced assemblies). The section is not
+    /// decoded into managed metadata here (that is <c>dotnet-assembly-mcp</c>'s job);
+    /// instead the blob's file offset / RVA / size are surfaced for handoff, the
+    /// <c>BSJB</c> signature is validated, and the metadata root header is parsed for
+    /// the version string and stream directory (<c>#~</c>, <c>#Strings</c>, …).
+    /// </summary>
+    public static NativeResult<ReadyToRunManifestMetadata> ReadManifestMetadata(
+        NativeImage image,
+        ReadyToRunHeader header)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(header);
+
+        var section = header.FindSection(ReadyToRunSectionType.ManifestMetadata);
+        if (section is null)
+            return NativeResult.Fail<ReadyToRunManifestMetadata>(
+                ErrorKinds.R2RSectionNotPresent,
+                "This R2R image does not contain a ManifestMetadata (type 112) section.");
+
+        if (section.Size == 0)
+            return NativeResult.Fail<ReadyToRunManifestMetadata>(
+                ErrorKinds.InvalidArgument, "ManifestMetadata (type 112) section is empty.");
+
+        var fileOffset = image.RvaToFileOffset(section.VirtualAddress);
+        if (fileOffset is null || fileOffset.Value < 0)
+            return NativeResult.Fail<ReadyToRunManifestMetadata>(
+                ErrorKinds.InvalidArgument,
+                $"ManifestMetadata RVA 0x{section.VirtualAddress:X8} could not be mapped to a file offset.");
+
+        var fileBytes = image.RawBytes.Span;
+        if ((long)fileOffset.Value + section.Size > fileBytes.Length)
+            return NativeResult.Fail<ReadyToRunManifestMetadata>(
+                ErrorKinds.InvalidArgument, "ManifestMetadata section extends beyond the end of the file.");
+
+        var blob = fileBytes.Slice(fileOffset.Value, (int)section.Size);
+
+        // ECMA-335 II.24.2.1 metadata root header.
+        if (blob.Length < 16)
+            return NativeResult.Fail<ReadyToRunManifestMetadata>(
+                ErrorKinds.InvalidArgument, "ManifestMetadata blob is too small to hold an ECMA metadata root.");
+
+        var signature = BinaryPrimitives.ReadUInt32LittleEndian(blob);
+        if (signature != EcmaMetadataSignature)
+            return NativeResult.Fail<ReadyToRunManifestMetadata>(
+                ErrorKinds.InvalidArgument,
+                $"ManifestMetadata blob does not start with the BSJB signature (found 0x{signature:X8}).");
+
+        var majorVersion = BinaryPrimitives.ReadUInt16LittleEndian(blob.Slice(4, 2));
+        var minorVersion = BinaryPrimitives.ReadUInt16LittleEndian(blob.Slice(6, 2));
+        var versionLength = BinaryPrimitives.ReadUInt32LittleEndian(blob.Slice(12, 4));
+        if (versionLength > int.MaxValue - 20 || 16 + (long)versionLength + 4 > blob.Length)
+            return NativeResult.Fail<ReadyToRunManifestMetadata>(
+                ErrorKinds.InvalidArgument,
+                $"ManifestMetadata version string length {versionLength} extends beyond the blob.");
+
+        var versionBytes = blob.Slice(16, (int)versionLength);
+        var nul = versionBytes.IndexOf((byte)0);
+        if (nul < 0)
+            return NativeResult.Fail<ReadyToRunManifestMetadata>(
+                ErrorKinds.InvalidArgument, "ManifestMetadata version string is not null-terminated.");
+        var version = System.Text.Encoding.UTF8.GetString(versionBytes.Slice(0, nul));
+
+        var afterVersion = 16 + (int)versionLength;
+        // Flags (u16) + Streams (u16).
+        if (afterVersion + 4 > blob.Length)
+            return NativeResult.Fail<ReadyToRunManifestMetadata>(
+                ErrorKinds.InvalidArgument, "ManifestMetadata blob is truncated before the stream count.");
+
+        int streamCount = BinaryPrimitives.ReadUInt16LittleEndian(blob.Slice(afterVersion + 2, 2));
+
+        var streams = new List<ReadyToRunMetadataStreamHeader>();
+        var cursor = afterVersion + 4;
+        for (var i = 0; i < streamCount; i++)
+        {
+            if (cursor + 8 > blob.Length)
+                return NativeResult.Fail<ReadyToRunManifestMetadata>(
+                    ErrorKinds.InvalidArgument,
+                    $"ManifestMetadata stream header #{i} extends beyond the blob.");
+
+            var streamOffset = BinaryPrimitives.ReadUInt32LittleEndian(blob.Slice(cursor, 4));
+            var streamSize = BinaryPrimitives.ReadUInt32LittleEndian(blob.Slice(cursor + 4, 4));
+            cursor += 8;
+
+            // Null-terminated ASCII name, padded to the next 4-byte boundary, max 32 bytes.
+            var nameStart = cursor;
+            var nameEnd = nameStart;
+            while (nameEnd < blob.Length && nameEnd - nameStart < 32 && blob[nameEnd] != 0)
+                nameEnd++;
+            if (nameEnd >= blob.Length || nameEnd - nameStart >= 32)
+                return NativeResult.Fail<ReadyToRunManifestMetadata>(
+                    ErrorKinds.InvalidArgument,
+                    $"ManifestMetadata stream name #{i} is unterminated or too long.");
+
+            var name = System.Text.Encoding.ASCII.GetString(blob.Slice(nameStart, nameEnd - nameStart));
+            var nameLenWithNul = nameEnd - nameStart + 1;
+            var paddedNameLen = (nameLenWithNul + 3) & ~3;
+            if ((long)cursor + paddedNameLen > blob.Length)
+                return NativeResult.Fail<ReadyToRunManifestMetadata>(
+                    ErrorKinds.InvalidArgument,
+                    $"ManifestMetadata stream name #{i} padding extends beyond the blob.");
+            cursor += paddedNameLen;
+
+            streams.Add(new ReadyToRunMetadataStreamHeader(name, streamOffset, streamSize));
+        }
+
+        return NativeResult.Ok(
+            $"Decoded ManifestMetadata: ECMA blob '{version}' at file offset 0x{fileOffset.Value:X8}, " +
+            $"{section.Size} bytes, {streams.Count} stream{(streams.Count == 1 ? string.Empty : "s")}.",
+            new ReadyToRunManifestMetadata(
+                fileOffset.Value, section.VirtualAddress, section.Size,
+                majorVersion, minorVersion, version, streams));
     }
 
     /// <summary>
@@ -1350,3 +1467,29 @@ public sealed record ReadyToRunTypeGenericInfo(
     int GenericArgCount,
     bool HasVariance,
     bool HasConstraints);
+
+/// <summary>Descriptor for the embedded ECMA-335 metadata blob in the <c>ManifestMetadata</c> section (type 112).</summary>
+/// <param name="FileOffset">Byte offset of the blob within the PE file (for handoff to <c>dotnet-assembly-mcp</c>).</param>
+/// <param name="Rva">Relative virtual address of the blob within the image.</param>
+/// <param name="Size">Byte size of the blob.</param>
+/// <param name="MajorVersion">Metadata-root major version (ECMA-335 II.24.2.1).</param>
+/// <param name="MinorVersion">Metadata-root minor version.</param>
+/// <param name="Version">Runtime version string (e.g. <c>v4.0.30319</c>).</param>
+/// <param name="Streams">The metadata stream directory (<c>#~</c>, <c>#Strings</c>, <c>#US</c>, <c>#GUID</c>, <c>#Blob</c>).</param>
+public sealed record ReadyToRunManifestMetadata(
+    int FileOffset,
+    uint Rva,
+    uint Size,
+    ushort MajorVersion,
+    ushort MinorVersion,
+    string Version,
+    IReadOnlyList<ReadyToRunMetadataStreamHeader> Streams);
+
+/// <summary>One stream header from the embedded ECMA metadata root.</summary>
+/// <param name="Name">Stream name (e.g. <c>#~</c>, <c>#Strings</c>).</param>
+/// <param name="Offset">Stream offset relative to the metadata-root start.</param>
+/// <param name="Size">Stream byte size.</param>
+public sealed record ReadyToRunMetadataStreamHeader(
+    string Name,
+    uint Offset,
+    uint Size);

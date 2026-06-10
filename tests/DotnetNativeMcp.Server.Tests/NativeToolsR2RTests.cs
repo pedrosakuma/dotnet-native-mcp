@@ -873,6 +873,81 @@ public class NativeToolsR2RTests
             h.SuggestedArguments.ContainsKey("includeInfoMaps"));
     }
 
+    [Fact]
+    public void GetR2RHeader_IncludeManifestMetadata_LocatesEcmaBlob()
+    {
+        var blob = BuildEcmaMetadataRoot("v4.0.30319", ("#~", 0x6Cu, 0x40u), ("#Strings", 0xACu, 0x20u));
+        var image = BuildSyntheticR2RWithRawSection(
+            (uint)ReadyToRunSectionType.ManifestMetadata, blob, "r2r_mm.dll", "aabbccddee13");
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value, includeManifestMetadata: true);
+
+        result.IsError.Should().BeFalse();
+        var mm = result.Data!.ManifestMetadata;
+        mm.Should().NotBeNull();
+        mm!.Version.Should().Be("v4.0.30319");
+        mm.Size.Should().Be((uint)blob.Length);
+        mm.Streams.Select(s => s.Name).Should().Equal("#~", "#Strings");
+        mm.Streams[0].Offset.Should().Be("0x0000006C");
+        result.Summary.Should().Contain("manifest metadata located");
+    }
+
+    [Fact]
+    public void GetR2RHeader_ManifestMetadataPresent_NotIncluded_OffersHint()
+    {
+        var blob = BuildEcmaMetadataRoot("v4.0.30319", ("#~", 0x6Cu, 0x40u));
+        var image = BuildSyntheticR2RWithRawSection(
+            (uint)ReadyToRunSectionType.ManifestMetadata, blob, "r2r_mm_hint.dll", "aabbccddee14");
+        var tools = MakeTools(image);
+
+        var result = tools.GetR2RHeader(image.Handle.Value);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.ManifestMetadata.Should().BeNull();
+        result.Hints.Should().Contain(h =>
+            h.NextTool == "get_r2r_header" &&
+            h.SuggestedArguments != null &&
+            h.SuggestedArguments.ContainsKey("includeManifestMetadata"));
+    }
+
+    private static byte[] BuildEcmaMetadataRoot(string version, params (string Name, uint Offset, uint Size)[] streams)
+    {
+        var versionBytes = System.Text.Encoding.UTF8.GetBytes(version);
+        var versionLen = (versionBytes.Length + 1 + 3) & ~3;
+
+        var headers = new List<byte[]>();
+        foreach (var (name, offset, size) in streams)
+        {
+            var nameBytes = System.Text.Encoding.ASCII.GetBytes(name);
+            var nameLen = (nameBytes.Length + 1 + 3) & ~3;
+            var h = new byte[8 + nameLen];
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(h, offset);
+            System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(h.AsSpan(4), size);
+            nameBytes.CopyTo(h.AsSpan(8));
+            headers.Add(h);
+        }
+
+        var total = 16 + versionLen + 4 + headers.Sum(h => h.Length);
+        var blob = new byte[total];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(blob, 0x424A5342);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(blob.AsSpan(4), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(blob.AsSpan(6), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(blob.AsSpan(12), (uint)versionLen);
+        versionBytes.CopyTo(blob.AsSpan(16));
+
+        var pos = 16 + versionLen;
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(blob.AsSpan(pos + 2), (ushort)streams.Length);
+        pos += 4;
+        foreach (var h in headers)
+        {
+            h.CopyTo(blob.AsSpan(pos));
+            pos += h.Length;
+        }
+
+        return blob;
+    }
+
     // -----------------------------------------------------------------------
     // ListR2RRuntimeFunctions tests
     // -----------------------------------------------------------------------
