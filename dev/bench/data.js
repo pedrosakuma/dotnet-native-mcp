@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781100745932,
+  "lastUpdate": 1781100747259,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1406,6 +1406,42 @@ window.BENCHMARK_DATA = {
             "value": 86.06280561004367,
             "unit": "ns",
             "range": "± 1.2363124171350672"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "d7bf24d1d7f8b0b4613dc656c18abff0ba37437b",
+          "message": "feat(r2r): decode ImportSections (type 101) behind includeImportSections (#120)\n\nAdd structural decoding of the R2R ImportSections section (type 101) —\neach READYTORUN_IMPORT_SECTION (20-byte) entry is decoded into RVA/size,\ndecoded Type and Flags, EntrySize, and the Signatures/AuxiliaryData RVAs.\nIndividual fixup signatures are intentionally not decoded (would require\nInternal.TypeSystem — out of scope).\n\nExposed via a new `includeImportSections=false` parameter on the existing\n`get_r2r_header` tool (respecting the hard tool budget — no new tool).\n`R2RHeaderResult.ImportSections` is a nullable additive field, so the\nresponse stays back-compatible. A NextActionHint advertises the parameter\nwhen the section is present but not requested.\n\n`ReadImportSections` validates the declared table byte range against the\nfile size up front (long arithmetic) before allocating, rejecting crafted\nheaders whose Size would otherwise drive a huge allocation or overflow the\nper-entry offset math.\n\nTests: Core decoder/reader unit tests, an oversized-section hardening test,\na real-image regression (System.Private.CoreLib carries a 7-entry section),\nand Server tool tests. 430 Core + 111 Server green, 0 warnings.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T11:01:52-03:00",
+          "tree_id": "f66e403e53ae2e137bda94903c073ed9c5344609",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/d7bf24d1d7f8b0b4613dc656c18abff0ba37437b"
+        },
+        "date": 1781100747235,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 7541588.986778846,
+            "unit": "ns",
+            "range": "± 70084.0851891285"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 85.7194544752439,
+            "unit": "ns",
+            "range": "± 0.6204975972495308"
           }
         ]
       }
