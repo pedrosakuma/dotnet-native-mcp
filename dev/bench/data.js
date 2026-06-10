@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781131280460,
+  "lastUpdate": 1781131281680,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -2654,6 +2654,42 @@ window.BENCHMARK_DATA = {
             "value": 97.587115863959,
             "unit": "ns",
             "range": "± 2.083087109045033"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "003ec37c518d8f3b29faea74e8c5909309d54d12",
+          "message": "feat(retention): all-roots/k-path explain_retention + capture ILC edge reasons (#135)\n\nThe ILC writes the retention reason on the DGML <Link> 'Reason' attribute,\nnot 'Label'; DgmlReader only read 'Label', so every retention reason was\nsilently null on real NativeAOT sidecars. Read 'Reason' (falling back to\n'Label'), restoring the 'why is this edge here' signal (call, reloc,\nReflectable type, Virtual method, ...).\n\nDeepen explain_retention from a single shortest path to all the independent\nreasons a type/method stays in the binary. RetentionPathFinder now runs one\nreverse breadth-first traversal from the target, building a shortest-path\ntree, and returns the shortest chain from each distinct reachable root,\nranked shortest-first and capped by a new additive maxPaths param (1..64,\nno new tool). FindTargets surfaces every node a query matched so an ambiguous\nsubstring resolves to Candidates instead of silently picking the first node.\nThe result keeps Path (shortest, back-compat) and adds Candidates + Paths;\nFindShortestPath delegates to the new finder.\n\nMaterialization is deferred until after the maxPaths cap so a graph with\nmany roots sharing a deep tail cannot force roots x depth segment\nallocations, and a target that is itself a root yields the zero-hop path.\n\n642 Core + 136 Server tests green; 0 warnings. Two gpt-5.5 review passes\n(DoS materialization + target-as-root ordering fixed and confirmed).\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T19:31:57-03:00",
+          "tree_id": "357774de3efd64923633e1074a075ced5bb567ba",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/003ec37c518d8f3b29faea74e8c5909309d54d12"
+        },
+        "date": 1781131281667,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 5041463.574908088,
+            "unit": "ns",
+            "range": "± 101389.77929839975"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 44.87916361434119,
+            "unit": "ns",
+            "range": "± 0.42301051279386653"
           }
         ]
       }
