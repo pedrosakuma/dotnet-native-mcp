@@ -263,8 +263,10 @@ public static class RawDisassembler
                 return Architecture.Arm64;
         }
 
-        if (header.FindSection(ReadyToRunSectionType.MethodHeaderAndCodeInfo) is not null)
+        if (header.FindSection(ReadyToRunSectionType.RuntimeFunctions) is null)
         {
+            // No RuntimeFunctions table to sample from — fall back to decoding the
+            // requested bytes as x64 vs ARM64 and scoring the result.
             var probeArchitecture = TryInferArchitectureFromDecodeProbe(image, requestedRva, requestedSize);
             if (probeArchitecture is not null)
                 return probeArchitecture;

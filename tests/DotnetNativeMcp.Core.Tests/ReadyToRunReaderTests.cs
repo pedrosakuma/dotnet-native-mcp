@@ -166,9 +166,9 @@ public class ReadyToRunReaderTests
 
         if (hasFunctions)
         {
-            // Section entry 0: type=5 (RuntimeFunctions), RVA, Size
+            // Section entry 0: RuntimeFunctions (type 102), RVA, Size
             int secEntOff = r2rOff + 16;
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 0), 5u);           // RuntimeFunctions
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 0), (uint)ReadyToRunSectionType.RuntimeFunctions);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 4), rtFuncTableVA);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 8), (uint)rtFuncTableSize);
 
@@ -264,7 +264,7 @@ public class ReadyToRunReaderTests
         if (runtimeFunctions.Length > 0)
         {
             int secEntOff = r2rOff + 16;
-            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 0), 5u);
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 0), (uint)ReadyToRunSectionType.RuntimeFunctions);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 4), rtFuncTableVA);
             BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(secEntOff + 8), (uint)rtFuncTableSize);
 
@@ -743,5 +743,64 @@ public class ReadyToRunReaderTests
         var expectedHeaderSize = 16 + hdr.Sections.Count * 12;
         expectedHeaderSize.Should().BeGreaterThan(0);
         hdr.Sections.Count.Should().BeGreaterThan(0);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Real-image regression tests — guard against the section-type enum drifting
+    // away from coreclr/inc/readytorun.h. RuntimeFunctions is type 102; an image
+    // produced by crossgen2 must expose it and yield decodable entries. These
+    // would have failed when the enum incorrectly mapped RuntimeFunctions to 5.
+    // ---------------------------------------------------------------------------
+
+    [Fact]
+    public void RuntimeFunctions_SectionType_Is102()
+    {
+        ((uint)ReadyToRunSectionType.RuntimeFunctions).Should().Be(102u,
+            "coreclr/inc/readytorun.h defines RuntimeFunctions = 102");
+    }
+
+    [Fact]
+    public void ReadRuntimeFunctions_RealR2RImage_ReturnsDecodableEntries()
+    {
+        var dllPaths = RealR2RImagePaths().ToList();
+        if (dllPaths.Count == 0) return;  // skip when no real R2R fixture is available
+
+        foreach (var dllPath in dllPaths)
+        {
+            var bytes = File.ReadAllBytes(dllPath);
+            var image = PeNativeReader.Read(new ReadOnlyMemory<byte>(bytes), dllPath);
+            image.Should().NotBeNull();
+
+            var hdr = ReadyToRunReader.ReadHeader(image!).Data!;
+
+            var rtSection = hdr.FindSection(ReadyToRunSectionType.RuntimeFunctions);
+            rtSection.Should().NotBeNull(
+                $"a crossgen2-produced R2R image ({dllPath}) exposes the RuntimeFunctions section (type 102)");
+            rtSection!.Type.Should().Be(102u);
+            rtSection.Size.Should().BeGreaterThan(0);
+
+            var page = ReadyToRunReader.ReadRuntimeFunctions(image!, hdr, 0, 16);
+            page.IsError.Should().BeFalse(
+                "RuntimeFunctions must be decodable on a real R2R image, not return r2r_section_not_present");
+            page.Data!.TotalCount.Should().BeGreaterThan(0);
+            page.Data.Functions.Should().NotBeEmpty();
+
+            foreach (var fn in page.Data.Functions)
+            {
+                fn.EndAddress.Should().BeGreaterThan(fn.BeginAddress,
+                    "each RUNTIME_FUNCTION spans a non-empty code range");
+            }
+        }
+    }
+
+    private static IEnumerable<string> RealR2RImagePaths()
+    {
+        var spc = FixturePaths.SystemPrivateCoreLib ?? FindInstalledSystemPrivateCoreLib();
+        if (spc is not null)
+            yield return spc;
+
+        var linq = FindSystemLinqDll();
+        if (linq is not null)
+            yield return linq;
     }
 }
