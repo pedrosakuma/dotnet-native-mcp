@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781047215540,
+  "lastUpdate": 1781054616359,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -600,6 +600,66 @@ window.BENCHMARK_DATA = {
             "value": 22.052001092831294,
             "unit": "ns",
             "range": "± 0.11359511767669354"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c1f92df80c034440ef681b516e1cc6716955aeec",
+          "message": "test: add Mach-O nlist symbol differential harness vs llvm-readobj (#116)\n\nClose the Mach-O differential coverage gap: the oracle harness previously\nchecked only section geometry, leaving the nlist symbol reader unverified\nagainst an independent tool.\n\n- LlvmReadobjOracle.TryReadMachOSymbols parses `llvm-readobj --syms` into a\n  multiset of (name, n_value), mirroring MachOReader's emission exactly:\n  excludes undefined (Type: Undef) and STAB/debug entries, includes the\n  non-N_UNDF defined classes (Section/Absolute/Indirect), and strips the macOS\n  leading `_`.\n- MachOSymbolDifferentialTests compares MachOReader symbols vs the oracle on the\n  x64, arm64, and arm64rich committed fixtures (skips cleanly without LLVM).\n- A symbol-specific name regex captures the whole name and strips only the\n  trailing ` (N)` string-table-index gloss, so a symbol name containing spaces\n  is not truncated.\n- Document the new surface and comparison strategy in docs/differential-testing.md.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-09T22:12:35-03:00",
+          "tree_id": "621e8aa04934d7cfc515a8a031a3505ca6dd0062",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/c1f92df80c034440ef681b516e1cc6716955aeec"
+        },
+        "date": 1781054616337,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 11576922062.5,
+            "unit": "ns",
+            "range": "± 99739782.71875545"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 25919904.633333333,
+            "unit": "ns",
+            "range": "± 382139.8191074185"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 27.64631255183901,
+            "unit": "ns",
+            "range": "± 0.32999720955374445"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 1508953.6221590908,
+            "unit": "ns",
+            "range": "± 770549.88991719"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 19367.17646891276,
+            "unit": "ns",
+            "range": "± 143.7498387813973"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 19.649578001101812,
+            "unit": "ns",
+            "range": "± 0.31406324674945074"
           }
         ]
       }
