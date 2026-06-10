@@ -152,8 +152,12 @@ public sealed partial class NativeTools
                 path));
     }
 
-    private static bool TryParseGroupBy(string value, out MstatGroupBy groupBy)
+    private static bool TryParseGroupBy(string? value, out MstatGroupBy groupBy)
     {
+        groupBy = default;
+        if (string.IsNullOrWhiteSpace(value))
+            return false;
+
         var normalized = value.Trim().ToLowerInvariant();
         groupBy = normalized switch
         {
@@ -171,11 +175,15 @@ public sealed partial class NativeTools
     [McpServerTool(Name = "compare_native_binaries")]
     [Description(
         "Diffs two loaded native images and reports build-id, format, architecture, file-size, section-size, and symbol-size deltas. " +
-        "Use it to spot release-over-release native binary regressions and identify the symbols that grew the most.")]
+        "Use it to spot release-over-release native binary regressions and identify the symbols that grew the most. " +
+        "When both images have a sibling NativeAOT .mstat sidecar, it also computes a managed size diff ('what grew between two builds?') at the requested grouping (assembly, namespace, type, method, or category), reporting build-level total deltas plus the top grown and shrunk buckets.")]
     public NativeResult<CompareNativeBinariesResult> CompareNativeBinaries(
         [Description("Baseline ImageHandle returned by load_native_binary.")] string baselineHandle,
         [Description("Current ImageHandle returned by load_native_binary.")] string currentHandle,
-        [Description("Maximum added, removed, and changed symbols to return per category. Must be between 1 and 500.")] int topN = 50)
+        [Description("Maximum added, removed, and changed symbols (and grown/shrunk mstat size buckets) to return per category. Must be between 1 and 500.")] int topN = 50,
+        [Description("Grouping for the optional .mstat size diff: assembly, namespace, type, method, or category. Default: category.")] string mstatGroupBy = "category",
+        [Description("Optional absolute path override for the baseline .mstat sidecar. Defaults to a sibling file next to the baseline binary.")] string? baselineMstatPath = null,
+        [Description("Optional absolute path override for the current .mstat sidecar. Defaults to a sibling file next to the current binary.")] string? currentMstatPath = null)
     {
         if (!registry.TryGet(baselineHandle, out var baseline) || baseline is null)
             return NativeResult.Fail<CompareNativeBinariesResult>(
@@ -191,6 +199,14 @@ public sealed partial class NativeTools
             return NativeResult.Fail<CompareNativeBinariesResult>(
                 ErrorKinds.InvalidArgument,
                 $"topN must be between 1 and 500. Actual: {topN.ToString(CultureInfo.InvariantCulture)}.");
+
+        if (!TryParseGroupBy(mstatGroupBy, out var mstatGrouping))
+            return NativeResult.Fail<CompareNativeBinariesResult>(
+                ErrorKinds.InvalidArgument,
+                $"mstatGroupBy must be one of: assembly, namespace, type, method, category. Actual: '{mstatGroupBy}'.");
+
+        var (mstatSizeDiff, mstatSizeDiffNote) = TryComputeMstatSizeDiff(
+            baseline, current, baselineMstatPath, currentMstatPath, mstatGrouping, topN);
 
         var comparison = NativeBinaryComparer.Compare(baseline, current, topN);
         var data = new CompareNativeBinariesResult(
@@ -234,7 +250,9 @@ public sealed partial class NativeTools
                 symbol.SizeDeltaBytes,
                 symbol.BaselineSection,
                 symbol.CurrentSection,
-                symbol.IsFunction)).ToList());
+                symbol.IsFunction)).ToList(),
+            mstatSizeDiff,
+            mstatSizeDiffNote);
 
         var hints = new List<NextActionHint>();
         if (comparison.ChangedSymbols.Count > 0)
@@ -249,11 +267,89 @@ public sealed partial class NativeTools
                 }));
         }
 
+        if (mstatSizeDiff is { TopGrew.Count: > 0 })
+        {
+            hints.Add(new NextActionHint(
+                "get_size_breakdown",
+                "Drill into the per-method size breakdown of the current build's largest growth.",
+                new Dictionary<string, object?>
+                {
+                    ["imageHandle"] = currentHandle,
+                    ["groupBy"] = "method",
+                }));
+        }
+
+        var mstatSummary = mstatSizeDiff is null
+            ? string.Empty
+            : $" mstat {mstatSizeDiff.GroupBy} Δ {FormatByteDelta(mstatSizeDiff.TotalSizeDelta)} ({mstatSizeDiff.TopGrew.Count} grew, {mstatSizeDiff.TopShrank.Count} shrank).";
+
         return NativeResult.Ok(
-            $"{comparison.AddedSymbolCount} added, {comparison.RemovedSymbolCount} removed, {comparison.ChangedSymbolCount} size-changed (Δ {FormatByteDelta(comparison.TotalBinarySizeDeltaBytes)}).",
+            $"{comparison.AddedSymbolCount} added, {comparison.RemovedSymbolCount} removed, {comparison.ChangedSymbolCount} size-changed (Δ {FormatByteDelta(comparison.TotalBinarySizeDeltaBytes)}).{mstatSummary}",
             data,
             hints);
     }
+
+    private (MstatSizeDiffResult? Diff, string? Note) TryComputeMstatSizeDiff(
+        Core.Imaging.NativeImage baseline,
+        Core.Imaging.NativeImage current,
+        string? baselineMstatPath,
+        string? currentMstatPath,
+        MstatGroupBy groupBy,
+        int topN)
+    {
+        var (baselineDoc, baselineNote) = TryReadMstatForImage(baseline, baselineMstatPath, "baseline");
+        var (currentDoc, currentNote) = TryReadMstatForImage(current, currentMstatPath, "current");
+
+        if (baselineDoc is null || currentDoc is null)
+        {
+            var notes = new[] { baselineNote, currentNote }.Where(n => n is not null);
+            return (null, string.Join(" ", notes));
+        }
+
+        var diff = MstatReader.Diff(baselineDoc, currentDoc, groupBy, topN);
+        var result = new MstatSizeDiffResult(
+            diff.GroupBy,
+            diff.BaselineTotalSize,
+            diff.CurrentTotalSize,
+            diff.TotalSizeDelta,
+            diff.AddedBucketCount,
+            diff.RemovedBucketCount,
+            diff.ChangedBucketCount,
+            diff.TopGrew.Select(ToMstatSizeDiffRow).ToList(),
+            diff.TopShrank.Select(ToMstatSizeDiffRow).ToList());
+        return (result, null);
+    }
+
+    private (MstatDocument? Doc, string? Note) TryReadMstatForImage(Core.Imaging.NativeImage image, string? overridePath, string label)
+    {
+        var candidate = !string.IsNullOrWhiteSpace(overridePath)
+            ? overridePath
+            : MstatReader.GetDefaultMstatPath(image.FilePath);
+
+        var validation = _pathPolicy.Validate(candidate);
+        if (validation.IsError)
+            return (null, $"{label} .mstat path rejected ({validation.Error!.Kind}).");
+
+        var resolved = validation.Data!;
+        if (!File.Exists(resolved))
+            return (null, $"No sibling .mstat sidecar found for the {label} binary ('{Path.GetFileName(resolved)}').");
+
+        var read = MstatReader.Read(resolved);
+        if (read.IsError)
+            return (null, $"Could not read the {label} .mstat sidecar: {read.Error!.Message}");
+
+        return (read.Data!, null);
+    }
+
+    private static MstatSizeDiffRow ToMstatSizeDiffRow(MstatSizeBucketDelta delta) => new(
+        delta.Key,
+        delta.AssemblyName,
+        delta.NamespaceName,
+        delta.TypeName,
+        delta.MethodName,
+        delta.BaselineSize,
+        delta.CurrentSize,
+        delta.SizeDelta);
 }
 
 /// <summary>Result payload for <c>get_size_breakdown</c>.</summary>
@@ -350,4 +446,29 @@ public sealed record CompareNativeBinariesResult(
     int ChangedSymbolCount,
     IReadOnlyList<SymbolInventoryRow> AddedSymbols,
     IReadOnlyList<SymbolInventoryRow> RemovedSymbols,
-    IReadOnlyList<ChangedSymbolDeltaRow> ChangedSymbols);
+    IReadOnlyList<ChangedSymbolDeltaRow> ChangedSymbols,
+    MstatSizeDiffResult? MstatSizeDiff,
+    string? MstatSizeDiffNote);
+
+/// <summary>Optional NativeAOT .mstat managed size diff returned by <c>compare_native_binaries</c>.</summary>
+public sealed record MstatSizeDiffResult(
+    string GroupBy,
+    long BaselineTotalSize,
+    long CurrentTotalSize,
+    long TotalSizeDelta,
+    int AddedBucketCount,
+    int RemovedBucketCount,
+    int ChangedBucketCount,
+    IReadOnlyList<MstatSizeDiffRow> TopGrew,
+    IReadOnlyList<MstatSizeDiffRow> TopShrank);
+
+/// <summary>One grown or shrunk size bucket in the <c>compare_native_binaries</c> mstat size diff.</summary>
+public sealed record MstatSizeDiffRow(
+    string Key,
+    string AssemblyName,
+    string NamespaceName,
+    string TypeName,
+    string? MethodName,
+    long BaselineSize,
+    long CurrentSize,
+    long SizeDelta);

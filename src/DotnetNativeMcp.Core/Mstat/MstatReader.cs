@@ -57,6 +57,29 @@ public sealed record MstatBreakdown(
     long TotalSize,
     int AttributionCount);
 
+/// <summary>One grouped size bucket compared between two mstat documents.</summary>
+public sealed record MstatSizeBucketDelta(
+    string Key,
+    string AssemblyName,
+    string NamespaceName,
+    string TypeName,
+    string? MethodName,
+    long BaselineSize,
+    long CurrentSize,
+    long SizeDelta);
+
+/// <summary>A size diff of two NativeAOT mstat documents at a chosen grouping.</summary>
+public sealed record MstatSizeDiff(
+    string GroupBy,
+    long BaselineTotalSize,
+    long CurrentTotalSize,
+    long TotalSizeDelta,
+    int AddedBucketCount,
+    int RemovedBucketCount,
+    int ChangedBucketCount,
+    IReadOnlyList<MstatSizeBucketDelta> TopGrew,
+    IReadOnlyList<MstatSizeBucketDelta> TopShrank);
+
 public static class MstatReader
 {
     public const int DefaultTopN = 25;
@@ -239,6 +262,125 @@ public static class MstatReader
     public static string GetDefaultMstatPath(string binaryPath) => Path.ChangeExtension(binaryPath, ".mstat");
 
     public static bool HasSiblingMstat(string binaryPath) => File.Exists(GetDefaultMstatPath(binaryPath));
+
+    /// <summary>
+    /// Compares two decoded mstat documents at the requested grouping and returns the size buckets
+    /// that grew or shrank between them — the "what grew between two builds?" view. Build-level
+    /// totals come from each document's complete <see cref="MstatDocument.TotalSize"/> (Methods +
+    /// Types + Blobs); per-bucket totals respect the same grouping semantics as <see cref="Aggregate"/>.
+    /// </summary>
+    public static MstatSizeDiff Diff(MstatDocument baseline, MstatDocument current, MstatGroupBy groupBy, int topN)
+    {
+        ArgumentNullException.ThrowIfNull(baseline);
+        ArgumentNullException.ThrowIfNull(current);
+
+        if (topN <= 0)
+            topN = DefaultTopN;
+        if (topN > MaxTopN)
+            topN = MaxTopN;
+
+        var baselineBuckets = BuildBucketMap(baseline.Attributions, groupBy);
+        var currentBuckets = BuildBucketMap(current.Attributions, groupBy);
+
+        var keys = new HashSet<string>(baselineBuckets.Keys, StringComparer.Ordinal);
+        keys.UnionWith(currentBuckets.Keys);
+
+        var added = 0;
+        var removed = 0;
+        var changed = 0;
+        var deltas = new List<MstatSizeBucketDelta>();
+
+        foreach (var key in keys)
+        {
+            baselineBuckets.TryGetValue(key, out var baselineBucket);
+            currentBuckets.TryGetValue(key, out var currentBucket);
+
+            var baselineSize = baselineBucket?.Size ?? 0;
+            var currentSize = currentBucket?.Size ?? 0;
+            var delta = currentSize - baselineSize;
+
+            if (baselineSize == 0 && currentSize > 0)
+                added++;
+            else if (currentSize == 0 && baselineSize > 0)
+                removed++;
+            else if (delta != 0)
+                changed++;
+
+            if (delta == 0)
+                continue;
+
+            var representative = currentBucket ?? baselineBucket!;
+            deltas.Add(new MstatSizeBucketDelta(
+                key,
+                representative.AssemblyName,
+                representative.NamespaceName,
+                representative.TypeName,
+                representative.MethodName,
+                baselineSize,
+                currentSize,
+                delta));
+        }
+
+        var topGrew = deltas
+            .Where(d => d.SizeDelta > 0)
+            .OrderByDescending(d => d.SizeDelta)
+            .ThenBy(d => d.Key, StringComparer.Ordinal)
+            .Take(topN)
+            .ToList();
+
+        var topShrank = deltas
+            .Where(d => d.SizeDelta < 0)
+            .OrderBy(d => d.SizeDelta)
+            .ThenBy(d => d.Key, StringComparer.Ordinal)
+            .Take(topN)
+            .ToList();
+
+        return new MstatSizeDiff(
+            groupBy.ToString().ToLowerInvariant(),
+            baseline.TotalSize,
+            current.TotalSize,
+            current.TotalSize - baseline.TotalSize,
+            added,
+            removed,
+            changed,
+            new ReadOnlyCollection<MstatSizeBucketDelta>(topGrew),
+            new ReadOnlyCollection<MstatSizeBucketDelta>(topShrank));
+    }
+
+    private static Dictionary<string, SizeBucket> BuildBucketMap(IReadOnlyList<MstatAttribution> attributions, MstatGroupBy groupBy)
+    {
+        IEnumerable<MstatAttribution> source = attributions;
+        if (groupBy == MstatGroupBy.Method)
+            source = source.Where(a => a.MethodName is not null);
+
+        var map = new Dictionary<string, SizeBucket>(StringComparer.Ordinal);
+        foreach (var attribution in source)
+        {
+            var key = BuildKey(attribution, groupBy);
+            if (!map.TryGetValue(key, out var bucket))
+            {
+                bucket = new SizeBucket(
+                    groupBy == MstatGroupBy.Category ? MstatCategory.NativeAssembly : attribution.AssemblyName,
+                    groupBy == MstatGroupBy.Category ? string.Empty : attribution.NamespaceName,
+                    groupBy == MstatGroupBy.Category ? attribution.Source : attribution.TypeName,
+                    groupBy == MstatGroupBy.Method ? attribution.MethodName : null);
+                map[key] = bucket;
+            }
+
+            bucket.Size += attribution.TotalSize;
+        }
+
+        return map;
+    }
+
+    private sealed class SizeBucket(string assemblyName, string namespaceName, string typeName, string? methodName)
+    {
+        public string AssemblyName { get; } = assemblyName;
+        public string NamespaceName { get; } = namespaceName;
+        public string TypeName { get; } = typeName;
+        public string? MethodName { get; } = methodName;
+        public long Size { get; set; }
+    }
 
     private static string BuildKey(MstatAttribution attribution, MstatGroupBy groupBy) => groupBy switch
     {
