@@ -33,6 +33,9 @@ public sealed partial class NativeTools
         "When includeManifestMetadata is true, also surfaces the ManifestMetadata section (type 112) — " +
         "the embedded ECMA-335 metadata blob — as a handoff descriptor (file offset, RVA, size, version " +
         "string and stream directory); the managed metadata itself is not decoded (hand off to dotnet-assembly-mcp). " +
+        "When includeHotColdMap is true, also decodes the HotColdMap section (type 120) — the (cold, hot) " +
+        "RUNTIME_FUNCTION index pairs that map a split method's cold partition back to its hot partition " +
+        "(capped by infoMapsLimit). " +
         "Returns r2r_not_present when the image has no R2R header (pure managed assembly or NativeAOT binary). " +
         "Use list_r2r_runtime_functions to navigate the RuntimeFunctions section.")]
     public NativeResult<R2RHeaderResult> GetR2RHeader(
@@ -54,7 +57,9 @@ public sealed partial class NativeTools
         [Description("Maximum entries to return per info map (default 200, max 2000). Ignored unless includeInfoMaps is true.")]
         int infoMapsLimit = 200,
         [Description("When true, also surface the ManifestMetadata (type 112) embedded ECMA blob as a handoff descriptor. Default false.")]
-        bool includeManifestMetadata = false)
+        bool includeManifestMetadata = false,
+        [Description("When true, also decode the HotColdMap (type 120) (cold, hot) RUNTIME_FUNCTION index pairs. Default false.")]
+        bool includeHotColdMap = false)
     {
         if (!registry.TryGet(imageHandle, out var image) || image is null)
             return NativeResult.Fail<R2RHeaderResult>(
@@ -79,6 +84,7 @@ public sealed partial class NativeTools
         var hasTypeGenericInfoMap = hdr.FindSection(ReadyToRunSectionType.TypeGenericInfoMap) is not null;
         var hasInfoMaps = hasEnclosingTypeMap || hasMethodIsGenericMap || hasTypeGenericInfoMap;
         var hasManifestMetadata = hdr.FindSection(ReadyToRunSectionType.ManifestMetadata) is not null;
+        var hasHotColdMap = hdr.FindSection(ReadyToRunSectionType.HotColdMap) is not null;
 
         var hints = new List<NextActionHint>
         {
@@ -164,6 +170,18 @@ public sealed partial class NativeTools
                 {
                     ["imageHandle"] = imageHandle,
                     ["includeManifestMetadata"] = true,
+                }));
+        }
+
+        if (hasHotColdMap && !includeHotColdMap)
+        {
+            hints.Add(new NextActionHint(
+                "get_r2r_header",
+                "Re-run with includeHotColdMap=true to decode the HotColdMap (type 120) (cold, hot) RUNTIME_FUNCTION index pairs.",
+                new Dictionary<string, object?>
+                {
+                    ["imageHandle"] = imageHandle,
+                    ["includeHotColdMap"] = true,
                 }));
         }
 
@@ -325,6 +343,21 @@ public sealed partial class NativeTools
                 m.Streams.Select(s => new R2RMetadataStreamView(s.Name, $"0x{s.Offset:X8}", s.Size)).ToList());
         }
 
+        R2RHotColdMapView? hotColdMap = null;
+        if (includeHotColdMap && hasHotColdMap)
+        {
+            var limit = Math.Clamp(infoMapsLimit, 1, 2000);
+            var r = ReadyToRunReader.ReadHotColdMap(image, hdr, limit);
+            if (r.IsError)
+                return NativeResult.Fail<R2RHeaderResult>(r.Error!.Kind, r.Error.Message, r.Error.Detail);
+            var t = r.Data!;
+            hotColdMap = new R2RHotColdMapView(
+                t.PairCount,
+                t.Truncated,
+                t.Pairs.Select(p => new R2RHotColdPairView(
+                    p.ColdRuntimeFunctionIndex, p.HotRuntimeFunctionIndex)).ToList());
+        }
+
         var data = new R2RHeaderResult(
             imageHandle,
             hdr.Version,
@@ -345,7 +378,8 @@ public sealed partial class NativeTools
             methodEntryPoints,
             availableTypes,
             infoMaps,
-            manifestMetadata);
+            manifestMetadata,
+            hotColdMap);
 
         var flagSummary = flagNames.Count > 0 ? $", flags [{string.Join(", ", flagNames)}]" : string.Empty;
         var importSummary = importSections is not null ? $", {importSections.Count} import sections" : string.Empty;
@@ -354,8 +388,9 @@ public sealed partial class NativeTools
         var atSummary = availableTypes is not null ? $", {availableTypes.ReturnedCount} available types" : string.Empty;
         var infoMapsSummary = infoMaps is not null ? ", info maps decoded" : string.Empty;
         var manifestSummary = manifestMetadata is not null ? ", manifest metadata located" : string.Empty;
+        var hotColdSummary = hotColdMap is not null ? $", {hotColdMap.PairCount} hot/cold pairs" : string.Empty;
         return NativeResult.Ok(
-            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}{importSummary}{compositeSummary}{mepSummary}{atSummary}{infoMapsSummary}{manifestSummary}.",
+            $"R2R header v{hdr.Version}: {hdr.Sections.Count} sections, architecture {image.Architecture}{flagSummary}{importSummary}{compositeSummary}{mepSummary}{atSummary}{infoMapsSummary}{manifestSummary}{hotColdSummary}.",
             data,
             hints);
     }
@@ -481,6 +516,10 @@ public sealed partial class NativeTools
 /// Handoff descriptor for the ManifestMetadata (type 112) embedded ECMA blob, or <c>null</c> when
 /// <c>includeManifestMetadata</c> was false or the image has no ManifestMetadata section.
 /// </param>
+/// <param name="HotColdMap">
+/// Decoded HotColdMap (type 120) (cold, hot) RUNTIME_FUNCTION index pairs, or <c>null</c> when
+/// <c>includeHotColdMap</c> was false or the image has no HotColdMap section.
+/// </param>
 public sealed record R2RHeaderResult(
     string ImageHandle,
     string Version,
@@ -501,7 +540,8 @@ public sealed record R2RHeaderResult(
     R2RMethodEntryPointsView? MethodEntryPoints = null,
     R2RAvailableTypesView? AvailableTypes = null,
     R2RInfoMapsView? InfoMaps = null,
-    R2RManifestMetadataView? ManifestMetadata = null);
+    R2RManifestMetadataView? ManifestMetadata = null,
+    R2RHotColdMapView? HotColdMap = null);
 
 /// <summary>Decoded MethodDefEntryPoints (type 103) table.</summary>
 /// <param name="MethodCount">
@@ -630,6 +670,22 @@ public sealed record R2RMetadataStreamView(
     string Name,
     string Offset,
     uint Size);
+
+/// <summary>Decoded HotColdMap (type 120) — (cold, hot) RUNTIME_FUNCTION index pairs.</summary>
+/// <param name="PairCount">Total number of hot/cold pairs in the section.</param>
+/// <param name="Truncated"><c>true</c> when more pairs existed than were returned.</param>
+/// <param name="Pairs">The decoded pairs, capped at the requested limit.</param>
+public sealed record R2RHotColdMapView(
+    int PairCount,
+    bool Truncated,
+    IReadOnlyList<R2RHotColdPairView> Pairs);
+
+/// <summary>One hot/cold mapping from the HotColdMap (type 120).</summary>
+/// <param name="ColdRuntimeFunctionIndex">RUNTIME_FUNCTION index of the cold (split-out) partition.</param>
+/// <param name="HotRuntimeFunctionIndex">RUNTIME_FUNCTION index of the hot (primary) partition.</param>
+public sealed record R2RHotColdPairView(
+    uint ColdRuntimeFunctionIndex,
+    uint HotRuntimeFunctionIndex);
 
 /// <summary>One decoded entry of the R2R ComponentAssemblies section (type 115).</summary>
 /// <param name="Index">Zero-based index in the component-assemblies table.</param>
