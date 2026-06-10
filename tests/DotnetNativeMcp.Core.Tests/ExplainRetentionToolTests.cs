@@ -215,6 +215,80 @@ public class ExplainRetentionToolTests
         result.Error!.Kind.Should().Be(ErrorKinds.InvalidArgument);
     }
 
+    [Fact]
+    public void ExplainRetention_ReflectionPath_ClassifiedReflectionDriven()
+    {
+        var dgmlPath = WriteScratchFile("reflection.dgml", """
+            <DirectedGraph xmlns="http://schemas.microsoft.com/vs/2009/dgml">
+              <Nodes>
+                <Node Id="root" Label="ReflectionRoot" Category="Root" />
+                <Node Id="mid" Label="Middle" />
+                <Node Id="target" Label="MyDbContext" />
+              </Nodes>
+              <Links>
+                <Link Source="root" Target="mid" Reason="call" />
+                <Link Source="mid" Target="target" Reason="Reflectable type" />
+              </Links>
+            </DirectedGraph>
+            """);
+
+        try
+        {
+            var registry = new FakeRegistry();
+            registry.Add(CreateImage("/workspace/app.bin"));
+            var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
+
+            var result = tool.ExplainRetention(registry.ImageHandle!, "MyDbContext", dgmlPath: dgmlPath, maxDepth: 6);
+
+            result.IsError.Should().BeFalse();
+            result.Data!.Paths.Should().HaveCount(1);
+            result.Data.Paths[0].ReflectionDriven.Should().BeTrue();
+            result.Data.Paths[0].Classification.Should().Be("reflection-driven");
+            // Root has no incoming edge; intermediate edge is code; final edge is reflection.
+            result.Data.Paths[0].Nodes[0].EdgeKind.Should().BeNull();
+            result.Data.Paths[0].Nodes[1].EdgeKind.Should().Be("DirectCode");
+            result.Data.Paths[0].Nodes[2].EdgeKind.Should().Be("Reflection");
+        }
+        finally
+        {
+            File.Delete(dgmlPath);
+        }
+    }
+
+    [Fact]
+    public void ExplainRetention_AllCodePath_ClassifiedStructural()
+    {
+        var dgmlPath = WriteScratchFile("structural.dgml", """
+            <DirectedGraph xmlns="http://schemas.microsoft.com/vs/2009/dgml">
+              <Nodes>
+                <Node Id="root" Label="Program.Main" Category="Root" />
+                <Node Id="target" Label="MyService" />
+              </Nodes>
+              <Links>
+                <Link Source="root" Target="target" Reason="call" />
+              </Links>
+            </DirectedGraph>
+            """);
+
+        try
+        {
+            var registry = new FakeRegistry();
+            registry.Add(CreateImage("/workspace/app.bin"));
+            var tool = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
+
+            var result = tool.ExplainRetention(registry.ImageHandle!, "MyService", dgmlPath: dgmlPath, maxDepth: 6);
+
+            result.IsError.Should().BeFalse();
+            result.Data!.Paths.Should().HaveCount(1);
+            result.Data.Paths[0].ReflectionDriven.Should().BeFalse();
+            result.Data.Paths[0].Classification.Should().Be("structural");
+        }
+        finally
+        {
+            File.Delete(dgmlPath);
+        }
+    }
+
     private static string WriteScratchFile(string fileName, string content)
     {
         var directory = Path.Combine(Path.GetDirectoryName(typeof(ExplainRetentionToolTests).Assembly.Location)!, "scratch");

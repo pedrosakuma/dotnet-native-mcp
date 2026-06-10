@@ -91,7 +91,9 @@ public sealed partial class NativeTools
     [Description(
         "Reads the NativeAOT DGML reachability sidecar paired with a loaded binary and returns retention paths " +
         "from roots to the matched node. Edge labels carry the ILC retention reason (e.g. 'call', 'reloc', " +
-        "'Reflectable type', 'Virtual method'). With maxPaths>1 returns the shortest chain from each distinct root " +
+        "'Reflectable type', 'Virtual method'), each edge is classified (Reflection/Generics/VirtualDispatch/DirectCode/Structural) " +
+        "and each path gets a verdict: 'reflection-driven' when any edge is reflection/metadata (potentially trimmable by removing " +
+        "reflection roots) else 'structural'. With maxPaths>1 returns the shortest chain from each distinct root " +
         "that retains the target — the independent reasons it stays in the binary. Target matches an exact DGML node " +
         "id or a case-insensitive substring on node label; ambiguous matches are surfaced under Candidates.")]
     public NativeResult<ExplainRetentionResult> ExplainRetention(
@@ -144,12 +146,7 @@ public sealed partial class NativeTools
         var targetMatchCount = RetentionPathFinder.CountTargetMatches(graph, target);
 
         var paths = RetentionPathFinder.FindRetentionPaths(graph, target, maxDepth, maxPaths)
-            .Select(retentionPath => new RetentionPathRow(
-                retentionPath.RootId,
-                retentionPath.RootLabel,
-                retentionPath.RootCategory,
-                retentionPath.Depth,
-                retentionPath.Segments.Select(ToNodeRow).ToList()))
+            .Select(ToPathRow)
             .ToList();
 
         var primaryPath = paths.Count > 0 ? paths[0].Nodes : (IReadOnlyList<RetentionPathNodeRow>)[];
@@ -161,9 +158,13 @@ public sealed partial class NativeTools
             var ambiguity = candidates.Count > 1
                 ? $" (query matched {candidates.Count} node(s); resolved to the first — pass an exact node id to disambiguate)"
                 : string.Empty;
+            var reflectionDrivenCount = paths.Count(p => p.ReflectionDriven);
+            var verdict = reflectionDrivenCount > 0
+                ? $" {reflectionDrivenCount} of {paths.Count} path(s) are reflection-driven (potentially trimmable)."
+                : $" All {paths.Count} path(s) are structural (direct code / vtable / generics).";
             summary = paths.Count == 1
-                ? $"Found a retention path with {primaryPath.Count} node(s) to '{matchedNode!.Label}' from '{Path.GetFileName(resolvedDgmlPath)}'.{ambiguity}"
-                : $"Found {paths.Count} retention path(s) to '{matchedNode!.Label}' (shortest has {primaryPath.Count} node(s)) from '{Path.GetFileName(resolvedDgmlPath)}'.{ambiguity}";
+                ? $"Found a retention path with {primaryPath.Count} node(s) to '{matchedNode!.Label}' from '{Path.GetFileName(resolvedDgmlPath)}'.{ambiguity}{verdict}"
+                : $"Found {paths.Count} retention path(s) to '{matchedNode!.Label}' (shortest has {primaryPath.Count} node(s)) from '{Path.GetFileName(resolvedDgmlPath)}'.{ambiguity}{verdict}";
         }
         else
         {
@@ -186,8 +187,27 @@ public sealed partial class NativeTools
                 paths));
     }
 
+    private static RetentionPathRow ToPathRow(RetentionPath path)
+    {
+        var classification = RetentionReasonClassifier.ClassifyPath(path);
+        var nodes = path.Segments.Select(ToNodeRow).ToList();
+        return new RetentionPathRow(
+            path.RootId,
+            path.RootLabel,
+            path.RootCategory,
+            path.Depth,
+            classification.Verdict,
+            classification.ReflectionDriven,
+            nodes);
+    }
+
     private static RetentionPathNodeRow ToNodeRow(RetentionPathSegment segment) =>
-        new(segment.NodeId, segment.Label, segment.Category, segment.IncomingEdgeLabel);
+        new(
+            segment.NodeId,
+            segment.Label,
+            segment.Category,
+            segment.IncomingEdgeLabel,
+            segment.IncomingEdgeLabel is null ? null : RetentionReasonClassifier.Classify(segment.IncomingEdgeLabel).ToString());
 
     private static bool TryParseGroupBy(string? value, out MstatGroupBy groupBy)
     {
@@ -433,12 +453,14 @@ public sealed record RetentionTargetCandidateRow(
     string Label,
     string? Category);
 
-/// <summary>One retention path: a root-to-target chain plus the root that anchors it and its edge depth.</summary>
+/// <summary>One retention path: a root-to-target chain plus the root that anchors it, its edge depth, and a trim-relevance verdict.</summary>
 public sealed record RetentionPathRow(
     string RootId,
     string RootLabel,
     string? RootCategory,
     int Depth,
+    string Classification,
+    bool ReflectionDriven,
     IReadOnlyList<RetentionPathNodeRow> Nodes);
 
 /// <summary>One node in a DGML retention path.</summary>
@@ -446,7 +468,8 @@ public sealed record RetentionPathNodeRow(
     string Id,
     string Label,
     string? Category,
-    string? EdgeLabelFromPrevious);
+    string? EdgeLabelFromPrevious,
+    string? EdgeKind);
 
 /// <summary>Simple baseline/current delta payload.</summary>
 public sealed record ValueDeltaResult(
