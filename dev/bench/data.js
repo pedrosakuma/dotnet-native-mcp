@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781118558241,
+  "lastUpdate": 1781123653148,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1380,6 +1380,66 @@ window.BENCHMARK_DATA = {
             "value": 22.97657973567645,
             "unit": "ns",
             "range": "± 0.06139689747717536"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2e01342ab7598cfcc4b37bf38d496d1a3c1cbd41",
+          "message": "Fix cross-image AArch64 ELF PLT resolution in find_native_callers (#130)\n\nThe ELF PLT resolver hardcoded a 16-byte PLT0 resolver-stub skip and a\n16-byte PLTn stride — correct for x86-64 but wrong for AArch64, where the\nPLT0 header is 32 bytes and hardened (BTI/PAC) PLTn entries are 24 bytes.\nAs a result cross-image ARM64 ELF xref silently resolved nothing.\n\nThread the image architecture into ResolvePltEntriesCore: use a 32-byte\nPLT0 header on AArch64, and detect the PLTn stride by reading the first\nfunction entry's opcode — a BTI landing pad (HINT family 0xD503241F)\nimplies the 24-byte hardened layout, otherwise 16. Opcode detection is\nimmune to TLSDESC/IRELATIVE relocation accounting (those append stubs to\n.plt/.iplt that would skew a size-based derivation). Bounds are validated\nbefore any offset arithmetic so a malformed sh_offset cannot wrap past the\nguard.\n\nAdds synthetic-AArch64-ELF regression tests (default 16, BTI/PAC 24,\ncross-image BL resolution, and TLSDESC-mixed layouts) and corrects the\nREADME rows for disassemble / find_native_callers which wrongly claimed\nARM64 returns disassembly_unsupported.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T17:24:08-03:00",
+          "tree_id": "fed71707d7098ff3aa6f860bc27081e375a02a7a",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/2e01342ab7598cfcc4b37bf38d496d1a3c1cbd41"
+        },
+        "date": 1781123653128,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 13158678999.066668,
+            "unit": "ns",
+            "range": "± 36095895.52004005"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 28660518.304166667,
+            "unit": "ns",
+            "range": "± 345825.01176495175"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 30.391401479641598,
+            "unit": "ns",
+            "range": "± 0.02833943424838305"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 355218.68564967107,
+            "unit": "ns",
+            "range": "± 12068.458456890665"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 10078.82803548177,
+            "unit": "ns",
+            "range": "± 80.12465564832557"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 23.484723061323166,
+            "unit": "ns",
+            "range": "± 0.049433156363722815"
           }
         ]
       }
