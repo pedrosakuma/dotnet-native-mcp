@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781126510694,
+  "lastUpdate": 1781129148644,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1560,6 +1560,66 @@ window.BENCHMARK_DATA = {
             "value": 22.5537405560414,
             "unit": "ns",
             "range": "± 0.0483712860590793"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "50f74ec09f5b5841ed0ce52dd9e1eca0cb658f4a",
+          "message": "feat(handoff): consume NativeFrame loadBase to resolve ASLR'd PIE frames (#134)\n\nNativeAOT binaries are position-independent (PIE), so their on-disk image\nbase is 0 while the runtime loader places them at a random base. A producer\n(dotnet-diagnostics-mcp) that observes an absolute runtime VA could not have\nthat frame resolved: resolve_symbols rebased against the on-disk base (0),\nlanding outside every section (or, with sparse symbol sizing, on a bogus\nnearest symbol). The contract documented a loadBase field for exactly this,\nbut nothing consumed it.\n\nThread an optional loadBase through resolve_symbols (additive param, no new\ntool) and the Core StackSymbolicator paths: rva = address - loadBase, with\neffectiveBase = loadBase ?? image.ImageBase. loadBase is parsed as hex (bare\nor 0x-prefixed) to match the contract's transport format. When an explicit\nloadBase is supplied, an address below it is rejected per-row as\naddress_out_of_range rather than silently falling back. The disassemble\nnext-action hint now carries the on-disk VA of the function start so it\nrebases correctly downstream.\n\nAdds an end-to-end round-trip test against the real PIE SampleAot fixture\nproving an ASLR'd frame resolves only when loadBase is honored, plus tool\nand Core unit coverage. Contract doc and README updated; the doc now also\ndocuments that passing the producer's module-relative rva is the preferred,\nASLR-safe handoff path.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T18:55:41-03:00",
+          "tree_id": "f2d795b856b07f7f12d96053e49b5a8c47b17c7a",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/50f74ec09f5b5841ed0ce52dd9e1eca0cb658f4a"
+        },
+        "date": 1781129148616,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 12088052720,
+            "unit": "ns",
+            "range": "± 58942672.41795991"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 29265801.564453125,
+            "unit": "ns",
+            "range": "± 547472.0455361861"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 32.267739470515934,
+            "unit": "ns",
+            "range": "± 0.11767632067269547"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 467011.20347377233,
+            "unit": "ns",
+            "range": "± 6145.749878564722"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 20851.8822265625,
+            "unit": "ns",
+            "range": "± 44.107868338897205"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 23.396425362144196,
+            "unit": "ns",
+            "range": "± 0.10954034465131157"
           }
         ]
       }
