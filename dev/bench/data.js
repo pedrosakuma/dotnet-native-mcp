@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781100748480,
+  "lastUpdate": 1781102924349,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -900,6 +900,66 @@ window.BENCHMARK_DATA = {
             "value": 21.871358613882744,
             "unit": "ns",
             "range": "± 0.06604460617928334"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "46b427752ca9f6531bdb668d75026d578c1fc408",
+          "message": "feat(r2r): decode CompilerIdentifier + OwnerCompositeExecutable strings (#121)\n\nDecode the two ReadyToRun identification-string sections into the\nget_r2r_header result:\n- CompilerIdentifier (type 100): the crossgen2 / compiler that produced\n  the image (e.g. \"Crossgen2 10.0.526.1541\").\n- OwnerCompositeExecutable (type 116): the composite executable filename\n  that owns a component image (null for non-composite images).\n\nBoth payloads are a single zero-terminated UTF-8 string; the decoder reads\nSize-1 bytes (excluding the terminator), mirroring\nILCompiler.Reflection.ReadyToRun. Decoding is best-effort auxiliary\nmetadata — ReadSectionUtf8String returns null (never throws) when the\nsection is absent, empty, or its declared range runs past the end of the\nfile, validated with long arithmetic before slicing.\n\nExposed eagerly (no new param — cheap single strings) via two nullable\nadditive fields on R2RHeaderResult, so the response stays back-compatible.\n\nTests: synthetic decode, absent/empty/oversized-size graceful-null cases,\nand a real-image regression (System.Private.CoreLib CompilerIdentifier).\n436 Core + 114 Server green, 0 warnings.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T11:38:36-03:00",
+          "tree_id": "414c1232fa0cd279f23d0c95034d09620443cd72",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/46b427752ca9f6531bdb668d75026d578c1fc408"
+        },
+        "date": 1781102924324,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 11765882307.5,
+            "unit": "ns",
+            "range": "± 18177058.807057183"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 28294495.28125,
+            "unit": "ns",
+            "range": "± 588777.4127165396"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 31.160134939047005,
+            "unit": "ns",
+            "range": "± 0.05166004766272223"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 451387.75948079425,
+            "unit": "ns",
+            "range": "± 9235.834576413921"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 20133.19203186035,
+            "unit": "ns",
+            "range": "± 42.54044940921475"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 27.226359496514004,
+            "unit": "ns",
+            "range": "± 0.027929450627132764"
           }
         ]
       }
