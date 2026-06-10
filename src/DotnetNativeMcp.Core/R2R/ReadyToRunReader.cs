@@ -381,6 +381,55 @@ public static class ReadyToRunReader
             (IReadOnlyList<ReadyToRunImportSection>)entries);
     }
 
+    /// <summary>
+    /// Reads the <c>CompilerIdentifier</c> section (type 100) — the null-terminated UTF-8 string
+    /// identifying the crossgen2 / compiler that produced the image. Returns <c>null</c> when the
+    /// section is absent or its content is malformed (best-effort auxiliary metadata).
+    /// </summary>
+    public static string? ReadCompilerIdentifier(NativeImage image, ReadyToRunHeader header)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(header);
+        return ReadSectionUtf8String(image, header.FindSection(ReadyToRunSectionType.CompilerIdentifier));
+    }
+
+    /// <summary>
+    /// Reads the <c>OwnerCompositeExecutable</c> section (type 116) — the null-terminated UTF-8
+    /// filename of the composite executable that owns this component image. Returns <c>null</c> when
+    /// the section is absent (i.e. the image is not a composite component) or its content is malformed.
+    /// </summary>
+    public static string? ReadOwnerCompositeExecutable(NativeImage image, ReadyToRunHeader header)
+    {
+        ArgumentNullException.ThrowIfNull(image);
+        ArgumentNullException.ThrowIfNull(header);
+        return ReadSectionUtf8String(image, header.FindSection(ReadyToRunSectionType.OwnerCompositeExecutable));
+    }
+
+    /// <summary>
+    /// Decodes a ReadyToRun section whose entire payload is a single zero-terminated UTF-8 string
+    /// (e.g. CompilerIdentifier, OwnerCompositeExecutable). The trailing zero byte is excluded,
+    /// mirroring <c>ILCompiler.Reflection.ReadyToRun</c>. Returns <c>null</c> when the section is
+    /// absent, empty, or extends beyond the file (best-effort — never throws).
+    /// </summary>
+    private static string? ReadSectionUtf8String(NativeImage image, ReadyToRunSection? section)
+    {
+        if (section is null || section.Size == 0)
+            return null;
+
+        var fileOffset = image.RvaToFileOffset(section.VirtualAddress);
+        if (fileOffset is null || fileOffset.Value < 0)
+            return null;
+
+        var bytes = image.RawBytes.Span;
+        // The payload is a zero-terminated string; the stored Size includes the terminator.
+        var contentLength = (long)section.Size - 1;
+        if (contentLength <= 0 || fileOffset.Value + contentLength > bytes.Length)
+            return null;
+
+        var slice = bytes.Slice(fileOffset.Value, (int)contentLength);
+        return System.Text.Encoding.UTF8.GetString(slice);
+    }
+
     private static RuntimeFunctionLayout? GetRuntimeFunctionLayout(NativeImage image)
     {
         if (image.Architecture == Architecture.X64)

@@ -13,6 +13,8 @@ public sealed partial class NativeTools
         "Reads the ReadyToRun (R2R) header from a loaded managed PE binary and returns its version, " +
         "flags (raw value plus decoded READYTORUN_FLAG_* names such as Component, Partial, EmbeddedMsil), " +
         "and the full sections table. " +
+        "Also decodes the CompilerIdentifier (type 100) and, for composite component images, the " +
+        "OwnerCompositeExecutable (type 116) identification strings when present. " +
         "When includeImportSections is true, also decodes the ImportSections section (type 101) into " +
         "per-entry fixup-region metadata (RVA/size, decoded Type and Flags, EntrySize, Signatures and " +
         "AuxiliaryData RVAs); individual fixup signatures are not decoded. " +
@@ -91,6 +93,9 @@ public sealed partial class NativeTools
                 $"0x{s.AuxiliaryDataRva:X8}")).ToList();
         }
 
+        var compilerIdentifier = ReadyToRunReader.ReadCompilerIdentifier(image, hdr);
+        var ownerCompositeExecutable = ReadyToRunReader.ReadOwnerCompositeExecutable(image, hdr);
+
         var data = new R2RHeaderResult(
             imageHandle,
             hdr.Version,
@@ -103,7 +108,9 @@ public sealed partial class NativeTools
             hdr.Sections.Count,
             hasRtFuncs,
             sections,
-            importSections);
+            importSections,
+            compilerIdentifier,
+            ownerCompositeExecutable);
 
         var flagSummary = flagNames.Count > 0 ? $", flags [{string.Join(", ", flagNames)}]" : string.Empty;
         var importSummary = importSections is not null ? $", {importSections.Count} import sections" : string.Empty;
@@ -202,6 +209,14 @@ public sealed partial class NativeTools
 /// Decoded ImportSections (type 101) entries, or <c>null</c> when <c>includeImportSections</c> was
 /// false or the image has no ImportSections section.
 /// </param>
+/// <param name="CompilerIdentifier">
+/// The CompilerIdentifier (type 100) string identifying the crossgen2 / compiler that produced the
+/// image, or <c>null</c> when the section is absent or malformed.
+/// </param>
+/// <param name="OwnerCompositeExecutable">
+/// The OwnerCompositeExecutable (type 116) filename of the composite executable that owns this
+/// component image, or <c>null</c> when the image is not a composite component (section absent).
+/// </param>
 public sealed record R2RHeaderResult(
     string ImageHandle,
     string Version,
@@ -214,7 +229,9 @@ public sealed record R2RHeaderResult(
     int SectionCount,
     bool HasRuntimeFunctions,
     IReadOnlyList<R2RSectionView> Sections,
-    IReadOnlyList<R2RImportSectionView>? ImportSections = null);
+    IReadOnlyList<R2RImportSectionView>? ImportSections = null,
+    string? CompilerIdentifier = null,
+    string? OwnerCompositeExecutable = null);
 
 /// <summary>One decoded entry of the R2R ImportSections section (type 101).</summary>
 /// <param name="Index">Zero-based index in the import-sections table.</param>
