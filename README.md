@@ -32,7 +32,7 @@ are available.
 - **Generic reverse engineering** (full Ghidra-class decompilation, full
   dynamic instrumentation, kernel-mode debuggers). Out of scope by design.
 
-## Tool surface (11 tools, V1)
+## Tool surface (13 tools, V1)
 
 | Tool                     | Purpose                                                                 |
 |--------------------------|-------------------------------------------------------------------------|
@@ -47,8 +47,39 @@ are available.
 | `compare_native_binaries`| Diff two loaded images: build-id, format, arch, file/section size deltas, added/removed/size-changed symbols. |
 | `disassemble`            | Iced x86/x64 disassembly with CALL/JMP cross-ref hints. Default 64 instructions, capped at 2048. ARM64 returns `disassembly_unsupported`. `resolveSource=false` (default) skips per-instruction DWARF lookup; set `true` to annotate each instruction with file:line. **Two modes:** registered-handle mode (`imageHandle` + `address`/`symbolName`) for images loaded via `load_native_binary`; or raw-bytes mode (`imagePath` + `rva` + `size`) for any PE/ELF/Mach-O — including managed PEs with R2R bodies — without a prior `load_native_binary` call. |
 | `find_native_callers`    | Lazily-built xref index: scan all executable sections of a loaded x86-64 image and return every CALL/JMP instruction that targets a given symbol name or hex address. The index is cached in-process (L1) and persisted to disk under `~/.cache/dotnet-native-mcp/<build-id>.xref` (L2) so large NativeAOT binaries pay the scan cost only once across sessions. ARM64 returns `disassembly_unsupported`. `resolveSource=true` (default) annotates each call site with file:line; set `false` to skip PDB I/O for large binaries. |
+| `get_r2r_header`         | Read the ReadyToRun header of a managed PE: version, decoded `READYTORUN_FLAG_*` names, full sections table, and the `CompilerIdentifier` (type 100) / `OwnerCompositeExecutable` (type 116) strings. `includeImportSections=true` decodes the ImportSections (type 101) fixup-region metadata; `includeCompositeInfo=true` decodes the composite-image `ComponentAssemblies` (type 115) entries and `ManifestAssemblyMvids` (type 118) GUIDs. Returns `r2r_not_present` for pure-managed or NativeAOT binaries. |
+| `list_r2r_runtime_functions` | Paginated `RUNTIME_FUNCTION` entries from the RuntimeFunctions section (type 102), or — with `rva` — a binary-search lookup of the single covering entry. x64 + ARM64; other arches return `r2r_arch_unsupported`. |
 
 For crash logs or sampled stacks where `dotnet-diagnostics-mcp` is not in the loop, use `load_native_binary` once and then call `resolve_symbols` with a list of raw hex addresses. When you already have `NativeFrame` handoffs with mangled addresses, pass those address strings directly to `resolve_symbols`.
+
+## ReadyToRun coverage
+
+`get_r2r_header` + `list_r2r_runtime_functions` cover every R2R section whose layout
+is **structurally tractable** — decodable from raw PE bytes alone, without a
+`NativeFormat` reader or `Internal.TypeSystem`:
+
+| Section (type)                         | Surface |
+|----------------------------------------|---------|
+| Header, version, decoded flags         | `get_r2r_header` |
+| Sections table                         | `get_r2r_header` |
+| `RuntimeFunctions` (102), x64 + ARM64  | `list_r2r_runtime_functions` (list + RVA lookup) |
+| `ImportSections` (101)                 | `get_r2r_header includeImportSections=true` |
+| `CompilerIdentifier` (100)             | `get_r2r_header` (eager) |
+| `OwnerCompositeExecutable` (116)       | `get_r2r_header` (eager) |
+| `ComponentAssemblies` (115)            | `get_r2r_header includeCompositeInfo=true` |
+| `ManifestAssemblyMvids` (118)          | `get_r2r_header includeCompositeInfo=true` |
+
+**Out of scope** — sections encoded with the runtime's `NativeFormat` (native
+hashtables / nibble-compressed signature streams) or that embed an ECMA metadata
+blob. Decoding them requires a `NativeFormat` reader plus `Internal.TypeSystem`
+type resolution — a separate, large effort, and partly redundant with
+`dotnet-assembly-mcp` (which owns managed metadata):
+
+`MethodDefEntryPoints`, `InstanceMethodEntryPoints`, `AvailableTypes`,
+`InliningInfo*`, `ProfileDataInfo`, `PgoInstrumentationData`, `AttributePresence`,
+`CrossModuleInlineInfo`, `HotColdMap`, the `*Map` sections,
+`DelayLoadMethodCallThunks`, `ExceptionInfo`, `DebugInfo`, and
+`ManifestMetadata` (embedded ECMA → hand off to `dotnet-assembly-mcp`).
 
 ## Sidecar tier (V1+)
 
