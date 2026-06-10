@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781126509231,
+  "lastUpdate": 1781126510694,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -3400,6 +3400,42 @@ window.BENCHMARK_DATA = {
             "value": 15921076.376041668,
             "unit": "ns",
             "range": "± 49432.42325211977"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "96c829205947e86868c1370caca91c6f555ad0e3",
+          "message": "feat(mstat): \"what grew\" size diff in compare_native_binaries (#132)\n\nAdd an optional, auto-detected NativeAOT .mstat size-diff section to the\nexisting compare_native_binaries tool — a \"what grew between two builds?\"\nview. Resolves sibling .mstat files via GetDefaultMstatPath; missing or\nunreadable sidecars yield a null diff plus an explanatory note rather than\nan error, so the tool still works without sidecars.\n\nAdditive params only (mstatGroupBy, baselineMstatPath, currentMstatPath);\nno new tool, honoring the 10-tool cap. Diff classifies buckets as\nadded/removed/changed and ranks TopGrew/TopShrank by byte delta, capped at\ntopN. Build-level totals use each document's TotalSize (Methods+Types+Blobs\nnon-overlapping partition) to avoid double counting.\n\nTryParseGroupBy is now null-safe (string?) per gpt-5.5 review, hardening the\nexisting get_size_breakdown call site too.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T18:11:38-03:00",
+          "tree_id": "4518605d88ab5342968e1601891507d5dd01793d",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/96c829205947e86868c1370caca91c6f555ad0e3"
+        },
+        "date": 1781126510668,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 1076894.869140625,
+            "unit": "ns",
+            "range": "± 3060.5205605043416"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 16214604.1125,
+            "unit": "ns",
+            "range": "± 81156.97358806331"
           }
         ]
       }
