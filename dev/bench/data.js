@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781117889939,
+  "lastUpdate": 1781117891319,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -2872,6 +2872,42 @@ window.BENCHMARK_DATA = {
             "value": 15896457.677884616,
             "unit": "ns",
             "range": "± 23409.73449341071"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fa98888c7cf785061513a9924563b9ac1f5c6f99",
+          "message": "feat(r2r): surface ManifestMetadata (112) ECMA blob handoff descriptor (#128)\n\nThe ManifestMetadata section content is an embedded ECMA-335 metadata blob\n(the R2R manifest of referenced assemblies). Rather than decode the managed\nmetadata (dotnet-assembly-mcp's job), surface a handoff descriptor:\n\n- file offset / RVA / size of the blob\n- BSJB signature validation\n- parsed metadata-root header (ECMA-335 II.24.2.1): version string +\n  stream directory (#~, #Strings, #US, #GUID, #Blob)\n\nRides additively on get_r2r_header via a single includeManifestMetadata flag\n+ nullable ManifestMetadata field (tool budget held at 10). Every read is\nbounds-checked over the section slice with overflow-safe arithmetic; the\nversion string must be null-terminated and every stream-name padding must fit\nthe blob, so malformed/truncated input surfaces as InvalidArgument rather\nthan throwing.\n\nTests: 9 Core (incl. real-image SPC regression, bad signature, truncated\nheader, oversized version length, non-null-terminated version, truncated\nstream-name padding, stream-count-beyond-blob) + 2 Server. README updated.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T15:48:30-03:00",
+          "tree_id": "07b4beaa1606398e128f8e832434a22108bf4f5b",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/fa98888c7cf785061513a9924563b9ac1f5c6f99"
+        },
+        "date": 1781117891294,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 909120.2335379465,
+            "unit": "ns",
+            "range": "± 1642.042837897153"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 13593721.551041666,
+            "unit": "ns",
+            "range": "± 84882.52574889285"
           }
         ]
       }
