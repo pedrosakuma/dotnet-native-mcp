@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781123655831,
+  "lastUpdate": 1781125424111,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1440,6 +1440,66 @@ window.BENCHMARK_DATA = {
             "value": 23.484723061323166,
             "unit": "ns",
             "range": "± 0.049433156363722815"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f14f78915dd5f2c960e24ac935f2e85148db660b",
+          "message": "feat(mstat): complete native size accounting via Blobs table (#131)\n\nThe .mstat reader previously counted only the Methods and Types tables,\nsilently undercounting native size — the Blobs catch-all table (dehydrated\ndata, runtime metadata, frozen-object regions, RVA static fields, manifest\nresources) was ignored, ~34% of the sample binary. Decode Blobs to get the\nauthoritative Methods + Types + Blobs partition.\n\nIn MSTAT 2.x the dedicated RvaFields/FrozenObjects/ManifestResources tables\nduplicate bytes already reported in Blobs (the dumper falls through to\nreportAsBlob for VersionMajor==2), so they are intentionally not summed to\navoid double-counting.\n\nAlso: resolve the .names PE custom section for mangled symbol names, report\nthe mstat format version, surface per-category size totals and the\ndeduplicated-method count, and add groupBy=category to get_size_breakdown.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T17:53:49-03:00",
+          "tree_id": "ced19413b11b23c95056478ac53077008bba4e29",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/f14f78915dd5f2c960e24ac935f2e85148db660b"
+        },
+        "date": 1781125424089,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 13199511584.692308,
+            "unit": "ns",
+            "range": "± 13667248.41882413"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 30921162.016666666,
+            "unit": "ns",
+            "range": "± 482819.1040544825"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 30.84703515370687,
+            "unit": "ns",
+            "range": "± 0.10380473097857021"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 334325.5747802734,
+            "unit": "ns",
+            "range": "± 7499.406693219035"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 9930.756892277645,
+            "unit": "ns",
+            "range": "± 22.555328780683293"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 23.239417142101697,
+            "unit": "ns",
+            "range": "± 0.07967541336382533"
           }
         ]
       }
