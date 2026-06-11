@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781135310823,
+  "lastUpdate": 1781142366890,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1800,6 +1800,66 @@ window.BENCHMARK_DATA = {
             "value": 22.789466851032696,
             "unit": "ns",
             "range": "± 0.03572092142698617"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "02530d873bd082ad81e80e4912d59bbd5306ab91",
+          "message": "test(fuzz): parser-hardening fuzzing parity + fix 6 malformed-input crashes (#138)\n\nExtend the deterministic property-based fuzz harness to cover the\npreviously-untested parser surfaces (string extractor, symbol demangler,\nmap-file reader, DGML reader, import readers, R2R reader) and add a\nmutation-fuzzing harness that bit-flips real fixtures to drive corrupted\nsize/count/offset fields deep into the offset-chasing code paths.\n\nThe mutation harness surfaced 6 real \"parser must never throw\" violations\non malformed input, all now fixed:\n\n1. NativeAotSymbolDemangler.DemangleCore: unmatched '<' overran the string\n   (ArgumentOutOfRangeException). Guard the i++ before lastPlainStart.\n2. PeNativeReader.Read: PEReader parses headers lazily, so a valid MZ\n   followed by garbage threw BadImageFormatException past the ctor\n   try/catch. Wrap the whole using-block body.\n3. ElfImportReader: checked((int)nameOffset/nameIndex) threw OverflowException\n   on a huge string-table index (not in the narrow catch filter). Bounds-check\n   then cast; broaden the catch to include OverflowException.\n4. ReadyToRunReader.RvaToFileOffset: uint->int offset arithmetic could wrap\n   negative and slip past the bounds check. Compute in long, guard >= 0.\n5. ReadyToRunReader.FindManagedNativeHeader: e_lfanew + constants overflowed\n   int and bypassed the length checks (IndexOutOfRangeException). Use long\n   arithmetic throughout FindManagedNativeHeader/ReadHeader.\n6. ElfImportReader: `offset + size > length` range checks could wrap in ulong\n   and admit out-of-bounds slices. New IsRangeInBounds helper uses subtraction\n   (size <= length - offset) at all four ELF section-range checks.\n\nAdds deterministic regression tests pinning each fixed bug and updates\ndocs/fuzzing.md (full parser-coverage table + random-vs-mutation rationale).\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T22:36:46-03:00",
+          "tree_id": "da6afda8becc0e3940410436b599783805b4114a",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/02530d873bd082ad81e80e4912d59bbd5306ab91"
+        },
+        "date": 1781142366866,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 12899181473.066668,
+            "unit": "ns",
+            "range": "± 30482986.995228313"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 29481911.085416667,
+            "unit": "ns",
+            "range": "± 356824.22081867635"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 32.16276775939124,
+            "unit": "ns",
+            "range": "± 0.0577589693234325"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 342058.4719848633,
+            "unit": "ns",
+            "range": "± 6438.80514799664"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 9921.87533569336,
+            "unit": "ns",
+            "range": "± 27.51403919277548"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 22.462268032630284,
+            "unit": "ns",
+            "range": "± 0.028186453409264827"
           }
         ]
       }
