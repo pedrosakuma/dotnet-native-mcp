@@ -101,7 +101,7 @@ public static class NativeAotSymbolDemangler
                 sb.Append('<');
                 sb.Append(SplitTypeArgs(inner.ToString()));
                 sb.Append('>');
-                i++;
+                if (i < mangled.Length) i++;
                 lastPlainStart = i;
             }
             else

@@ -845,4 +845,33 @@ public class ReadyToRunReaderTests
         if (linq is not null)
             yield return linq;
     }
+
+    [Theory]
+    [InlineData(0x7FFF_FFE0u)]
+    [InlineData(0x4000_0000u)]
+    [InlineData(0x7FFF_FFFFu)]
+    public void ReadHeader_LargeELfanew_DoesNotThrow(uint eLfanew)
+    {
+        // Regression: a large positive e_lfanew made `e_lfanew + 24 + 128` overflow int
+        // negative, bypass the bounds check, and throw IndexOutOfRangeException on the
+        // subsequent span access. Must surface as a graceful R2RNotPresent failure.
+        var bytes = new byte[64];
+        bytes[0] = 0x4D; // 'M'
+        bytes[1] = 0x5A; // 'Z'
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(0x3C), eLfanew);
+
+        var image = new NativeImage(
+            ImageHandle.From("0000", "overflow.dll"),
+            "overflow.dll",
+            BinaryFormat.Pe,
+            Architecture.X64,
+            [],
+            [],
+            new ReadOnlyMemory<byte>(bytes),
+            imageBase: 0);
+
+        var act = () => ReadyToRunReader.ReadHeader(image);
+        act.Should().NotThrow();
+        act().IsError.Should().BeTrue();
+    }
 }

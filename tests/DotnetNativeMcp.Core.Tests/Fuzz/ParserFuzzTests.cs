@@ -1,7 +1,10 @@
 using System.Diagnostics;
+using DotnetNativeMcp.Core.Dgml;
 using DotnetNativeMcp.Core.Identity;
 using DotnetNativeMcp.Core.Imaging;
 using DotnetNativeMcp.Core.Mstat;
+using DotnetNativeMcp.Core.R2R;
+using DotnetNativeMcp.Core.Strings;
 using DotnetNativeMcp.Core.Symbols;
 using Xunit;
 
@@ -284,8 +287,296 @@ public sealed class ParserFuzzTests
     }
 
     // -------------------------------------------------------------------------
+    // StringExtractor (direct random bytes)
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(42)]
+    [InlineData(unchecked((int)0xDEAD_BEEF))]
+    public void StringExtractor_RandomBytes_NeverThrows(int seed)
+    {
+        var sw = Stopwatch.StartNew();
+        var rng = new Random(seed);
+        for (int i = 0; i < IterationsPerSeed; i++)
+        {
+            Assert.True(sw.Elapsed < WallClockBudget, "Wall-clock budget exceeded");
+            var bytes = GenerateRandomBytes(rng);
+            int minLen = 1 + rng.Next(8);
+            _ = StringExtractor.Extract(bytes, baseRva: 0, ".rodata", minLen, ascii: true, utf16: true, out _);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // NativeAotSymbolDemangler (random mangled-like strings)
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(42)]
+    [InlineData(unchecked((int)0xDEAD_BEEF))]
+    public void NativeAotSymbolDemangler_RandomStrings_NeverThrows(int seed)
+    {
+        var sw = Stopwatch.StartNew();
+        var rng = new Random(seed);
+        for (int i = 0; i < IterationsPerSeed; i++)
+        {
+            Assert.True(sw.Elapsed < WallClockBudget, "Wall-clock budget exceeded");
+            var s = GenerateMangledLikeString(rng);
+            _ = NativeAotSymbolDemangler.Demangle(s);
+            _ = NativeAotSymbolDemangler.LooksLikeNativeAotMangled(s);
+            _ = NativeAotSymbolDemangler.Classify(s);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // MapFileReader / DgmlReader (random bytes written to a scratch file)
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(42)]
+    [InlineData(unchecked((int)0xDEAD_BEEF))]
+    public void MapFileReader_RandomBytes_NeverThrows(int seed)
+    {
+        Directory.CreateDirectory(ScratchDir);
+        var scratch = Path.Combine(ScratchDir, $"fuzz-map-{seed}.map");
+        var sw = Stopwatch.StartNew();
+        var rng = new Random(seed);
+        try
+        {
+            for (int i = 0; i < IterationsPerSeed; i++)
+            {
+                Assert.True(sw.Elapsed < WallClockBudget, "Wall-clock budget exceeded");
+                File.WriteAllBytes(scratch, GenerateRandomBytes(rng));
+                _ = MapFileReader.TryMerge(scratch, []);
+            }
+        }
+        finally
+        {
+            if (File.Exists(scratch)) File.Delete(scratch);
+        }
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(42)]
+    [InlineData(unchecked((int)0xDEAD_BEEF))]
+    public void DgmlReader_RandomBytes_NeverThrows(int seed)
+    {
+        Directory.CreateDirectory(ScratchDir);
+        var scratch = Path.Combine(ScratchDir, $"fuzz-graph-{seed}.dgml");
+        var sw = Stopwatch.StartNew();
+        var rng = new Random(seed);
+        try
+        {
+            for (int i = 0; i < IterationsPerSeed; i++)
+            {
+                Assert.True(sw.Elapsed < WallClockBudget, "Wall-clock budget exceeded");
+                File.WriteAllBytes(scratch, GenerateRandomBytes(rng));
+                _ = DgmlReader.Read(scratch);
+            }
+        }
+        finally
+        {
+            if (File.Exists(scratch)) File.Delete(scratch);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Import readers / resolvers (synthetic image with random raw bytes)
+    //
+    // These readers re-parse image.RawBytes from scratch, so feeding a NativeImage
+    // whose Format is set but whose bytes are random exercises the same header /
+    // offset-chasing code that runs on a real binary.
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(42)]
+    [InlineData(unchecked((int)0xDEAD_BEEF))]
+    public void ImportReaders_RandomBytes_NeverThrows(int seed)
+    {
+        var sw = Stopwatch.StartNew();
+        var rng = new Random(seed);
+        BinaryFormat[] formats = [BinaryFormat.Elf, BinaryFormat.Pe, BinaryFormat.MachO];
+        for (int i = 0; i < IterationsPerSeed; i++)
+        {
+            Assert.True(sw.Elapsed < WallClockBudget, "Wall-clock budget exceeded");
+            var bytes = GenerateRandomBytes(rng);
+            var format = formats[rng.Next(formats.Length)];
+            RunImageReaders(MakeRawImage(format, bytes, Architecture.X64));
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Mutation fuzzing over real fixtures.
+    //
+    // Random bytes almost always bounce off the format header, so they only
+    // exercise shallow code. Bit-flipping a real, well-formed binary keeps the
+    // header valid and drives corrupted size/count/offset fields deep into the
+    // parsers — where the genuinely dangerous offset-chasing lives.
+    // -------------------------------------------------------------------------
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(42)]
+    [InlineData(unchecked((int)0xDEAD_BEEF))]
+    public void MutationFuzz_RealFixtures_NeverThrows(int seed)
+    {
+        string?[] fixtures =
+        [
+            FixturePaths.SampleAot,
+            FixturePaths.MachOX64Object,
+            FixturePaths.MachOArm64Object,
+            FixturePaths.MachOArm64RichObject,
+            FixturePaths.EmbeddedPdbDll,
+        ];
+
+        var available = fixtures.Where(f => f is not null && File.Exists(f)).Select(f => f!).ToArray();
+        if (available.Length == 0) return; // fixtures not built — nothing to mutate
+
+        var sw = Stopwatch.StartNew();
+        var rng = new Random(seed);
+        var originals = available.Select(File.ReadAllBytes).ToArray();
+
+        for (int i = 0; i < MutationIterationsPerSeed; i++)
+        {
+            Assert.True(sw.Elapsed < WallClockBudget, "Wall-clock budget exceeded");
+            var original = originals[rng.Next(originals.Length)];
+            var mutated = MutateBytes(original, rng);
+            var mem = new ReadOnlyMemory<byte>(mutated);
+
+            // Each Read re-validates the format header; the wrong-format ones bail fast.
+            RunImageReaders(SafeRead(ElfReader.Read, mem, "fuzz.elf"));
+            RunImageReaders(SafeRead(PeNativeReader.Read, mem, "fuzz.dll"));
+            RunImageReaders(SafeRead(MachOReader.Read, mem, "fuzz.o"));
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    /// <summary>Runs every downstream reader for the image's format, asserting none throw.</summary>
+    private static void RunImageReaders(NativeImage? image)
+    {
+        if (image is null) return;
+
+        switch (image.Format)
+        {
+            case BinaryFormat.Elf:
+                _ = ElfReader.ReadImportedFunctions(image);
+                _ = ElfReader.ReadImportedLibraries(image);
+                _ = ElfReader.ResolvePltEntries(image);
+                break;
+
+            case BinaryFormat.Pe:
+                _ = PeNativeReader.ReadImportedFunctions(image);
+                _ = PeNativeReader.ReadImportedLibraries(image);
+                RunR2RReaders(image);
+                break;
+
+            case BinaryFormat.MachO:
+                _ = MachOReader.ReadImportedFunctions(image);
+                _ = MachOReader.ReadImportedLibraries(image);
+                _ = MachOReader.ResolveStubEntries(image);
+                _ = MachOReader.ReadExports(image);
+                break;
+        }
+
+        foreach (var symbol in image.Symbols.Take(64))
+            _ = NativeAotSymbolDemangler.Demangle(symbol.Name);
+    }
+
+    /// <summary>Drives every ReadyToRun section reader behind a successfully-parsed header.</summary>
+    private static void RunR2RReaders(NativeImage image)
+    {
+        var header = ReadyToRunReader.ReadHeader(image);
+        if (header.IsError || header.Data is null) return;
+        var hdr = header.Data;
+
+        _ = ReadyToRunReader.ReadImportSections(image, hdr);
+        _ = ReadyToRunReader.ReadComponentAssemblies(image, hdr);
+        _ = ReadyToRunReader.ReadManifestAssemblyMvids(image, hdr);
+        _ = ReadyToRunReader.ReadCompilerIdentifier(image, hdr);
+        _ = ReadyToRunReader.ReadOwnerCompositeExecutable(image, hdr);
+        _ = ReadyToRunReader.ReadManifestMetadata(image, hdr);
+        _ = ReadyToRunReader.ReadMethodDefEntryPoints(image, hdr, limit: 4096);
+        _ = ReadyToRunReader.ReadAvailableTypes(image, hdr, limit: 4096);
+        _ = ReadyToRunReader.ReadEnclosingTypeMap(image, hdr, limit: 4096);
+        _ = ReadyToRunReader.ReadMethodIsGenericMap(image, hdr, limit: 4096);
+        _ = ReadyToRunReader.ReadTypeGenericInfoMap(image, hdr, limit: 4096);
+        _ = ReadyToRunReader.ReadHotColdMap(image, hdr, limit: 4096);
+        _ = ReadyToRunReader.ReadRuntimeFunctions(image, hdr);
+        _ = ReadyToRunReader.FindRuntimeFunction(image, hdr, rva: 0x1000);
+    }
+
+    /// <summary>Invokes a format reader and converts an unexpected throw into a test failure.</summary>
+    private static NativeImage? SafeRead(
+        Func<ReadOnlyMemory<byte>, string, NativeImage?> read,
+        ReadOnlyMemory<byte> bytes,
+        string path)
+    {
+        try
+        {
+            return read(bytes, path);
+        }
+        catch (Exception ex)
+        {
+            Assert.Fail($"Reader threw on mutated input: {ex.GetType().Name}: {ex.Message}");
+            return null; // unreachable
+        }
+    }
+
+    /// <summary>Clones <paramref name="original"/> and applies 1–16 random byte mutations.</summary>
+    private static byte[] MutateBytes(byte[] original, Random rng)
+    {
+        var buf = (byte[])original.Clone();
+        if (buf.Length == 0) return buf;
+
+        int mutations = 1 + rng.Next(16);
+        for (int m = 0; m < mutations; m++)
+        {
+            int pos = rng.Next(buf.Length);
+            buf[pos] = (rng.Next(4)) switch
+            {
+                0 => (byte)rng.Next(256),
+                1 => 0x00,
+                2 => 0xFF,
+                _ => (byte)(buf[pos] ^ (1 << rng.Next(8))),
+            };
+        }
+        return buf;
+    }
+
+    /// <summary>Builds a <see cref="NativeImage"/> with the given format and raw bytes but no pre-parsed sections.</summary>
+    private static NativeImage MakeRawImage(BinaryFormat format, byte[] raw, Architecture arch) =>
+        new(
+            ImageHandle.From("0000000000000000", "fuzz.bin"),
+            "fuzz.bin",
+            format,
+            arch,
+            [],
+            [],
+            new ReadOnlyMemory<byte>(raw),
+            imageBase: 0);
+
+    /// <summary>
+    /// Generates a string biased toward NativeAOT-mangling structural characters so the
+    /// fuzzer reaches the generic-bracket and segment-splitting code paths.
+    /// </summary>
+    private static string GenerateMangledLikeString(Random rng)
+    {
+        const string alphabet = "abcdeXYZ_<>.,0129__S_P_CoreLib_System_";
+        int length = rng.Next(64);
+        var chars = new char[length];
+        for (int i = 0; i < length; i++)
+            chars[i] = alphabet[rng.Next(alphabet.Length)];
+        return new string(chars);
+    }
+
+    private const int MutationIterationsPerSeed = 500;
 
     /// <summary>
     /// Generates a random byte array whose length is drawn from a mix of boundary
