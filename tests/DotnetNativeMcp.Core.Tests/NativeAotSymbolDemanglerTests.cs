@@ -162,4 +162,18 @@ public class NativeAotSymbolDemanglerTests
             NativeAotSymbolDemangler.SymbolSource.ElfDemangled)
             .Should().Be(NativeAotSymbolDemangler.SymbolSource.ElfDemangled);
     }
+
+    [Theory]
+    [InlineData("Foo<Bar")]
+    [InlineData("Outer<Inner<Deep")]
+    [InlineData("A<")]
+    [InlineData("S_P_CoreLib_System_Collections_List<T")]
+    public void Demangle_UnmatchedAngleBracket_DoesNotThrow(string mangled)
+    {
+        // Regression: an opening '<' with no matching '>' used to overrun the
+        // index past the end of the string and throw ArgumentOutOfRangeException.
+        var act = () => NativeAotSymbolDemangler.Demangle(mangled);
+        act.Should().NotThrow();
+        NativeAotSymbolDemangler.Demangle(mangled).Should().NotBeNull();
+    }
 }

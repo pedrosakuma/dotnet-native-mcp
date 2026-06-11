@@ -42,4 +42,23 @@ public class PeNativeReaderTests
 
         PeNativeReader.LooksLikeManagedNativeBuild(image, ReadOnlySpan<byte>.Empty).Should().BeTrue();
     }
+
+    [Theory]
+    [InlineData(64)]
+    [InlineData(256)]
+    [InlineData(4096)]
+    public void Read_MzHeaderThenGarbage_ReturnsNullWithoutThrowing(int length)
+    {
+        // Regression: a valid "MZ" prefix made PEReader's lazy header parsing throw
+        // BadImageFormatException from inside the using-block (past the constructor's
+        // try/catch). Read must swallow it and return null, never throw.
+        var bytes = new byte[length];
+        bytes[0] = 0x4D; // 'M'
+        bytes[1] = 0x5A; // 'Z'
+        for (int i = 2; i < length; i++) bytes[i] = (byte)(i * 7 + 1);
+
+        var act = () => PeNativeReader.Read(new ReadOnlyMemory<byte>(bytes), "garbage.dll");
+        act.Should().NotThrow();
+        act().Should().BeNull();
+    }
 }

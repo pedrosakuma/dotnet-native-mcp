@@ -66,7 +66,7 @@ public static partial class ElfReader
                 $"Read {functions.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)} imported function(s) and {libraries.Count.ToString(System.Globalization.CultureInfo.InvariantCulture)} library dependency(ies) from '{image.Handle.Value}'.",
                 new ElfImports(libraries, functions));
         }
-        catch (Exception ex) when (ex is IOException or ArgumentOutOfRangeException)
+        catch (Exception ex) when (ex is IOException or ArgumentOutOfRangeException or OverflowException)
         {
             return NativeResult.Fail<ElfImports>(ErrorKinds.InternalError, "Failed to parse ELF imports.", SanitisedError.From(ex));
         }
@@ -83,11 +83,11 @@ public static partial class ElfReader
         var result = new List<ImportedLibrary>();
         var (dynamicOffset, dynamicSize) = ReadSectionHeader(bytes, is64, shOff, shEntSize, dynamicSectionIndex);
         var dynamicLink = ReadSectionLink(bytes, is64, shOff, shEntSize, dynamicSectionIndex);
-        if (dynamicOffset == 0 || dynamicSize == 0 || dynamicOffset + dynamicSize > (ulong)bytes.Length || dynamicLink >= shNum)
+        if (dynamicOffset == 0 || dynamicSize == 0 || !IsRangeInBounds(dynamicOffset, dynamicSize, bytes.Length) || dynamicLink >= shNum)
             return result;
 
         var (stringOffset, stringSize) = ReadSectionHeader(bytes, is64, shOff, shEntSize, (ushort)dynamicLink);
-        if (stringOffset == 0 || stringSize == 0 || stringOffset + stringSize > (ulong)bytes.Length)
+        if (stringOffset == 0 || stringSize == 0 || !IsRangeInBounds(stringOffset, stringSize, bytes.Length))
             return result;
 
         var dynamicData = bytes[(int)dynamicOffset..(int)(dynamicOffset + dynamicSize)];
@@ -109,7 +109,9 @@ public static partial class ElfReader
             var nameOffset = is64
                 ? BinaryPrimitives.ReadUInt64LittleEndian(entry[8..])
                 : BinaryPrimitives.ReadUInt32LittleEndian(entry[4..]);
-            var name = ReadCString(stringTable, checked((int)nameOffset));
+            if (nameOffset >= (ulong)stringTable.Length)
+                continue;
+            var name = ReadCString(stringTable, (int)nameOffset);
             if (!string.IsNullOrEmpty(name))
                 result.Add(new ImportedLibrary(name));
         }
@@ -128,11 +130,11 @@ public static partial class ElfReader
         var result = new List<ImportedFunction>();
         var (symbolOffset, symbolSize) = ReadSectionHeader(bytes, is64, shOff, shEntSize, dynsymSectionIndex);
         var stringTableIndex = ReadSectionLink(bytes, is64, shOff, shEntSize, dynsymSectionIndex);
-        if (symbolOffset == 0 || symbolSize == 0 || symbolOffset + symbolSize > (ulong)bytes.Length || stringTableIndex >= shNum)
+        if (symbolOffset == 0 || symbolSize == 0 || !IsRangeInBounds(symbolOffset, symbolSize, bytes.Length) || stringTableIndex >= shNum)
             return result;
 
         var (stringOffset, stringSize) = ReadSectionHeader(bytes, is64, shOff, shEntSize, (ushort)stringTableIndex);
-        if (stringOffset == 0 || stringSize == 0 || stringOffset + stringSize > (ulong)bytes.Length)
+        if (stringOffset == 0 || stringSize == 0 || !IsRangeInBounds(stringOffset, stringSize, bytes.Length))
             return result;
 
         var symbolData = bytes[(int)symbolOffset..(int)(symbolOffset + symbolSize)];
@@ -159,7 +161,9 @@ public static partial class ElfReader
             if (sectionIndex != SHN_UNDEF)
                 continue;
 
-            var name = ReadCString(stringTable, checked((int)nameIndex));
+            if (nameIndex >= (uint)stringTable.Length)
+                continue;
+            var name = ReadCString(stringTable, (int)nameIndex);
             if (!string.IsNullOrEmpty(name))
                 result.Add(new ImportedFunction(null, name, null));
         }
@@ -214,4 +218,12 @@ public static partial class ElfReader
     private sealed record ElfImports(
         IReadOnlyList<ImportedLibrary> Libraries,
         IReadOnlyList<ImportedFunction> Functions);
+
+    /// <summary>
+    /// Returns <c>true</c> when <c>[offset, offset+size)</c> lies fully within a buffer of
+    /// <paramref name="length"/> bytes, using subtraction to avoid <see cref="ulong"/> overflow
+    /// (a crafted section header could otherwise wrap <c>offset + size</c> below the length).
+    /// </summary>
+    private static bool IsRangeInBounds(ulong offset, ulong size, int length) =>
+        offset <= (ulong)length && size <= (ulong)length - offset;
 }

@@ -84,7 +84,7 @@ public static class ReadyToRunReader
 
         var (mnh_fileOffset, mnh_size) = mnh.Value;
 
-        if (mnh_fileOffset + HeaderByteSize > bytes.Length)
+        if ((long)mnh_fileOffset + HeaderByteSize > bytes.Length)
             return NativeResult.Fail<ReadyToRunHeader>(
                 ErrorKinds.R2RNotPresent,
                 "ManagedNativeHeader region is truncated.");
@@ -113,7 +113,7 @@ public static class ReadyToRunReader
                 $"Unexpected section count {numSections} — possibly a corrupt or non-R2R header.");
 
         var sectionsStart = mnh_fileOffset + HeaderByteSize;
-        var sectionsEnd = sectionsStart + numSections * SectionEntrySize;
+        var sectionsEnd = (long)sectionsStart + numSections * SectionEntrySize;
         if (sectionsEnd > bytes.Length)
             return NativeResult.Fail<ReadyToRunHeader>(
                 ErrorKinds.R2RNotPresent,
@@ -1351,7 +1351,7 @@ public static class ReadyToRunReader
         if (bytes[0] != 0x4D || bytes[1] != 0x5A) return null;  // MZ
 
         var e_lfanew = (int)BinaryPrimitives.ReadUInt32LittleEndian(bytes[0x3C..]);
-        if (e_lfanew < 0 || e_lfanew + 24 + 128 > bytes.Length) return null;
+        if (e_lfanew < 0 || (long)e_lfanew + 24 + 128 > bytes.Length) return null;
 
         // Verify PE signature
         if (bytes[e_lfanew] != 'P' || bytes[e_lfanew + 1] != 'E' ||
@@ -1370,23 +1370,24 @@ public static class ReadyToRunReader
             ? e_lfanew + 24 + 112
             : e_lfanew + 24 + 96;
 
-        if (ddBase + 15 * 8 + 8 > bytes.Length) return null;
+        if ((long)ddBase + 15 * 8 + 8 > bytes.Length) return null;
 
         // DataDirectory[14] = CLR runtime header
         var clrRva = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(ddBase + 14 * 8)..]);
         var clrSize = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(ddBase + 14 * 8 + 4)..]);
         if (clrRva == 0 || clrSize < 72) return null;
 
-        var sectionsBase = e_lfanew + 24 + optHeaderSize;
-        var clrOffset = RvaToFileOffset(bytes, clrRva, numSections, sectionsBase);
-        if (clrOffset is null || clrOffset.Value + 72 > bytes.Length) return null;
+        var sectionsBase = (long)e_lfanew + 24 + optHeaderSize;
+        if (sectionsBase > bytes.Length) return null;
+        var clrOffset = RvaToFileOffset(bytes, clrRva, numSections, (int)sectionsBase);
+        if (clrOffset is null || (long)clrOffset.Value + 72 > bytes.Length) return null;
 
         // IMAGE_COR20_HEADER.ManagedNativeHeader is at offset 64 within the CLR header
         var mnhRva = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(clrOffset.Value + 64)..]);
         var mnhSize = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(clrOffset.Value + 68)..]);
         if (mnhRva == 0 || mnhSize == 0) return null;
 
-        var mnhOffset = RvaToFileOffset(bytes, mnhRva, numSections, sectionsBase);
+        var mnhOffset = RvaToFileOffset(bytes, mnhRva, numSections, (int)sectionsBase);
         if (mnhOffset is null) return null;
 
         return (mnhOffset.Value, mnhSize);
@@ -1396,15 +1397,15 @@ public static class ReadyToRunReader
     {
         for (var i = 0; i < numSections; i++)
         {
-            var s = sectionsBase + i * 40;
+            long s = (long)sectionsBase + i * 40;
             if (s + 40 > bytes.Length) break;
-            var vAddr = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(s + 12)..]);
-            var vSize = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(s + 16)..]);
-            var rawPtr = BinaryPrimitives.ReadUInt32LittleEndian(bytes[(s + 20)..]);
+            var vAddr = BinaryPrimitives.ReadUInt32LittleEndian(bytes[((int)s + 12)..]);
+            var vSize = BinaryPrimitives.ReadUInt32LittleEndian(bytes[((int)s + 16)..]);
+            var rawPtr = BinaryPrimitives.ReadUInt32LittleEndian(bytes[((int)s + 20)..]);
             if (rva >= vAddr && rva < vAddr + Math.Max(vSize, 0x1000u))
             {
-                var off = (int)(rawPtr + (rva - vAddr));
-                return off < bytes.Length ? off : null;
+                var off = (long)rawPtr + (rva - vAddr);
+                return off >= 0 && off < bytes.Length ? (int)off : null;
             }
         }
         return null;

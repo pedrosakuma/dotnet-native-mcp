@@ -41,27 +41,35 @@ public static partial class PeNativeReader
 
         using (pe)
         {
-            if (!pe.HasMetadata && !HasExportDirectory(pe))
-                return null;
-
-            var arch = pe.PEHeaders.CoffHeader.Machine switch
+            try
             {
-                Machine.Amd64 => Architecture.X64,
-                Machine.I386 => Architecture.X86,
-                Machine.Arm64 => Architecture.Arm64,
-                _ => Architecture.Unknown,
-            };
+                if (!pe.HasMetadata && !HasExportDirectory(pe))
+                    return null;
 
-            var sections = ReadSections(pe);
-            var symbols = ReadExports(pe, rawBytes.Span);
-            var imageBase = (ulong)(pe.PEHeaders.PEHeader?.ImageBase ?? 0);
+                var arch = pe.PEHeaders.CoffHeader.Machine switch
+                {
+                    Machine.Amd64 => Architecture.X64,
+                    Machine.I386 => Architecture.X86,
+                    Machine.Arm64 => Architecture.Arm64,
+                    _ => Architecture.Unknown,
+                };
 
-            var buildIdHex = Identity.BuildId.Extract(rawBytes.Span, filePath);
-            var handle = ImageHandle.From(buildIdHex, System.IO.Path.GetFileName(filePath));
+                var sections = ReadSections(pe);
+                var symbols = ReadExports(pe, rawBytes.Span);
+                var imageBase = (ulong)(pe.PEHeaders.PEHeader?.ImageBase ?? 0);
 
-            return new NativeImage(
-                handle, filePath, BinaryFormat.Pe, arch,
-                sections, symbols, rawBytes, imageBase);
+                var buildIdHex = Identity.BuildId.Extract(rawBytes.Span, filePath);
+                var handle = ImageHandle.From(buildIdHex, System.IO.Path.GetFileName(filePath));
+
+                return new NativeImage(
+                    handle, filePath, BinaryFormat.Pe, arch,
+                    sections, symbols, rawBytes, imageBase);
+            }
+            catch (Exception ex) when (ex is BadImageFormatException or System.IO.IOException)
+            {
+                // Malformed or truncated PE — lazy header parsing surfaces here. Treat as "not a PE we can read".
+                return null;
+            }
         }
     }
 
