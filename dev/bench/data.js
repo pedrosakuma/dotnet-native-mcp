@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781142366890,
+  "lastUpdate": 1781142368054,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -2942,6 +2942,42 @@ window.BENCHMARK_DATA = {
             "value": 88.83598055158343,
             "unit": "ns",
             "range": "± 0.3229708476912315"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "02530d873bd082ad81e80e4912d59bbd5306ab91",
+          "message": "test(fuzz): parser-hardening fuzzing parity + fix 6 malformed-input crashes (#138)\n\nExtend the deterministic property-based fuzz harness to cover the\npreviously-untested parser surfaces (string extractor, symbol demangler,\nmap-file reader, DGML reader, import readers, R2R reader) and add a\nmutation-fuzzing harness that bit-flips real fixtures to drive corrupted\nsize/count/offset fields deep into the offset-chasing code paths.\n\nThe mutation harness surfaced 6 real \"parser must never throw\" violations\non malformed input, all now fixed:\n\n1. NativeAotSymbolDemangler.DemangleCore: unmatched '<' overran the string\n   (ArgumentOutOfRangeException). Guard the i++ before lastPlainStart.\n2. PeNativeReader.Read: PEReader parses headers lazily, so a valid MZ\n   followed by garbage threw BadImageFormatException past the ctor\n   try/catch. Wrap the whole using-block body.\n3. ElfImportReader: checked((int)nameOffset/nameIndex) threw OverflowException\n   on a huge string-table index (not in the narrow catch filter). Bounds-check\n   then cast; broaden the catch to include OverflowException.\n4. ReadyToRunReader.RvaToFileOffset: uint->int offset arithmetic could wrap\n   negative and slip past the bounds check. Compute in long, guard >= 0.\n5. ReadyToRunReader.FindManagedNativeHeader: e_lfanew + constants overflowed\n   int and bypassed the length checks (IndexOutOfRangeException). Use long\n   arithmetic throughout FindManagedNativeHeader/ReadHeader.\n6. ElfImportReader: `offset + size > length` range checks could wrap in ulong\n   and admit out-of-bounds slices. New IsRangeInBounds helper uses subtraction\n   (size <= length - offset) at all four ELF section-range checks.\n\nAdds deterministic regression tests pinning each fixed bug and updates\ndocs/fuzzing.md (full parser-coverage table + random-vs-mutation rationale).\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-06-10T22:36:46-03:00",
+          "tree_id": "da6afda8becc0e3940410436b599783805b4114a",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/02530d873bd082ad81e80e4912d59bbd5306ab91"
+        },
+        "date": 1781142368033,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 7848505.639508928,
+            "unit": "ns",
+            "range": "± 68968.45781410697"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 101.19997366269429,
+            "unit": "ns",
+            "range": "± 1.6264156646605377"
           }
         ]
       }
