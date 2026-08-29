@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788014831452,
+  "lastUpdate": 1788014832744,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -3326,6 +3326,42 @@ window.BENCHMARK_DATA = {
             "value": 96.12938894033432,
             "unit": "ns",
             "range": "± 2.237845952584058"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "e2e4a2910a23c1fae724b889274cc1f47e5a9131",
+          "message": "feat(cli): add r2r verb (#151) (#156)\n\nCloses #151. Part of #133.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-08-29T11:37:34-03:00",
+          "tree_id": "3005a7928bd1962fd428f85673ac033cae879f98",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/e2e4a2910a23c1fae724b889274cc1f47e5a9131"
+        },
+        "date": 1788014832716,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 7728404.569791666,
+            "unit": "ns",
+            "range": "± 72930.49098967698"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 84.10085340057101,
+            "unit": "ns",
+            "range": "± 0.2304477471998043"
           }
         ]
       }
