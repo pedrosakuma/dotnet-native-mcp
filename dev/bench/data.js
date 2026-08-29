@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788015581019,
+  "lastUpdate": 1788015582389,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -4720,6 +4720,42 @@ window.BENCHMARK_DATA = {
             "value": 16025497.611979166,
             "unit": "ns",
             "range": "± 11356.783742338841"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "af3a43a921d124292470aa24a0b69db8ea8abc93",
+          "message": "feat(cli): add disasm verb (#149) (#157)\n\nCloses #149. Part of #133.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-08-29T11:50:30-03:00",
+          "tree_id": "6717bbeba54d2cdaa24c41dd09f1399340f9a7d7",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/af3a43a921d124292470aa24a0b69db8ea8abc93"
+        },
+        "date": 1788015582371,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 940916.2528599331,
+            "unit": "ns",
+            "range": "± 3047.302559878346"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 13994978.574776785,
+            "unit": "ns",
+            "range": "± 35877.16751158515"
           }
         ]
       }
