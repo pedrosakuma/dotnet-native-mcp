@@ -44,7 +44,7 @@ public sealed class CliSmokeTests
     {
         var names = CliApplication.CreateRootCommand().Subcommands.Select(command => command.Name);
 
-        names.Should().Contain(["resolve", "callers", "version", "symbols", "imports", "size", "size-diff"]);
+        names.Should().Contain(["resolve", "callers", "version", "symbols", "imports", "size", "size-diff", "strings", "retention"]);
     }
 
     private static Task<CliProcessResult> InvokeCliAsync(params string[] arguments) =>
