@@ -36,6 +36,12 @@ public sealed class TableOutputWriter(TextWriter writer) : IOutputWriter
 
         switch (result.Data)
         {
+            case StringsCommandData strings:
+                await WriteStringsAsync(strings, cancellationToken).ConfigureAwait(false);
+                return;
+            case RetentionCommandData retention:
+                await WriteRetentionAsync(retention, cancellationToken).ConfigureAwait(false);
+                return;
             case SizeCommandData sizeData:
                 await WriteSizeCommandDataAsync(sizeData, cancellationToken).ConfigureAwait(false);
                 return;
@@ -226,6 +232,48 @@ public sealed class TableOutputWriter(TextWriter writer) : IOutputWriter
             cancellationToken).ConfigureAwait(false);
     }
 
+    private async ValueTask WriteStringsAsync(StringsCommandData data, CancellationToken cancellationToken)
+    {
+        await WriteRowAsync(nameof(StringsCommandData.TotalCount), data.TotalCount.ToString(CultureInfo.InvariantCulture), cancellationToken).ConfigureAwait(false);
+        await WriteRowAsync(nameof(StringsCommandData.NextCursor), data.NextCursor?.ToString(CultureInfo.InvariantCulture) ?? string.Empty, cancellationToken).ConfigureAwait(false);
+        await WriteRowAsync(nameof(StringsCommandData.Truncated), data.Truncated.ToString(), cancellationToken).ConfigureAwait(false);
+
+        if (data.Strings.Count == 0)
+            return;
+
+        await writer.WriteLineAsync("".AsMemory(), cancellationToken).ConfigureAwait(false);
+        await writer.WriteLineAsync($"{PadRight("Offset", 18)}String".AsMemory(), cancellationToken).ConfigureAwait(false);
+        await writer.WriteLineAsync($"{new string('-', 18)} {new string('-', 6)}".AsMemory(), cancellationToken).ConfigureAwait(false);
+
+        foreach (var row in data.Strings)
+        {
+            await writer.WriteLineAsync($"{PadRight(row.OffsetHex, 18)}{row.Value}".AsMemory(), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async ValueTask WriteRetentionAsync(RetentionCommandData data, CancellationToken cancellationToken)
+    {
+        await WriteRowAsync(nameof(RetentionCommandData.TargetMatchCount), data.TargetMatchCount.ToString(CultureInfo.InvariantCulture), cancellationToken).ConfigureAwait(false);
+        await WriteRowAsync(nameof(RetentionCommandData.MatchedNodeId), data.MatchedNodeId ?? string.Empty, cancellationToken).ConfigureAwait(false);
+        await WriteRowAsync(nameof(RetentionCommandData.MatchedNodeLabel), data.MatchedNodeLabel ?? string.Empty, cancellationToken).ConfigureAwait(false);
+        await WriteRowAsync(nameof(RetentionCommandData.SizeCostNote), data.SizeCostNote ?? string.Empty, cancellationToken).ConfigureAwait(false);
+
+        if (data.Path.Count == 0)
+            return;
+
+        await writer.WriteLineAsync("".AsMemory(), cancellationToken).ConfigureAwait(false);
+        await writer.WriteLineAsync($"{PadRight("Step", 6)}{PadRight("Reason", 28)}Symbol".AsMemory(), cancellationToken).ConfigureAwait(false);
+        await writer.WriteLineAsync($"{new string('-', 5)} {new string('-', 27)} {new string('-', 6)}".AsMemory(), cancellationToken).ConfigureAwait(false);
+
+        for (var i = 0; i < data.Path.Count; i++)
+        {
+            var node = data.Path[i];
+            await writer.WriteLineAsync(
+                $"{PadRight(i.ToString(CultureInfo.InvariantCulture), 6)}{PadRight(node.EdgeLabelFromPrevious ?? string.Empty, 28)}{node.Label}".AsMemory(),
+                cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private async ValueTask WriteRowAsync(string name, string value, CancellationToken cancellationToken)
     {
         await writer.WriteLineAsync($"{name,-20} {value}".AsMemory(), cancellationToken).ConfigureAwait(false);
@@ -277,6 +325,9 @@ public sealed class TableOutputWriter(TextWriter writer) : IOutputWriter
 
     private static string FormatColumns(IReadOnlyList<string> values, int[] widths) =>
         string.Join("  ", values.Select((value, index) => value.PadRight(widths[index], ' ')));
+
+    private static string PadRight(string value, int width) =>
+        value.Length >= width ? value[..width] : value.PadRight(width);
 
     private static string FormatValue(object? value)
     {
