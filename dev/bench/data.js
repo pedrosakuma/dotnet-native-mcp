@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788010369511,
+  "lastUpdate": 1788010370822,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -4192,6 +4192,42 @@ window.BENCHMARK_DATA = {
             "value": 16030218.995192308,
             "unit": "ns",
             "range": "± 49151.71768880581"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8133824f5f2341c3f7b5807eba55afc38f433508",
+          "message": "chore(deps): Bump actions/checkout from 6 to 7 (#139)\n\nBumps [actions/checkout](https://github.com/actions/checkout) from 6 to 7.\n- [Release notes](https://github.com/actions/checkout/releases)\n- [Changelog](https://github.com/actions/checkout/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/actions/checkout/compare/v6...v7)\n\n---\nupdated-dependencies:\n- dependency-name: actions/checkout\n  dependency-version: '7'\n  dependency-type: direct:production\n  update-type: version-update:semver-major\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-29T10:21:44-03:00",
+          "tree_id": "4208a3fc103b1f41fb4af83fdbd09a77167d2fe7",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/8133824f5f2341c3f7b5807eba55afc38f433508"
+        },
+        "date": 1788010370794,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 955957.4777994792,
+            "unit": "ns",
+            "range": "± 3380.453068654399"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 14170446.881510416,
+            "unit": "ns",
+            "range": "± 14059.61280611989"
           }
         ]
       }
