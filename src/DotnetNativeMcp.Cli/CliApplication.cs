@@ -18,6 +18,8 @@ public static class CliApplication
         root.Subcommands.Add(CallersCommandFactory.Create(options));
         root.Subcommands.Add(VersionCommandFactory.Create(options));
         root.Subcommands.Add(R2rCommandFactory.Create(options));
+        root.Subcommands.Add(SymbolsCommandFactory.Create(options));
+        root.Subcommands.Add(ImportsCommandFactory.Create(options));
 
         return root;
     }
