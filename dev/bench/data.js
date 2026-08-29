@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788012138638,
+  "lastUpdate": 1788013864938,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1980,6 +1980,66 @@ window.BENCHMARK_DATA = {
             "value": 17.249482248510635,
             "unit": "ns",
             "range": "± 0.0651435987298394"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "c9469fa844625433b37632a3b3d978733dd85a03",
+          "message": "feat(cli): scaffold DotnetNativeMcp.Cli project (#147) (#155)\n\nCloses #147\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-08-29T11:21:30-03:00",
+          "tree_id": "2f75f21db8e0f343d49762405e81f7624e18a52e",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/c9469fa844625433b37632a3b3d978733dd85a03"
+        },
+        "date": 1788013864908,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 12055607678.5,
+            "unit": "ns",
+            "range": "± 58484787.92562594"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 30804749.048076924,
+            "unit": "ns",
+            "range": "± 161128.811799191"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 31.444800933202107,
+            "unit": "ns",
+            "range": "± 0.11726088075306011"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 443681.8413736979,
+            "unit": "ns",
+            "range": "± 6392.415462046761"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 20526.451387677873,
+            "unit": "ns",
+            "range": "± 47.07351757489162"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 21.879729964903422,
+            "unit": "ns",
+            "range": "± 0.05920945520758935"
           }
         ]
       }
