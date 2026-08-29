@@ -14,6 +14,8 @@ public static class CliApplication
         root.Options.Add(options.Output);
         root.Options.Add(options.Allow);
         root.Subcommands.Add(DisasmCommandFactory.Create(options));
+        root.Subcommands.Add(ResolveCommandFactory.Create(options));
+        root.Subcommands.Add(CallersCommandFactory.Create(options));
         root.Subcommands.Add(VersionCommandFactory.Create(options));
         root.Subcommands.Add(R2rCommandFactory.Create(options));
 

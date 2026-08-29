@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Linq;
 using FluentAssertions;
 using Xunit;
 
@@ -37,6 +38,14 @@ public sealed class CliSmokeTests
         result.CombinedOutput.Should().Contain("--output");
         result.CombinedOutput.Should().Contain("json");
         result.CombinedOutput.Should().Contain("table");
+    }
+
+    [Fact]
+    public void RootCommand_RegistersResolveAndCallers()
+    {
+        var names = CliApplication.CreateRootCommand().Subcommands.Select(command => command.Name);
+
+        names.Should().Contain(["resolve", "callers", "version"]);
     }
 
     private static async Task<CliProcessResult> InvokeCliAsync(params string[] arguments)
