@@ -30,6 +30,12 @@ public sealed class TableOutputWriter(TextWriter writer) : IOutputWriter
             return;
         }
 
+        if (result.Data is ITableRenderable renderable)
+        {
+            await renderable.WriteTableAsync(writer, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         foreach (var property in result.Data.GetType().GetProperties(BindingFlags.Instance | BindingFlags.Public))
         {
             var value = property.GetValue(result.Data);
