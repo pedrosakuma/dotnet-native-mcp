@@ -14,6 +14,7 @@ public static class CliApplication
         root.Options.Add(options.Output);
         root.Options.Add(options.Allow);
         root.Subcommands.Add(VersionCommandFactory.Create(options));
+        root.Subcommands.Add(R2rCommandFactory.Create(options));
 
         return root;
     }
