@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788019029505,
+  "lastUpdate": 1788019030876,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -5116,6 +5116,42 @@ window.BENCHMARK_DATA = {
             "value": 16862862.129807692,
             "unit": "ns",
             "range": "± 32707.2733328476"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "43b2f06b2915b074df9f73294bfe80f956977b36",
+          "message": "feat(cli): add packaging and docs (#154) (#163)\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-08-29T12:46:36-03:00",
+          "tree_id": "d2a481a7ac36997e55491668a4d1b0d570d5d3e8",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/43b2f06b2915b074df9f73294bfe80f956977b36"
+        },
+        "date": 1788019030847,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 948240.0539713542,
+            "unit": "ns",
+            "range": "± 2196.2843272987984"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 13642729.05048077,
+            "unit": "ns",
+            "range": "± 9157.000055694283"
           }
         ]
       }
