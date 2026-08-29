@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <Description>Standalone CLI scaffold for dotnet-native-mcp native-binary navigation primitives, built directly on DotnetNativeMcp.Core.</Description>
+    <Description>Standalone CLI for dotnet-native-mcp native-binary navigation primitives, built directly on DotnetNativeMcp.Core.</Description>
     <RootNamespace>DotnetNativeMcp.Cli</RootNamespace>
     <AssemblyName>DotnetNativeMcp.Cli</AssemblyName>
   </PropertyGroup>

@@ -1,13 +1,17 @@
 # dotnet-native-mcp
 
-> **Status:** V1 in progress. Eleven MCP tools are live:
-> `load_native_binary`, `import_native_manifest`, `list_native_symbols`, `list_native_imports`, `resolve_symbols`, `extract_strings`, `get_size_breakdown`, `explain_retention`, `compare_native_binaries`, `disassemble`, `find_native_callers`.
-> See the [V0 tracking issue](https://github.com/pedrosakuma/dotnet-native-mcp/issues/1).
+> **Status:** V1 in progress. Thirteen MCP tools are live:
+> `load_native_binary`, `import_native_manifest`, `list_native_symbols`, `list_native_imports`, `resolve_symbols`, `extract_strings`, `get_size_breakdown`, `explain_retention`, `compare_native_binaries`, `disassemble`, `find_native_callers`, `get_r2r_header`, `list_r2r_runtime_functions`.
+> Standalone CLI verbs are also live: `version`, `r2r`, `disasm`, `resolve`, `callers`, `symbols`, `imports`, `size`, `size-diff`, `strings`, `retention`.
 
-MCP server for **navigating native .NET binaries** — NativeAOT, R2R-only,
-single-file native — when ECMA-335 metadata is stripped or absent. Designed as
-the third leg of a tooling triad with [`dotnet-assembly-mcp`](https://github.com/pedrosakuma/dotnet-assembly-mcp)
-(managed metadata) and [`dotnet-diagnostics-mcp`](https://github.com/pedrosakuma/dotnet-diagnostics-mcp)
+`dotnet-native-mcp` is tooling for **navigating native .NET binaries** —
+NativeAOT, R2R-only, single-file native — when ECMA-335 metadata is stripped
+or absent. You can use it either as an MCP server (`dotnet-native-mcp`) or as
+a standalone local CLI (`dotnet-native-cli`). It is designed as the third leg
+of a tooling triad with
+[`dotnet-assembly-mcp`](https://github.com/pedrosakuma/dotnet-assembly-mcp)
+(managed metadata) and
+[`dotnet-diagnostics-mcp`](https://github.com/pedrosakuma/dotnet-diagnostics-mcp)
 (live process events).
 
 ## Why this exists
@@ -103,20 +107,71 @@ ILC emits structured sidecars on request:
 `.mstat` parsing answers "what blew up my AOT binary"; DGML reachability answers
 "why was this type or method kept?".
 
-## CLI scaffold
+## CLI
 
-Issue #147 adds a standalone `DotnetNativeMcp.Cli` scaffold that consumes `DotnetNativeMcp.Core` directly, without any MCP package dependency. The root command exposes help plus a global `--output json|table` switch (default `json`), a repeatable `--allow <path>` trusted-root option that feeds the shared `PathAccessPolicy`, and `version`, `resolve`, `callers`, `symbols`, and `imports` verbs for local inspection workflows.
+The standalone CLI consumes `DotnetNativeMcp.Core` directly, without any MCP
+package dependency. It mirrors the server's native-binary capabilities for
+local shell workflows and ships in two release forms:
+
+- **NuGet global tool**: `dotnet tool install -g dotnet-native-cli`
+- **Self-contained single-file archives**:
+  `dotnet-native-cli-<version>-<rid>.tar.gz` / `.zip`
+
+The root command exposes help plus a global `--output json|table` switch
+(default `json`) and a repeatable `--allow <path>` trusted-root option that
+feeds the shared `PathAccessPolicy`. See [docs/cli.md](docs/cli.md) for the
+full CLI contract, including exit codes and allow-list behavior.
 
 ```bash
+# install as a global tool
+dotnet tool install -g dotnet-native-cli
+dotnet-native-cli version --output table
+
+# or run directly from source while developing
 dotnet run --project src/DotnetNativeMcp.Cli -- --help
-dotnet run --project src/DotnetNativeMcp.Cli -- version --output table
-dotnet run --project src/DotnetNativeMcp.Cli -- resolve ./SampleAot --address 0x401000
-dotnet run --project src/DotnetNativeMcp.Cli -- callers ./SampleAot --address 0x401000 --image ./libdependency.so
-dotnet run --project src/DotnetNativeMcp.Cli -- symbols tests/DotnetNativeMcp.Core.Tests/bin/Release/net10.0/fixtures/SampleAot/SampleAot --limit 10
-dotnet run --project src/DotnetNativeMcp.Cli -- imports tests/DotnetNativeMcp.Core.Tests/bin/Release/net10.0/fixtures/SampleAot/SampleAot --kind libraries --output table
+```
+
+| Verb | Purpose |
+|------|---------|
+| `version` | Show the CLI tool command name, informational version, and active path-policy roots. |
+| `r2r header` | Decode the ReadyToRun header from a managed PE such as `System.Private.CoreLib.dll`. |
+| `r2r runtime-functions` | Page through `RUNTIME_FUNCTION` entries from the ReadyToRun `RuntimeFunctions` section. |
+| `disasm` | Disassemble a native image, inline bytes, or a raw blob with optional IL map/source annotations. |
+| `resolve` | Resolve one or more addresses to symbols, source locations, and signatures. |
+| `callers` | Find same-image and optional cross-image callers for a target address. |
+| `symbols` | Page through native symbols with optional name filtering. |
+| `imports` | Page through imported functions or imported libraries. |
+| `size` | Read a paired `.mstat` sidecar and aggregate size by assembly/namespace/type/method/category. |
+| `size-diff` | Diff two `.mstat` sidecars and optionally fail when growth crosses a threshold. |
+| `strings` | Extract printable ASCII and UTF-16LE strings, with pagination and section filtering. |
+| `retention` | Explain why a target symbol/type is retained using the paired DGML sidecar. |
+
+```bash
+# NativeAOT fixture used by the native-image examples below
+sample_aot=tests/DotnetNativeMcp.Core.Tests/bin/Release/net10.0/fixtures/SampleAot/SampleAot
+sample_aot_dir=tests/DotnetNativeMcp.Core.Tests/bin/Release/net10.0/fixtures/SampleAot
+
+# R2R managed PE published alongside SampleAot
+sample_r2r=tests/fixtures/SampleAot/bin/Release/net10.0/linux-x64/System.Private.CoreLib.dll
+sample_r2r_dir=tests/fixtures/SampleAot/bin/Release/net10.0/linux-x64
+
+dotnet-native-cli version --output table
+dotnet-native-cli r2r header "$sample_r2r" --allow "$sample_r2r_dir" --output table
+dotnet-native-cli r2r runtime-functions "$sample_r2r" --allow "$sample_r2r_dir" --limit 5
+dotnet-native-cli disasm "$sample_aot" --allow "$sample_aot_dir" --address 0x401000 --max-instructions 16 --output table
+dotnet-native-cli resolve "$sample_aot" --allow "$sample_aot_dir" --address 0x401000 --address 0x401010
+dotnet-native-cli callers "$sample_aot" --allow "$sample_aot_dir" --address 0x401000 --image "$sample_aot"
+dotnet-native-cli symbols "$sample_aot" --allow "$sample_aot_dir" --limit 10 --output table
+dotnet-native-cli imports "$sample_aot" --allow "$sample_aot_dir" --kind libraries --output table
+dotnet-native-cli size "$sample_aot" --allow "$sample_aot_dir" --group-by type --top-n 10
+dotnet-native-cli size-diff "$sample_aot" "$sample_aot" --allow "$sample_aot_dir" --mstat-group-by category --top-n 5
+dotnet-native-cli strings "$sample_aot" --allow "$sample_aot_dir" --min-length 8 --limit 20
+dotnet-native-cli retention "$sample_aot" --allow "$sample_aot_dir" --target SampleAot.Program --output table
 ```
 
 ## Install
+
+### MCP server
 
 ```bash
 # stdio (local MCP client)
@@ -128,6 +183,14 @@ docker run --rm -p 8789:8080 \
   -v /path/to/binaries:/binaries:ro \
   ghcr.io/pedrosakuma/dotnet-native-mcp:latest
 ```
+
+### Standalone CLI release archives
+
+Each GitHub release also includes self-contained single-file archives for the
+CLI and the server:
+
+- `dotnet-native-cli-<version>-<rid>.tar.gz` / `.zip`
+- `dotnet-native-mcp-<version>-<rid>.tar.gz` / `.zip`
 
 Default port: **8789**. Slot picked to continue the convention started by
 `dotnet-diagnostics-mcp` (8787) and `dotnet-assembly-mcp` (8788).
@@ -162,13 +225,25 @@ attestation produced by a different workflow in the same repository (e.g. a
 hypothetical CI workflow added in a PR) cannot pass these checks:
 
 ```bash
-# NuGet package
+# Server NuGet package
 gh attestation verify dotnet-native-mcp.0.5.4.nupkg \
   --repo pedrosakuma/dotnet-native-mcp \
   --signer-workflow pedrosakuma/dotnet-native-mcp/.github/workflows/release.yml \
   --source-ref refs/tags/v0.5.4
 
-# Self-contained binary tarball / zip
+# CLI NuGet package
+gh attestation verify dotnet-native-cli.0.5.4.nupkg \
+  --repo pedrosakuma/dotnet-native-mcp \
+  --signer-workflow pedrosakuma/dotnet-native-mcp/.github/workflows/release.yml \
+  --source-ref refs/tags/v0.5.4
+
+# CLI single-file archive
+gh attestation verify dotnet-native-cli-0.5.4-linux-x64.tar.gz \
+  --repo pedrosakuma/dotnet-native-mcp \
+  --signer-workflow pedrosakuma/dotnet-native-mcp/.github/workflows/release.yml \
+  --source-ref refs/tags/v0.5.4
+
+# Server single-file archive
 gh attestation verify dotnet-native-mcp-0.5.4-linux-x64.tar.gz \
   --repo pedrosakuma/dotnet-native-mcp \
   --signer-workflow pedrosakuma/dotnet-native-mcp/.github/workflows/release.yml \

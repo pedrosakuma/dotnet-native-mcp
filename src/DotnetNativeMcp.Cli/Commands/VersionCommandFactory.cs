@@ -9,12 +9,12 @@ public static class VersionCommandFactory
     {
         ArgumentNullException.ThrowIfNull(options);
 
-        var command = new Command("version", "Show scaffold metadata and prove output dispatch end-to-end.");
+        var command = new Command("version", "Show CLI metadata and the active path-policy configuration.");
         command.SetAction(async (parseResult, cancellationToken) =>
         {
             var invocation = CliApplication.BuildInvocationContext(parseResult, options);
             var result = NativeResult.Ok(
-                summary: "CLI scaffold is available.",
+                summary: "CLI is available.",
                 data: new VersionCommandData(
                     ToolCommandName: CliMetadata.ToolCommandName,
                     Version: CliApplication.GetInformationalVersion(),
