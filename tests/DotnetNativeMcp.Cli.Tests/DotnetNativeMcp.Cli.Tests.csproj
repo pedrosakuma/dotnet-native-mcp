@@ -17,4 +17,11 @@
     <ProjectReference Include="..\..\src\DotnetNativeMcp.Cli\DotnetNativeMcp.Cli.csproj" />
   </ItemGroup>
 
+  <!-- The NativeAOT fixture is built once by DotnetNativeMcp.Core.Tests's
+       BuildNativeAotFixture target (BeforeTargets="Build"). Do NOT duplicate
+       that `dotnet publish` invocation here: two concurrent publishes of the
+       same tests/fixtures/SampleAot project race on the native link step and
+       corrupt the output. CliFixturePaths reads the raw publish output
+       (tests/fixtures/SampleAot/bin/Release/net10.0/linux-x64/) directly. -->
+
 </Project>
