@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Reflection;
 using DotnetNativeMcp.Core;
+using DotnetNativeMcp.Core.Disassembly;
 
 namespace DotnetNativeMcp.Cli.Output;
 
@@ -36,10 +37,32 @@ public sealed class TableOutputWriter(TextWriter writer) : IOutputWriter
             return;
         }
 
+        if (result.Data is IEnumerable<InstructionView> instructions)
+        {
+            await WriteInstructionTableAsync(instructions, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         foreach (var property in result.Data.GetType().GetProperties(BindingFlags.Instance | BindingFlags.Public))
         {
             var value = property.GetValue(result.Data);
             await WriteRowAsync(property.Name, FormatValue(value), cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async ValueTask WriteInstructionTableAsync(
+        IEnumerable<InstructionView> instructions,
+        CancellationToken cancellationToken)
+    {
+        await writer.WriteLineAsync($"{"Address",-18} {"Bytes",-20} {"Mnemonic",-12} Operands".AsMemory(), cancellationToken)
+            .ConfigureAwait(false);
+
+        foreach (var instruction in instructions)
+        {
+            await writer.WriteLineAsync(
+                    $"{instruction.AddressHex,-18} {instruction.Bytes,-20} {instruction.Mnemonic,-12} {instruction.Operands}".AsMemory(),
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
     }
 
