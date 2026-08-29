@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788019724402,
+  "lastUpdate": 1788019725769,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -3806,6 +3806,42 @@ window.BENCHMARK_DATA = {
             "value": 87.91490058104198,
             "unit": "ns",
             "range": "± 0.5686285640355304"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2f87d7b04d78b942d4374bb713b24f36f453c71c",
+          "message": "fix(strings): separate match-cap-reached from per-value truncation (#164)\n\nStringExtractor.Extract's out bool truncated conflated two unrelated\nconditions: the section's overall match cap being reached, and a\nsingle matched string's displayed value being shortened because it\nexceeded ResourceLimits.MaxExtractedStringChars. Consumers (the CLI\n'strings' verb and the MCP server's extract_strings tool) treated any\ntruncated section as 'match cap reached, stop scanning further\nsections' — so a single oversized string value in an early section\n(e.g. an embedded resource or base64 blob in .rodata) would silently\nskip all subsequent sections even though the match budget was nowhere\nnear exhausted.\n\nAdd a new 'out bool matchCapReached' parameter to StringExtractor.Extract\nthat reflects only whether the section's match cap was hit. Consumers\nnow use this signal (not the per-value truncation flag) to decide\nwhether to keep scanning subsequent sections, and the top-level\n'truncated' field they report is likewise now based solely on\nmatchCapReached (per-value truncation is already visible via the '…'\nsuffix on the individual string value, so it doesn't need to also flip\na result-level flag that implies incompleteness).\n\nFixes #162.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>",
+          "timestamp": "2026-08-29T12:58:50-03:00",
+          "tree_id": "e2550a25681b7736cc3e8c27f9649330120538f1",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/2f87d7b04d78b942d4374bb713b24f36f453c71c"
+        },
+        "date": 1788019725739,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 7219071.2078125,
+            "unit": "ns",
+            "range": "± 85737.46280670985"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 90.4727902667863,
+            "unit": "ns",
+            "range": "± 1.3817561286280111"
           }
         ]
       }
