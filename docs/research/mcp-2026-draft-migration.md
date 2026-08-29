@@ -63,7 +63,7 @@ confirms it end-to-end:
 | SEP | dotnet-diagnostics-mcp finding | dotnet-native-mcp finding |
 |---|---|---|
 | 2567 (remove protocol sessions) | Orchestrator investigation-handle model was session-bound; required a redesign (shipped separately in #554/PR #559 before the SDK bump). | **No equivalent blocker.** `NativeBinaryRegistry` never used `SessionId`. Nothing to redesign. |
-| 2575 (remove `initialize`, add `server/discover`) | `options.ProtocolVersion = "2025-11-25"` hard-coded; had to be updated. | No hard-coded protocol version anywhere — nothing to update beyond the package bump itself. `server/discover` confirmed automatic via `.WithHttpTransport()` + `.MapMcp(...)`, same as upstream's finding. |
+| 2575 (remove `initialize`, add `server/discover`) | `options.ProtocolVersion = "2025-11-25"` hard-coded; had to be updated. | No hard-coded protocol version anywhere — nothing to update beyond the package bump itself. `server/discover` was not separately spiked here (this repo's smoke test exercised `tools/list`/`tools/call` without `initialize`, not `server/discover` directly); assumed automatic via `.WithHttpTransport()` + `.MapMcp(...)` based on upstream's finding, since this repo's transport wiring is the same shape. |
 | 2322 (MRTR replaces server-push elicitation/sampling/roots) | `DumpApprovalElicitation` used `McpServer.ElicitAsync(...)`, which throws under stateless mode; required an MRTR rewrite. | **Not applicable.** No tool in this repo uses elicitation, sampling, or roots. Nothing to rewrite. |
 
 **Bottom line:** this server has none of the two concrete migration blockers dotnet-diagnostics-mcp
