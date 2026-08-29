@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <Description>Standalone CLI scaffold for dotnet-native-mcp native-binary navigation primitives, built directly on DotnetNativeMcp.Core.</Description>
+    <RootNamespace>DotnetNativeMcp.Cli</RootNamespace>
+    <AssemblyName>DotnetNativeMcp.Cli</AssemblyName>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackAsTool>true</PackAsTool>
+    <IsPackable>true</IsPackable>
+    <ToolCommandName>dotnet-native-cli</ToolCommandName>
+    <PackageId>dotnet-native-cli</PackageId>
+    <PackageTags>dotnet;native;nativeaot;cli;pe;elf;mach-o</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/pedrosakuma/dotnet-native-mcp</PackageProjectUrl>
+    <IncludeBuildOutput>true</IncludeBuildOutput>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DotnetNativeMcp.Core\DotnetNativeMcp.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

@@ -1,10 +1,12 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/DotnetNativeMcp.Core/DotnetNativeMcp.Core.csproj" />
+    <Project Path="src/DotnetNativeMcp.Cli/DotnetNativeMcp.Cli.csproj" />
     <Project Path="src/DotnetNativeMcp.Server/DotnetNativeMcp.Server.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DotnetNativeMcp.Core.Tests/DotnetNativeMcp.Core.Tests.csproj" />
+    <Project Path="tests/DotnetNativeMcp.Cli.Tests/DotnetNativeMcp.Cli.Tests.csproj" />
     <Project Path="tests/DotnetNativeMcp.Server.Tests/DotnetNativeMcp.Server.Tests.csproj" />
   </Folder>
   <Folder Name="/tests/bench/">
