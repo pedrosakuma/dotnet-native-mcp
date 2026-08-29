@@ -1,6 +1,6 @@
 name: Release
 
-# Publishes NuGet package (global tool) + per-OS single-file binaries on tag push.
+# Publishes NuGet packages (global tools) + per-OS single-file binaries on tag push.
 # Requires the maintainer to have configured the NUGET_API_KEY secret.
 
 on:
@@ -19,12 +19,12 @@ permissions:
   contents: read
 
 jobs:
-  # ----- 1) Build + pack the NuGet package (global tool) -----
+  # ----- 1) Build + pack the NuGet packages (global tools) -----
   pack:
-    name: Pack NuGet package
+    name: Pack NuGet packages
     runs-on: ubuntu-latest
     # OIDC + attestations are needed in this job to mint a Sigstore cert and
-    # publish the SLSA attestation for the nupkg. No write to repo contents.
+    # publish the SLSA attestation for the nupkgs. No write to repo contents.
     permissions:
       contents: read
       attestations: write
@@ -61,9 +61,15 @@ jobs:
       - name: Restore
         run: dotnet restore
 
-      - name: Pack global tool
+      - name: Pack global tools
         run: |
           dotnet pack src/DotnetNativeMcp.Server/DotnetNativeMcp.Server.csproj \
+            -c Release \
+            -o artifacts/nupkg \
+            -p:Version=${{ steps.derive-version.outputs.version }} \
+            --no-restore
+
+          dotnet pack src/DotnetNativeMcp.Cli/DotnetNativeMcp.Cli.csproj \
             -c Release \
             -o artifacts/nupkg \
             -p:Version=${{ steps.derive-version.outputs.version }} \
@@ -78,7 +84,7 @@ jobs:
         with:
           subject-path: 'artifacts/nupkg/*.nupkg'
 
-      - name: Upload nupkg
+      - name: Upload nupkgs
         uses: actions/upload-artifact@v7
         with:
           name: nupkg
@@ -87,11 +93,11 @@ jobs:
 
   # ----- 2) Build per-OS single-file self-contained binaries -----
   publish-binaries:
-    name: Publish single-file binary (${{ matrix.rid }})
+    name: Publish single-file binaries (${{ matrix.rid }})
     runs-on: ${{ matrix.os }}
     needs: pack
     # OIDC + attestations are needed per matrix entry to attest the per-RID
-    # archive. No write to repo contents.
+    # archives. No write to repo contents.
     permissions:
       contents: read
       attestations: write
@@ -121,7 +127,7 @@ jobs:
           restore-keys: |
             nuget-${{ runner.os }}-
 
-      - name: Publish self-contained single-file binary
+      - name: Publish server self-contained single-file binary
         shell: bash
         run: |
           dotnet publish src/DotnetNativeMcp.Server/DotnetNativeMcp.Server.csproj \
@@ -131,48 +137,84 @@ jobs:
             -p:PublishSingleFile=true \
             -p:IncludeNativeLibrariesForSelfExtract=true \
             -p:Version=${{ needs.pack.outputs.version }} \
-            -o artifacts/${{ matrix.rid }}
+            -o artifacts/${{ matrix.rid }}/server
 
-      - name: Rename binary to dotnet-native-mcp
+      - name: Rename server binary to dotnet-native-mcp
         shell: bash
         # We rename post-publish (instead of -p:AssemblyName=...) because passing
         # AssemblyName as a global MSBuild property propagates to the referenced
         # Core project, renaming its DLL to the same name and triggering NETSDK1152
         # "multiple publish output files with the same relative path".
         run: |
-          cd artifacts/${{ matrix.rid }}
+          cd artifacts/${{ matrix.rid }}/server
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
             mv DotnetNativeMcp.Server.exe dotnet-native-mcp.exe
           else
             mv DotnetNativeMcp.Server dotnet-native-mcp
           fi
 
-      - name: Zip artifact
+      - name: Archive server artifact
         shell: bash
         run: |
-          cd artifacts/${{ matrix.rid }}
+          cd artifacts/${{ matrix.rid }}/server
           if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-            7z a ../dotnet-native-mcp-${{ needs.pack.outputs.version }}-${{ matrix.rid }}.zip dotnet-native-mcp.exe appsettings*.json
+            7z a ../../dotnet-native-mcp-${{ needs.pack.outputs.version }}-${{ matrix.rid }}.zip dotnet-native-mcp.exe appsettings*.json
           else
-            tar -czf ../dotnet-native-mcp-${{ needs.pack.outputs.version }}-${{ matrix.rid }}.tar.gz dotnet-native-mcp appsettings*.json
+            tar -czf ../../dotnet-native-mcp-${{ needs.pack.outputs.version }}-${{ matrix.rid }}.tar.gz dotnet-native-mcp appsettings*.json
+          fi
+
+      - name: Publish CLI self-contained single-file binary
+        shell: bash
+        run: |
+          dotnet publish src/DotnetNativeMcp.Cli/DotnetNativeMcp.Cli.csproj \
+            -c Release \
+            -r ${{ matrix.rid }} \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:Version=${{ needs.pack.outputs.version }} \
+            -o artifacts/${{ matrix.rid }}/cli
+
+      - name: Rename CLI binary to dotnet-native-cli
+        shell: bash
+        run: |
+          cd artifacts/${{ matrix.rid }}/cli
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            mv DotnetNativeMcp.Cli.exe dotnet-native-cli.exe
+          else
+            mv DotnetNativeMcp.Cli dotnet-native-cli
+          fi
+
+      - name: Archive CLI artifact
+        shell: bash
+        run: |
+          cd artifacts/${{ matrix.rid }}/cli
+          if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+            7z a ../../dotnet-native-cli-${{ needs.pack.outputs.version }}-${{ matrix.rid }}.zip dotnet-native-cli.exe
+          else
+            tar -czf ../../dotnet-native-cli-${{ needs.pack.outputs.version }}-${{ matrix.rid }}.tar.gz dotnet-native-cli
           fi
 
       - name: Attest binary archive provenance
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          # Attests the archive itself; consumers verify the archive directly
+          # Attests the archives themselves; consumers verify the archives directly
           # via `gh attestation verify`.
           subject-path: |
             artifacts/dotnet-native-mcp-*.tar.gz
             artifacts/dotnet-native-mcp-*.zip
+            artifacts/dotnet-native-cli-*.tar.gz
+            artifacts/dotnet-native-cli-*.zip
 
-      - name: Upload binary artifact
+      - name: Upload binary artifacts
         uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.rid }}
           path: |
             artifacts/dotnet-native-mcp-*.tar.gz
             artifacts/dotnet-native-mcp-*.zip
+            artifacts/dotnet-native-cli-*.tar.gz
+            artifacts/dotnet-native-cli-*.zip
           if-no-files-found: error
 
   # ----- 3) Attach everything to a GitHub Release (tag-driven only) -----
@@ -201,8 +243,9 @@ jobs:
           files: |
             artifacts/nupkg/*.nupkg
             artifacts/binary-*/dotnet-native-mcp-*
+            artifacts/binary-*/dotnet-native-cli-*
 
-  # ----- 4) Publish NuGet package (gated on NUGET_API_KEY) -----
+  # ----- 4) Publish NuGet packages (gated on NUGET_API_KEY) -----
   publish-nuget:
     name: Publish to NuGet.org
     runs-on: ubuntu-latest
