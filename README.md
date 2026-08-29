@@ -105,13 +105,15 @@ ILC emits structured sidecars on request:
 
 ## CLI scaffold
 
-Issue #147 adds a standalone `DotnetNativeMcp.Cli` scaffold that consumes `DotnetNativeMcp.Core` directly, without any MCP package dependency. The root command exposes help plus a global `--output json|table` switch (default `json`), a repeatable `--allow <path>` trusted-root option that feeds the shared `PathAccessPolicy`, and standalone `version`, `resolve`, and `callers` verbs for local inspection workflows.
+Issue #147 adds a standalone `DotnetNativeMcp.Cli` scaffold that consumes `DotnetNativeMcp.Core` directly, without any MCP package dependency. The root command exposes help plus a global `--output json|table` switch (default `json`), a repeatable `--allow <path>` trusted-root option that feeds the shared `PathAccessPolicy`, and `version`, `resolve`, `callers`, `symbols`, and `imports` verbs for local inspection workflows.
 
 ```bash
 dotnet run --project src/DotnetNativeMcp.Cli -- --help
 dotnet run --project src/DotnetNativeMcp.Cli -- version --output table
 dotnet run --project src/DotnetNativeMcp.Cli -- resolve ./SampleAot --address 0x401000
 dotnet run --project src/DotnetNativeMcp.Cli -- callers ./SampleAot --address 0x401000 --image ./libdependency.so
+dotnet run --project src/DotnetNativeMcp.Cli -- symbols tests/fixtures/SampleAot/bin/Release/net10.0/linux-x64/SampleAot --limit 10
+dotnet run --project src/DotnetNativeMcp.Cli -- imports tests/fixtures/SampleAot/bin/Release/net10.0/linux-x64/SampleAot --kind libraries --output table
 ```
 
 ## Install
