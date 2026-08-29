@@ -265,7 +265,8 @@ public sealed partial class NativeTools
                 minLength,
                 scanAscii,
                 scanUtf16,
-                out var sectionTruncated,
+                out _,
+                out var sectionMatchCapReached,
                 remaining);
 
             foreach (var extracted in extractedStrings)
@@ -281,7 +282,7 @@ public sealed partial class NativeTools
                     extracted.Value));
             }
 
-            if (sectionTruncated)
+            if (sectionMatchCapReached)
             {
                 truncated = true;
                 break;

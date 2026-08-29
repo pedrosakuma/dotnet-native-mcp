@@ -25,6 +25,44 @@ public static class StringExtractor
         bool ascii,
         bool utf16,
         out bool truncated,
+        int maxMatches = ResourceLimits.MaxStringMatches) =>
+        Extract(data, baseRva, sectionName, minLength, ascii, utf16, out truncated, out _, maxMatches);
+
+    /// <summary>Scans a section's raw bytes for printable ASCII and/or UTF-16LE strings.</summary>
+    /// <param name="data">Raw section bytes to scan.</param>
+    /// <param name="baseRva">RVA of the start of <paramref name="data"/>, used to compute each match's absolute RVA.</param>
+    /// <param name="sectionName">Name of the section being scanned, stamped onto each match.</param>
+    /// <param name="minLength">Minimum run length (in characters) required for a match to be reported.</param>
+    /// <param name="ascii">Whether to scan for printable ASCII runs.</param>
+    /// <param name="utf16">Whether to scan for printable UTF-16LE runs.</param>
+    /// <param name="truncated">
+    /// Set when this section's results were degraded in any way: either the
+    /// section's own match cap was reached (see <paramref name="matchCapReached"/>)
+    /// or at least one matched string's displayed value was longer than
+    /// <see cref="ResourceLimits.MaxExtractedStringChars"/> and had to be
+    /// shortened. This flag alone must not be used to decide whether to keep
+    /// scanning subsequent sections — a single oversized string value does not
+    /// mean the overall match budget (<paramref name="maxMatches"/>) is
+    /// exhausted. Use <paramref name="matchCapReached"/> for that decision.
+    /// </param>
+    /// <param name="matchCapReached">
+    /// Set only when this section stopped scanning early because it hit
+    /// <paramref name="maxMatches"/>. Callers iterating multiple sections
+    /// should stop requesting further sections when this is <see langword="true"/>,
+    /// since the overall match budget has been exhausted; per-string value
+    /// truncation (reflected only in <paramref name="truncated"/>) does not by
+    /// itself imply the budget is exhausted.
+    /// </param>
+    /// <param name="maxMatches">Maximum number of matches to collect for this section before stopping.</param>
+    public static IReadOnlyList<ExtractedString> Extract(
+        ReadOnlySpan<byte> data,
+        ulong baseRva,
+        string sectionName,
+        int minLength,
+        bool ascii,
+        bool utf16,
+        out bool truncated,
+        out bool matchCapReached,
         int maxMatches = ResourceLimits.MaxStringMatches)
     {
         List<(int Offset, ExtractedString Value)> matches = [];
@@ -33,12 +71,13 @@ public static class StringExtractor
         if (maxMatches <= 0)
         {
             truncated = true;
+            matchCapReached = true;
             return [];
         }
 
-        var matchCapReached = ascii && ScanAscii(data, baseRva, sectionName, minLength, matches, maxMatches, ref truncated);
-        if (!matchCapReached && utf16 && ScanUtf16(data, baseRva, sectionName, minLength, matches, maxMatches, ref truncated))
-            matchCapReached = true;
+        var asciiCapReached = ascii && ScanAscii(data, baseRva, sectionName, minLength, matches, maxMatches, ref truncated);
+        var utf16CapReached = !asciiCapReached && utf16 && ScanUtf16(data, baseRva, sectionName, minLength, matches, maxMatches, ref truncated);
+        matchCapReached = asciiCapReached || utf16CapReached;
 
         if (matchCapReached)
             truncated = true;
