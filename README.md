@@ -103,6 +103,15 @@ ILC emits structured sidecars on request:
 `.mstat` parsing answers "what blew up my AOT binary"; DGML reachability answers
 "why was this type or method kept?".
 
+## CLI scaffold
+
+Issue #147 adds a standalone `DotnetNativeMcp.Cli` scaffold that consumes `DotnetNativeMcp.Core` directly, without any MCP package dependency. The root command currently exposes help plus a global `--output json|table` switch (default `json`), a repeatable `--allow <path>` trusted-root option that feeds the shared `PathAccessPolicy`, and a minimal `version` command used to validate the dispatch/output pipeline.
+
+```bash
+dotnet run --project src/DotnetNativeMcp.Cli -- --help
+dotnet run --project src/DotnetNativeMcp.Cli -- version --output table
+```
+
 ## Install
 
 ```bash
