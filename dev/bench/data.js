@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788016604924,
+  "lastUpdate": 1788016606472,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -3518,6 +3518,42 @@ window.BENCHMARK_DATA = {
             "value": 65.79911758899689,
             "unit": "ns",
             "range": "± 0.4831615859292438"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "043052b415c7805be6cdeb8c5161731ebdfcae32",
+          "message": "feat(cli): add resolve/callers verbs (#150) (#161)\n\nCloses #150. Part of #133.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-08-29T12:07:05-03:00",
+          "tree_id": "109da18733129db5bace31d2814c8be868a1353b",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/043052b415c7805be6cdeb8c5161731ebdfcae32"
+        },
+        "date": 1788016606444,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SampleAot\")",
+            "value": 7345967.840104166,
+            "unit": "ns",
+            "range": "± 123391.93850741534"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.DisassembleBench.Disassemble(Input: \"SystemPrivateCoreLib\")",
+            "value": 94.10380256175995,
+            "unit": "ns",
+            "range": "± 0.8176820232472982"
           }
         ]
       }
