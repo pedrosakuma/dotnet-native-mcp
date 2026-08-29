@@ -73,6 +73,52 @@ public class StringExtractorTests
     }
 
     [Fact]
+    public void Extract_OversizedValueTruncation_DoesNotReportMatchCapReached()
+    {
+        // A single string longer than MaxExtractedStringChars gets its displayed
+        // value shortened (truncated == true), but that alone must not signal
+        // that the section's overall match cap (maxMatches) was reached: there
+        // is only one match here, far below any reasonable cap.
+        var bytes = Encoding.ASCII.GetBytes(new string('a', DotnetNativeMcp.Core.ResourceLimits.MaxExtractedStringChars + 32));
+
+        var results = StringExtractor.Extract(
+            bytes,
+            0x1000,
+            ".rodata",
+            4,
+            ascii: true,
+            utf16: false,
+            out var truncated,
+            out var matchCapReached,
+            maxMatches: 100);
+
+        results.Should().ContainSingle();
+        truncated.Should().BeTrue();
+        matchCapReached.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Extract_MatchCapReached_ReportsBothTruncatedAndMatchCapReached()
+    {
+        var bytes = Encoding.ASCII.GetBytes("aa\0bb\0cc\0");
+
+        var results = StringExtractor.Extract(
+            bytes,
+            0x1000,
+            ".rodata",
+            2,
+            ascii: true,
+            utf16: false,
+            out var truncated,
+            out var matchCapReached,
+            maxMatches: 2);
+
+        results.Select(result => result.Value).Should().Equal("aa", "bb");
+        truncated.Should().BeTrue();
+        matchCapReached.Should().BeTrue();
+    }
+
+    [Fact]
     public void ExtractStrings_MissingHandle_ReturnsBinaryNotFound()
     {
         var tools = new NativeTools(new FakeRegistry(), new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
@@ -136,6 +182,35 @@ public class StringExtractorTests
         result.Data!.Strings.Should().ContainSingle();
         result.Data.Strings[0].SectionName.Should().Be(".data");
         result.Data.Strings[0].Value.Should().Be("omega");
+    }
+
+    [Fact]
+    public void ExtractStrings_OversizedValueInEarlySection_StillScansLaterSections()
+    {
+        // Regression test for a bug where a single oversized string value
+        // (longer than MaxExtractedStringChars) in an earlier section set the
+        // section-level "truncated" flag, which the command incorrectly
+        // treated as "the overall match cap was reached" and stopped scanning
+        // any further sections — even though the match budget was nowhere
+        // near exhausted. See issue #162.
+        var oversizedValue = new string('a', DotnetNativeMcp.Core.ResourceLimits.MaxExtractedStringChars + 32);
+        var registry = new FakeRegistry();
+        registry.Add(CreateImage(
+            (".rodata", 0x1000UL, Encoding.ASCII.GetBytes(oversizedValue + "\0")),
+            (".rdata", 0x2000UL, Encoding.ASCII.GetBytes("laterSectionValue\0"))));
+        var tools = new NativeTools(registry, new DotnetNativeMcp.Core.Xref.NativeCallGraphCache(), new SourceResolver());
+        var handle = registry.List().Single().Handle.Value;
+
+        var result = tools.ExtractStrings(handle, minLength: 5, encodings: "ascii", pageSize: 5000);
+
+        result.IsError.Should().BeFalse();
+        result.Data!.Strings.Should().Contain(row => row.SectionName == ".rdata" && row.Value == "laterSectionValue");
+        // The oversized value truncation is still surfaced, but did not
+        // exhaust the actual match cap, so it must not be reported as
+        // "truncated" (that word is reserved for match-cap exhaustion at this
+        // API surface, which is exercised by ExtractStrings_Pagination... via
+        // NextCursor instead).
+        result.Data.Truncated.Should().BeFalse();
     }
 
     [Fact]

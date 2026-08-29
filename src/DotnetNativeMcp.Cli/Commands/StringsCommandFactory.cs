@@ -125,7 +125,8 @@ public static class StringsCommandFactory
                 minLength,
                 scanAscii,
                 scanUtf16,
-                out var sectionTruncated,
+                out _,
+                out var sectionMatchCapReached,
                 remaining);
 
             foreach (var extracted in extractedStrings)
@@ -141,7 +142,7 @@ public static class StringsCommandFactory
                     extracted.Value));
             }
 
-            if (sectionTruncated)
+            if (sectionMatchCapReached)
             {
                 truncated = true;
                 break;
