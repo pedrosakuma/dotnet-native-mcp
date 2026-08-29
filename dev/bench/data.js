@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788017582204,
+  "lastUpdate": 1788017583641,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -4984,6 +4984,42 @@ window.BENCHMARK_DATA = {
             "value": 13691984.5859375,
             "unit": "ns",
             "range": "± 7328.421581223129"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "fd6f951805ca4b71d0a68195a9d15abff73c70e1",
+          "message": "feat(cli): add size/size-diff verbs (#152) (#159)\n\nCloses #152. Part of #133.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-08-29T12:21:46-03:00",
+          "tree_id": "e533e361cc4f54301ebea11c3a8c498b21d93a44",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/fd6f951805ca4b71d0a68195a9d15abff73c70e1"
+        },
+        "date": 1788017583618,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SampleAot\")",
+            "value": 1128351.4556790865,
+            "unit": "ns",
+            "range": "± 1942.8616785010884"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.ExtractStringsBench.ExtractStrings(Input: \"SystemPrivateCoreLib\")",
+            "value": 16862862.129807692,
+            "unit": "ns",
+            "range": "± 32707.2733328476"
           }
         ]
       }
