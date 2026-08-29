@@ -112,8 +112,8 @@ dotnet run --project src/DotnetNativeMcp.Cli -- --help
 dotnet run --project src/DotnetNativeMcp.Cli -- version --output table
 dotnet run --project src/DotnetNativeMcp.Cli -- resolve ./SampleAot --address 0x401000
 dotnet run --project src/DotnetNativeMcp.Cli -- callers ./SampleAot --address 0x401000 --image ./libdependency.so
-dotnet run --project src/DotnetNativeMcp.Cli -- symbols tests/fixtures/SampleAot/bin/Release/net10.0/linux-x64/SampleAot --limit 10
-dotnet run --project src/DotnetNativeMcp.Cli -- imports tests/fixtures/SampleAot/bin/Release/net10.0/linux-x64/SampleAot --kind libraries --output table
+dotnet run --project src/DotnetNativeMcp.Cli -- symbols tests/DotnetNativeMcp.Core.Tests/bin/Release/net10.0/fixtures/SampleAot/SampleAot --limit 10
+dotnet run --project src/DotnetNativeMcp.Cli -- imports tests/DotnetNativeMcp.Core.Tests/bin/Release/net10.0/fixtures/SampleAot/SampleAot --kind libraries --output table
 ```
 
 ## Install

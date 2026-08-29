@@ -16,6 +16,8 @@ public static class CliApplication
         root.Subcommands.Add(DisasmCommandFactory.Create(options));
         root.Subcommands.Add(ResolveCommandFactory.Create(options));
         root.Subcommands.Add(CallersCommandFactory.Create(options));
+        root.Subcommands.Add(SizeCommandFactory.Create(options));
+        root.Subcommands.Add(SizeDiffCommandFactory.Create(options));
         root.Subcommands.Add(VersionCommandFactory.Create(options));
         root.Subcommands.Add(R2rCommandFactory.Create(options));
         root.Subcommands.Add(SymbolsCommandFactory.Create(options));
