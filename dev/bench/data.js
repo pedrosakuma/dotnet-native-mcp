@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1788010370822,
+  "lastUpdate": 1788012135872,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1920,6 +1920,66 @@ window.BENCHMARK_DATA = {
             "value": 22.662737303972243,
             "unit": "ns",
             "range": "± 0.10937787584806138"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "39205549+pedrosakuma@users.noreply.github.com",
+            "name": "Pedro Sakuma Travi",
+            "username": "pedrosakuma"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "bc7884a574fc5477b273b07d811546759686b9c8",
+          "message": "chore(deps): bump ModelContextProtocol SDK 1.3.0 -> 2.2.0 (#146)\n\nResolves #145. The MCP 2026 draft-spec stateless protocol changes\n(SEP-2567, SEP-2575, SEP-2322) have finalized and stable SDK 2.2.0 is\non NuGet. The #143 assessment spike confirmed this repo has no\narchitecture blockers (no SessionId/ElicitAsync/sampling/roots usage,\nno session-bound handle store, no hard-coded options.ProtocolVersion).\n\nValidation performed:\n- dotnet build -c Release: 0 errors, 0 warnings, no source changes\n  required anywhere in Core or Server.\n- dotnet test -c Release: 866/866 passing unchanged (730 Core + 136\n  Server).\n- Manual raw-HTTP smoke test against /mcp:\n  - tools/list and tools/call (load_native_binary) succeed with no\n    initialize handshake and no Mcp-Session-Id, confirming stateless\n    mode works end-to-end.\n  - Legacy initialize handshake (protocolVersion 2025-03-26) still\n    negotiates successfully, confirming wire compatibility for older\n    clients.\n\nCo-authored-by: GitHub Copilot <copilot@github.com>\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-08-29T10:52:56-03:00",
+          "tree_id": "e668bcfe1f8b9ffb8f808d2c126ded9283a72e2d",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/bc7884a574fc5477b273b07d811546759686b9c8"
+        },
+        "date": 1788012135849,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 10061926245,
+            "unit": "ns",
+            "range": "± 52164003.90249767"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 23518404.76069079,
+            "unit": "ns",
+            "range": "± 804057.4754182879"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 24.42375373840332,
+            "unit": "ns",
+            "range": "± 0.08506178035859685"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 739959.9718060662,
+            "unit": "ns",
+            "range": "± 241088.72132570422"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 17772.77651977539,
+            "unit": "ns",
+            "range": "± 109.01874878920165"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 17.249482248510635,
+            "unit": "ns",
+            "range": "± 0.0651435987298394"
           }
         ]
       }
