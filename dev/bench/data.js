@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1781142369159,
+  "lastUpdate": 1788010368162,
   "repoUrl": "https://github.com/pedrosakuma/dotnet-native-mcp",
   "entries": {
     "FindNativeCallers Benchmark": [
@@ -1860,6 +1860,66 @@ window.BENCHMARK_DATA = {
             "value": 22.462268032630284,
             "unit": "ns",
             "range": "± 0.028186453409264827"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "49699333+dependabot[bot]@users.noreply.github.com",
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8133824f5f2341c3f7b5807eba55afc38f433508",
+          "message": "chore(deps): Bump actions/checkout from 6 to 7 (#139)\n\nBumps [actions/checkout](https://github.com/actions/checkout) from 6 to 7.\n- [Release notes](https://github.com/actions/checkout/releases)\n- [Changelog](https://github.com/actions/checkout/blob/main/CHANGELOG.md)\n- [Commits](https://github.com/actions/checkout/compare/v6...v7)\n\n---\nupdated-dependencies:\n- dependency-name: actions/checkout\n  dependency-version: '7'\n  dependency-type: direct:production\n  update-type: version-update:semver-major\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-08-29T10:21:44-03:00",
+          "tree_id": "4208a3fc103b1f41fb4af83fdbd09a77167d2fe7",
+          "url": "https://github.com/pedrosakuma/dotnet-native-mcp/commit/8133824f5f2341c3f7b5807eba55afc38f433508"
+        },
+        "date": 1788010368133,
+        "tool": "benchmarkdotnet",
+        "benches": [
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SampleAot\")",
+            "value": 12202981097.666666,
+            "unit": "ns",
+            "range": "± 35728872.87287878"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SampleAot\")",
+            "value": 29595248.917410713,
+            "unit": "ns",
+            "range": "± 499088.1312148956"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SampleAot\")",
+            "value": 31.933769663174946,
+            "unit": "ns",
+            "range": "± 0.08388433259013688"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.Cold(Input: \"SystemPrivateCoreLib\")",
+            "value": 482994.826953125,
+            "unit": "ns",
+            "range": "± 12869.491936641201"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL2(Input: \"SystemPrivateCoreLib\")",
+            "value": 20987.59709777832,
+            "unit": "ns",
+            "range": "± 127.69289160117705"
+          },
+          {
+            "name": "DotnetNativeMcp.Bench.FindNativeCallersBench.WarmL1(Input: \"SystemPrivateCoreLib\")",
+            "value": 22.662737303972243,
+            "unit": "ns",
+            "range": "± 0.10937787584806138"
           }
         ]
       }
