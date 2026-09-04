@@ -80,7 +80,7 @@ jobs:
         # whose inner actions/attest is already SHA-pinned upstream; pinning
         # the wrapper closes the remaining floating-tag exposure on the
         # release path. Update via Dependabot (see .github/dependabot.yml).
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: 'artifacts/nupkg/*.nupkg'
 
@@ -196,7 +196,7 @@ jobs:
           fi
 
       - name: Attest binary archive provenance
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           # Attests the archives themselves; consumers verify the archives directly
           # via `gh attestation verify`.
@@ -237,7 +237,7 @@ jobs:
         # SHA-pinned (v3.0.0). Third-party action with contents: write — pin to
         # avoid a moved major tag silently publishing tampered releases.
         # Update via Dependabot (see .github/dependabot.yml).
-        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           generate_release_notes: true
           files: |
